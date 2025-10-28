@@ -258,29 +258,131 @@ function App() {
     </div>
   );
 
-  const renderTodos = () => (
-    <div className="todos">
-      <h2>해야할 일 ({keptMessages.length})</h2>
-      {keptMessages.length === 0 ? (
-        <p>오른쪽으로 분류된 메시지가 없습니다.</p>
-      ) : (
-        <ul className="todo-list">
-          {keptMessages.map((m) => (
-            <li key={m.id}>
-              <div className="todo-item">
-                <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(m.content) }} />
-                <div className="todo-actions">
-                  <span className="deadline-label">{deadlines[m.id] ? `마감: ${new Date(deadlines[m.id]!).toLocaleString()}` : '마감 없음'}</span>
-                  <button onClick={() => setScheduleModal({ open: true, id: m.id })}>마감 설정</button>
-                  <button onClick={() => classify(m.id, 'left')}>완료</button>
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}. ${month}. ${day}.`;
+  };
+
+  const getRemainingTimeInfo = (deadline: string | null) => {
+    if (!deadline) return { text: '', color: 'var(--text-secondary)' };
+
+    const now = new Date();
+    const deadlinedate = new Date(deadline);
+    const diff = deadlinedate.getTime() - now.getTime();
+
+    // Overdue
+    if (diff < 0) {
+      const days = Math.floor(Math.abs(diff) / (1000 * 60 * 60 * 24));
+      if (days > 0) {
+        return { text: `${days}일 지남`, color: 'var(--danger)' };
+      }
+      const hours = Math.floor(Math.abs(diff) / (1000 * 60 * 60));
+      if (hours > 0) {
+        return { text: `${hours}시간 지남`, color: 'var(--danger)' };
+      }
+      const minutes = Math.floor(Math.abs(diff) / (1000 * 60));
+      return { text: `${minutes}분 지남`, color: 'var(--danger)' };
+    }
+
+    // Upcoming
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    if (hours < 24) {
+      if (hours > 0) {
+        return { text: `${hours}시간 남음`, color: 'var(--danger)' };
+      }
+      const minutes = Math.floor(diff / (1000 * 60));
+      return { text: `${minutes}분 남음`, color: 'var(--danger)' };
+    }
+
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    if (days <= 3) {
+      return { text: `${days}일 남음`, color: 'var(--danger)' };
+    }
+    if (days <= 7) {
+      return { text: `${days}일 남음`, color: 'var(--warning)' };
+    }
+    return { text: `${days}일 남음`, color: 'var(--text-secondary)' };
+  };
+
+  const renderTodos = () => {
+    const groupedMessages = keptMessages.reduce((acc, m) => {
+      const deadline = deadlines[m.id];
+      const date = deadline ? formatDate(deadline) : '마감 없음';
+      if (!acc[date]) {
+        acc[date] = [];
+      }
+      acc[date].push(m);
+      return acc;
+    }, {} as Record<string, Message[]>);
+
+    const sortedGroups = Object.entries(groupedMessages).sort(([dateA], [dateB]) => {
+      if (dateA === '마감 없음') return 1;
+      if (dateB === '마감 없음') return -1;
+      return new Date(dateA).getTime() - new Date(dateB).getTime();
+    });
+
+    return (
+      <div className="timeline">
+        <h2>타임라인 ({keptMessages.length})</h2>
+        {keptMessages.length === 0 ? (
+          <p>오른쪽으로 분류된 메시지가 없습니다.</p>
+        ) : (
+          <div>
+            {sortedGroups.map(([date, messages]) => {
+              const firstMessageDeadline = messages.length > 0 ? deadlines[messages[0].id] : null;
+              const remainingTime = getRemainingTimeInfo(firstMessageDeadline);
+
+              return (
+                <div key={date} className="timeline-group">
+                  <div className="timeline-marker">
+                    <div className="timeline-date">{date}</div>
+                    {remainingTime.text && (
+                      <div className="timeline-remaining" style={{ color: remainingTime.color }}>
+                        {remainingTime.text}
+                      </div>
+                    )}
+                  </div>
+                  <div className="timeline-vline"></div>
+                  <div className="timeline-items">
+                    {messages.map((m) => {
+                      const deadline = deadlines[m.id];
+                      const remainingTimeForItem = getRemainingTimeInfo(deadline);
+                      
+                      let deadlineDisplay = '마감 없음';
+                      let deadlineTitle = '';
+                      if (deadline) {
+                        deadlineDisplay = new Date(deadline).toLocaleString(); // Fallback
+                        deadlineTitle = deadlineDisplay;
+                        if (remainingTimeForItem.text) {
+                          deadlineDisplay = remainingTimeForItem.text;
+                        }
+                      }
+
+                      return (
+                        <div key={m.id} className="todo-item">
+                          <div className="todo-actions">
+                            <span className="deadline-label" title={deadlineTitle} style={{ color: remainingTimeForItem.color }}>
+                              {deadlineDisplay}
+                            </span>
+                            <button onClick={() => setScheduleModal({ open: true, id: m.id })}>마감 설정</button>
+                            <button onClick={() => classify(m.id, 'left')}>완료</button>
+                          </div>
+                          <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(m.content) }} />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderSettings = () => (
     <div className="settings">
@@ -358,7 +460,7 @@ function App() {
     <div className="app with-sidebar">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-top">
-          <h1><span className='icon'>🚀</span><span className="label">HyperCool</span></h1>
+          <h1><span className='icon'></span><span className="label">HyperCool</span></h1>
           <button className="collapse" onClick={() => setSidebarCollapsed(v => !v)} title={sidebarCollapsed ? '펼치기' : '접기'}>
             <CollapseIcon collapsed={sidebarCollapsed} />
           </button>
