@@ -16,15 +16,29 @@ use tauri::{Manager, Emitter};
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct Message {
     id: i64,
+    sender: String,
     content: String,
+}
+
+#[derive(serde::Serialize)]
+struct PaginatedMessages {
+    messages: Vec<Message>,
+    total_count: i64,
+}
+
+#[derive(serde::Serialize)]
+struct SearchResultItem {
+    id: i64,
+    sender: String,
+    snippet: String,
 }
 
 /// UDB 파일에서 메시지를 읽어오는 함수
 #[tauri::command]
-fn read_udb_messages(db_path: String) -> Result<Vec<Message>, String> {
+fn read_udb_messages(db_path: String, limit: Option<i64>, offset: Option<i64>, search_term: Option<String>) -> Result<PaginatedMessages, String> {
     if !fs::metadata(&db_path).is_ok() {
         return Err(format!("데이터베이스 파일을 찾을 수 없습니다: {}", db_path));
     }
@@ -34,11 +48,82 @@ fn read_udb_messages(db_path: String) -> Result<Vec<Message>, String> {
 
     // 요구사항: tbl_recv만 처리
     if table_exists(&conn, "tbl_recv").unwrap_or(false) {
-        read_from_recv_only(&conn)
+        read_from_recv_only(&conn, limit, offset, search_term)
     } else {
         Err("tbl_recv 테이블을 찾을 수 없습니다".into())
     }
 }
+
+#[tauri::command]
+fn search_messages(db_path: String, search_term: String) -> Result<Vec<SearchResultItem>, String> {
+    if search_term.is_empty() {
+        return Ok(Vec::new());
+    }
+    let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
+    let pattern = format!("%{}%", search_term);
+    let mut stmt = conn.prepare(
+        "SELECT MessageKey, Sender, substr(MessageText, 1, 100) FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC"
+    ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
+    
+    let iter = stmt.query_map([pattern], |row| {
+        Ok(SearchResultItem {
+            id: row.get(0)?,
+            sender: row.get(1)?,
+            snippet: row.get(2)?,
+        })
+    }).map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;
+
+    let mut results = Vec::new();
+    for item in iter {
+        results.push(item.map_err(|e| format!("검색 결과 처리 실패: {}", e))?);
+    }
+    Ok(results)
+}
+
+#[tauri::command]
+fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
+    let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
+    conn.query_row(
+        "SELECT MessageKey, Sender, MessageText, MessageBody FROM tbl_recv WHERE MessageKey = ?1",
+        [id],
+        |row| {
+            // read_from_recv_only에 있는 변환 로직과 유사하게 구현
+            let id: i64 = row.get(0)?;
+            let sender: String = row.get(1)?;
+            let text_ref = row.get_ref(2)?;
+            let body_ref = row.get_ref(3)?;
+
+            let text_value = match text_ref {
+                ValueRef::Text(t) => Some(String::from_utf8_lossy(t).to_string()),
+                ValueRef::Blob(b) => Some(decompress_brotli(b).unwrap_or_else(|_| String::from("압축 해제 실패"))),
+                _ => None,
+            };
+            let mut prefer_body = false;
+            let body_value = match body_ref {
+                ValueRef::Text(t) => {
+                    let s = String::from_utf8_lossy(t).to_string();
+                    if let Some(rest) = s.strip_prefix("{COMP}") {
+                        prefer_body = true;
+                        decode_comp_zlib_utf16le(rest).unwrap_or_else(|_| String::from("압축 해제 실패"))
+                    } else { s }
+                }
+                ValueRef::Blob(b) => {
+                    prefer_body = true;
+                    decompress_brotli(b).unwrap_or_else(|_| String::from("압축 해제 실패"))
+                }
+                _ => String::new(),
+            };
+            let content = if prefer_body {
+                body_value
+            } else if let Some(t) = text_value {
+                if !t.is_empty() { t } else { body_value }
+            } else { body_value };
+
+            Ok(Message { id, sender, content })
+        }
+    ).map_err(|e| format!("ID로 메시지 조회 실패: {}", e))
+}
+
 
 fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
     let mut stmt = conn
@@ -48,21 +133,46 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
     Ok(exists)
 }
 
-fn read_from_recv_only(conn: &Connection) -> Result<Vec<Message>, String> {
-    // MessageBody가 {COMP}로 시작하면 base64 브로틀리, 아니면 TEXT로 사용.
-    let mut stmt = conn
-        .prepare(
-            "SELECT MessageKey as id, MessageText, MessageBody FROM tbl_recv ORDER BY ReceiveDate DESC, MessageKey DESC",
-        )
+fn read_from_recv_only(conn: &Connection, limit: Option<i64>, offset: Option<i64>, search_term: Option<String>) -> Result<PaginatedMessages, String> {
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    let where_clause = match search_term.filter(|s| !s.is_empty()) {
+        Some(term) => {
+            let pattern = format!("%{}%", term);
+            params.push(Box::new(pattern.clone()));
+            params.push(Box::new(pattern));
+            "WHERE (Sender LIKE ? OR MessageText LIKE ?)".to_string()
+        }
+        None => "".to_string(),
+    };
+
+    let total_count_sql = format!("SELECT COUNT(MessageKey) FROM tbl_recv {}", where_clause);
+    let total_count: i64 = conn.query_row(
+        &total_count_sql,
+        rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+        |row| row.get(0),
+    ).map_err(|e| format!("총 메시지 수 조회 실패: {}", e))?;
+
+    params.push(Box::new(limit.unwrap_or(50)));
+    params.push(Box::new(offset.unwrap_or(0)));
+
+    let query_sql = format!(
+        "SELECT MessageKey as id, Sender, MessageText, MessageBody FROM tbl_recv {} ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT ? OFFSET ?",
+        where_clause
+    );
+
+    let mut stmt = conn.prepare(&query_sql)
         .map_err(|e| format!("tbl_recv 쿼리 준비 실패: {}", e))?;
 
-    let iter = stmt
-        .query_map([], |row| -> Result<Message, rusqlite::Error> {
+    let iter = stmt.query_map(
+        rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+        |row| -> Result<Message, rusqlite::Error> {
             let id: i64 = row.get(0)?;
+            let sender: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
 
             // 1) MessageText가 있으면 우선 사용
-            let text_ref = row.get_ref(1)?;
-            let body_ref = row.get_ref(2)?;
+            let text_ref = row.get_ref(2)?;
+            let body_ref = row.get_ref(3)?;
 
             // MessageText 처리
             let text_value = match text_ref {
@@ -97,7 +207,7 @@ fn read_from_recv_only(conn: &Connection) -> Result<Vec<Message>, String> {
                 if !t.is_empty() { t } else { body_value }
             } else { body_value };
 
-            Ok(Message { id, content })
+            Ok(Message { id, sender, content })
         })
         .map_err(|e| format!("tbl_recv 데이터 조회 실패: {}", e))?;
 
@@ -105,27 +215,10 @@ fn read_from_recv_only(conn: &Connection) -> Result<Vec<Message>, String> {
     for m in iter {
         messages.push(m.map_err(|e| format!("tbl_recv 데이터 처리 실패: {}", e))?);
     }
-    Ok(messages)
+    Ok(PaginatedMessages { messages, total_count })
 }
 
-fn read_from_legacy_message(conn: &Connection) -> Result<Vec<Message>, String> {
-    let mut stmt = conn
-        .prepare("SELECT id, msg FROM message ORDER BY id DESC")
-        .map_err(|e| format!("쿼리 준비 실패: {}", e))?;
-    let iter = stmt
-        .query_map([], |row| -> Result<Message, rusqlite::Error> {
-            let id: i64 = row.get(0)?;
-            let msg_blob: Vec<u8> = row.get(1)?;
-            let content = decompress_brotli(&msg_blob).unwrap_or_else(|_| String::from("압축 해제 실패"));
-            Ok(Message { id, content })
-        })
-        .map_err(|e| format!("데이터 조회 실패: {}", e))?;
-    let mut messages = Vec::new();
-    for m in iter {
-        messages.push(m.map_err(|e| format!("데이터 처리 실패: {}", e))?);
-    }
-    Ok(messages)
-}
+
 
 // 레지스트리 경로 상수
 const REG_BASE: &str = r"Software\\HyperCool";
@@ -169,7 +262,7 @@ fn decompress_brotli(compressed_data: &[u8]) -> Result<String, std::io::Error> {
     Ok(String::from_utf8_lossy(&decompressed).to_string())
 }
 
-fn decode_comp_brotli(_b64: &str) -> Result<String, String> { unreachable!("replaced by zlib UTF-16LE") }
+
 
 fn decode_comp_zlib_utf16le(b64: &str) -> Result<String, String> {
     let data = base64::engine::general_purpose::STANDARD
@@ -217,7 +310,9 @@ fn main() {
             get_registry_value,
             set_registry_value,
             notify_hidden,
-            hide_main_window
+            hide_main_window,
+            search_messages,
+            get_message_by_id
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -253,18 +348,49 @@ fn main() {
             if let Ok(subkey) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(REG_BASE) {
                 if let Ok(path) = subkey.get_value::<String, _>("UdbPath") {
                     let app_handle = app.app_handle().clone();
+                    let udb_path = std::path::PathBuf::from(&path);
+                    let mut wal_path_os = udb_path.as_os_str().to_owned();
+                    wal_path_os.push("-wal");
+                    let wal_path = std::path::PathBuf::from(wal_path_os);
+
                     std::thread::spawn(move || {
                         let (tx, rx) = mpsc::channel();
                         let mut watcher = recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                             if let Ok(event) = res { let _ = tx.send(event); }
                         }).ok();
+
                         if let Some(w) = watcher.as_mut() {
-                            let _ = w.watch(std::path::Path::new(&path), RecursiveMode::NonRecursive);
+                            // udb-wal 파일의 생성/삭제/변경을 안정적으로 감지하기 위해 부모 디렉토리를 감시합니다.
+                            if let Some(parent) = udb_path.parent() {
+                                let _ = w.watch(parent, RecursiveMode::NonRecursive);
+                            }
                         }
+
+                        let mut last_seen_id = read_udb_messages(path.clone(), Some(1), Some(0), None)
+                            .ok()
+                            .and_then(|result| result.messages.first().map(|m| m.id));
+                        let mut baseline_initialized = last_seen_id.is_some();
                         while let Ok(event) = rx.recv() {
-                            match event.kind {
-                                EventKind::Modify(_) | EventKind::Create(_) => {
-                                    let _ = app_handle.emit("udb-changed", ());
+                            // 이벤트가 udb-wal 파일과 관련된 경우에만 처리합니다.
+                            let is_wal_related = event.paths.iter().any(|p| p == &wal_path);
+                            if !is_wal_related {
+                                continue;
+                            }
+
+                            if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                                let mut has_new_message = false;
+                                if let Ok(result) = read_udb_messages(path.clone(), Some(1), Some(0), None) {
+                                    if let Some(current_id) = result.messages.first().map(|m| m.id) {
+                                        has_new_message = match last_seen_id {
+                                            Some(prev) => current_id > prev,
+                                            None => !baseline_initialized,
+                                        };
+                                        last_seen_id = Some(current_id);
+                                        baseline_initialized = true;
+                                    }
+                                }
+                                let _ = app_handle.emit("udb-changed", ());
+                                if has_new_message {
                                     // 최근 숨김 직후에는 자동 표시 억제 (2초)
                                     let suppress = LAST_HIDE_AT
                                         .get_or_init(|| Mutex::new(None))
@@ -277,7 +403,6 @@ fn main() {
                                         if let Some(wv) = app_handle.get_webview_window("main") { let _ = wv.show(); let _ = wv.set_focus(); }
                                     }
                                 }
-                                _ => {}
                             }
                         }
                     });

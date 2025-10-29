@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -7,10 +6,17 @@ import './App.css';
 
 interface Message {
   id: number;
+  sender: string;
   content: string; 
 }
 
-type Page = 'classify' | 'todos' | 'settings';
+interface SearchResultItem {
+  id: number;
+  sender: string;
+  snippet: string;
+}
+
+type Page = 'classify' | 'todos' | 'history' | 'settings';
 
 const REG_KEY_UDB = 'UdbPath';
 const REG_KEY_CLASSIFIED = 'ClassifiedMap';
@@ -20,6 +26,7 @@ const DRAG_THRESHOLD = 160;
 // SVG Icons for sidebar
 const ClassifyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>;
 const TodosIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 22a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h.5a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-.5z"/><path d="M2 11.5a.5.5 0 0 1 .5-.5h19a.5.5 0 0 1 0 1h-19a.5.5 0 0 1-.5-.5z"/><path d="m12 2-7.07 7.07a1 1 0 0 0 0 1.41L12 17.5l7.07-7.07a1 1 0 0 0 0-1.41L12 2z"/></svg>;
+const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><path d="M12.5 7v5l3.5 2.5"/></svg>;
 const SettingsIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>;
 const CollapseIcon = ({ collapsed }: { collapsed: boolean }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -38,6 +45,16 @@ function App() {
   const [classified, setClassified] = useState<Record<number, 'left' | 'right'>>({});
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
   const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number }>({ open: false });
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [totalMessageCount, setTotalMessageCount] = useState(0);
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResultItem[] | null>(null);
+  const [activeSearchMessage, setActiveSearchMessage] = useState<Message | null>(null);
+  const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+  const [isLoadingActiveSearch, setIsLoadingActiveSearch] = useState(false);
+  const HISTORY_PAGE_SIZE = 20;
+  
+  const wheelLastProcessed = useRef(0);
   
   const decodeEntities = useCallback((html: string): string => {
     const textarea = document.createElement('textarea');
@@ -95,7 +112,7 @@ function App() {
     loadFromRegistry();
   }, [loadFromRegistry]);
 
-  const loadUdbFile = useCallback(async (path?: string) => {
+  const loadUdbFile = useCallback(async (path?: string, offset: number = 0, searchTerm: string = historySearchTerm) => {
     try {
       setIsLoading(true);
 
@@ -103,26 +120,87 @@ function App() {
       if (!finalPath) {
         return;
       }
+      
+      const { messages, total_count } = await invoke('read_udb_messages', { 
+        dbPath: finalPath,
+        limit: HISTORY_PAGE_SIZE,
+        offset,
+        searchTerm,
+      });
 
-      const messages: Message[] = await invoke('read_udb_messages', { dbPath: finalPath });
-      setAllMessages(messages);
-      setVisiblePairStart(0);
+      // 새 검색이면 메시지 목록을 교체하고, 아니면 추가합니다.
+      setAllMessages(offset === 0 ? messages : prev => [...prev, ...messages]);
+      setTotalMessageCount(total_count);
+      
     } catch (error) {
       console.error('Error loading UDB file:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [udbPath]);
+  }, [udbPath, historySearchTerm]);
 
   // UDB 변경 이벤트 구독 (Watchdog에서 발생)
   useEffect(() => {
     const unlistenPromise = listen('udb-changed', async () => {
       if (udbPath) {
-        await loadUdbFile(udbPath);
+        // 히스토리 첫 페이지 및 관련 상태 초기화
+        setHistoryIndex(0);
+        await loadUdbFile(udbPath, 0, historySearchTerm);
       }
     });
     return () => { void unlistenPromise.then(unlisten => unlisten()); };
-  }, [udbPath, loadUdbFile]);
+  }, [udbPath, loadUdbFile, historySearchTerm]);
+
+  // UDB 경로 변경 시 데이터 다시 로드
+  useEffect(() => {
+    if (udbPath) {
+      setHistoryIndex(0);
+      setHistorySearchTerm('');
+      void loadUdbFile(udbPath, 0, '');
+    }
+  }, [udbPath]);
+
+  // 검색어 입력을 위한 디바운스 처리
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (udbPath) {
+        if (historySearchTerm.trim() === '') {
+          setSearchResults(null);
+          setActiveSearchMessage(null);
+          setHistoryIndex(0);
+          loadUdbFile(udbPath, 0, '');
+          return;
+        }
+
+        const performSearch = async () => {
+          try {
+            setIsLoadingSearch(true);
+            setActiveSearchMessage(null);
+            const results: SearchResultItem[] = await invoke('search_messages', {
+              dbPath: udbPath,
+              searchTerm: historySearchTerm,
+            });
+            setSearchResults(results);
+            if (results.length > 0) {
+              // Automatically load the first result
+              const firstMsg: Message = await invoke('get_message_by_id', { dbPath: udbPath, id: results[0].id });
+              setActiveSearchMessage(firstMsg);
+            }
+          } catch (e) {
+            console.error("Search failed", e);
+            setSearchResults([]);
+          } finally {
+            setIsLoadingSearch(false);
+          }
+        };
+        void performSearch();
+      }
+    }, 500); // 500ms 디바운스
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [historySearchTerm, udbPath]);
 
   const pickUdb = useCallback(async () => {
     const selected = await open({ filters: [{ name: 'UDB Files', extensions: ['udb'] }], multiple: false });
@@ -204,13 +282,14 @@ function App() {
 
   useEffect(() => {
     if (udbPath) {
-      void loadUdbFile(udbPath);
+      setHistoryIndex(0);
+      void loadUdbFile(udbPath, 0);
     }
-  }, [udbPath, loadUdbFile]);
+  }, [udbPath]);
 
   const totalCount = allMessages.length;
   const unclassifiedCount = pendingIndexes.length;
-  const statusText = isLoading ? '로딩 중...' : `총 메시지 ${totalCount}개 / 미분류 ${unclassifiedCount}개`;
+  const statusText = isLoading ? '로딩 중...' : `총 메시지 ${totalMessageCount}개 / 미분류 ${unclassifiedCount}개 (현재 로드된 메시지 기준)`;
 
   const completeAllPending = useCallback(() => {
     if (allMessages.length === 0 || unclassifiedCount === 0) return;
@@ -234,7 +313,7 @@ function App() {
   const renderClassifier = () => (
     <div className="classifier">
       <div className="classifier-header">
-        <button onClick={() => loadUdbFile()} disabled={isLoading} className="load-btn small">
+        <button onClick={() => { setHistoryIndex(0); loadUdbFile(udbPath, 0); }} disabled={isLoading} className="load-btn small">
           {isLoading ? '로딩 중...' : '메시지 다시 로드'}
         </button>
         <span className="status">{statusText}</span>
@@ -246,6 +325,7 @@ function App() {
         {visibleMessages.map((msg, idx) => (
           <div key={msg.id} className={`card ${idx === 0 ? 'top' : 'back'}`} onMouseDown={onMouseDown(msg.id)}>
             <div className="card-inner">
+              <div className="card-sender">{msg.sender}</div>
               <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
               <div className="card-actions">
                 <button className="left" onClick={() => classify(msg.id, 'left')}>◀ 완료된 일</button>
@@ -370,6 +450,7 @@ function App() {
                             <button onClick={() => setScheduleModal({ open: true, id: m.id })}>마감 설정</button>
                             <button onClick={() => classify(m.id, 'left')}>완료</button>
                           </div>
+                          <div className="todo-sender">{m.sender}</div>
                           <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(m.content) }} />
                         </div>
                       );
@@ -380,6 +461,259 @@ function App() {
             })}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // Lazy loading을 위한 가시 범위 계산
+  // 전체 메시지 탭은 이제 allMessages가 페이지 단위이므로 직접 사용합니다.
+
+  // 휠 이벤트로 카드 넘기기 및 추가 데이터 로드
+  const handleHistoryWheel = useCallback((e: React.WheelEvent) => {
+    if (isLoading) return;
+
+    const now = Date.now();
+    if (now - wheelLastProcessed.current < 500) { // 250ms 딜레이 추가
+      return;
+    }
+
+    let isActionTaken = false;
+
+    // 휠을 아래로 내릴 때 (다음 메시지)
+    if (e.deltaY > 0) {
+      if (historyIndex < allMessages.length - 1) {
+        setHistoryIndex(prev => prev + 1);
+        isActionTaken = true;
+      }
+      
+      // 로드된 메시지의 끝에 가까워지면 다음 페이지 로드
+      const loadThreshold = 5; // 5개 남았을 때 미리 로드
+      if (historyIndex >= allMessages.length - loadThreshold && allMessages.length < totalMessageCount) {
+        loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+        isActionTaken = true; // 데이터 로드도 액션으로 간주
+      }
+    } 
+    // 휠을 위로 올릴 때 (이전 메시지)
+    else if (e.deltaY < 0 && historyIndex > 0) {
+      setHistoryIndex(prev => prev - 1);
+      isActionTaken = true;
+    }
+
+    if (isActionTaken) {
+      wheelLastProcessed.current = now;
+    }
+  }, [historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, historySearchTerm]);
+
+  // 드래그 이벤트 핸들러를 위한 ref
+  const historyDragRef = useRef({ startX: 0, dragging: false });
+
+  const handleSearchResultClick = useCallback(async (id: number) => {
+    if (!udbPath) return;
+    try {
+      setIsLoadingActiveSearch(true);
+      const msg: Message = await invoke('get_message_by_id', { dbPath: udbPath, id });
+      setActiveSearchMessage(msg);
+    } catch (e) {
+      console.error("Failed to load message by id", e);
+    } finally {
+      setIsLoadingActiveSearch(false);
+    }
+  }, [udbPath]);
+
+  const historyOnMouseDown = useCallback((e: React.MouseEvent) => {
+    historyDragRef.current.dragging = true;
+    historyDragRef.current.startX = e.clientX;
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!historyDragRef.current.dragging) return;
+      const dx = e.clientX - historyDragRef.current.startX;
+      const threshold = 100;
+      if (dx > threshold && historyIndex > 0) {
+        setHistoryIndex(prev => prev - 1);
+        historyDragRef.current.dragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      } else if (dx < -threshold && historyIndex < allMessages.length - 1) {
+        setHistoryIndex(prev => prev + 1);
+        historyDragRef.current.dragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      }
+    };
+
+    const onMouseUp = () => {
+      historyDragRef.current.dragging = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [historyIndex, allMessages.length]);
+
+  const renderNormalHistory = () => (
+    <>
+      <div className="history-header">
+        <h2>전체 메시지 ({totalMessageCount})</h2>
+        <div className="history-search">
+          <input 
+            type="text" 
+            placeholder="발송자 또는 내용으로 검색..." 
+            value={historySearchTerm}
+            onChange={(e) => setHistorySearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="history-nav">
+          <button 
+            onClick={() => setHistoryIndex(prev => Math.max(0, prev - 1))}
+            disabled={historyIndex === 0}
+            className="nav-btn"
+          >
+            ← 이전
+          </button>
+          <span className="history-counter">
+            {historyIndex + 1} / {totalMessageCount}
+          </span>
+          <button 
+            onClick={() => {
+              const nextIndex = historyIndex + 1;
+              if (nextIndex < allMessages.length) {
+                setHistoryIndex(nextIndex);
+              }
+              // 다음 메시지가 로드되지 않았다면 로드
+              if (nextIndex >= allMessages.length && allMessages.length < totalMessageCount && !isLoading) {
+                loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+              }
+            }}
+            disabled={historyIndex >= totalMessageCount - 1}
+            className="nav-btn"
+          >
+            다음 →
+          </button>
+        </div>
+      </div>
+      <div className="history-stage" onWheel={handleHistoryWheel}>
+        {allMessages.length === 0 ? (
+          <p className="empty">메시지가 없습니다.</p>
+        ) : (
+          <div className="history-card-stack" onMouseDown={historyOnMouseDown}>
+            {allMessages.map((msg, idx) => {
+              const isCurrent = idx === historyIndex;
+              const offset = idx - historyIndex;
+              const classification = classified[msg.id];
+              const deadline = deadlines[msg.id];
+              
+              // 현재 카드와 주변 몇 개만 렌더링하여 성능 최적화
+              if (Math.abs(offset) > 5) {
+                return null;
+              }
+              
+              return (
+                <div 
+                  key={msg.id} 
+                  className={`history-card ${isCurrent ? 'current' : 'offset'}`}
+                  style={{
+                    transform: `translateX(${offset * 20}px) translateY(${Math.abs(offset) * 20}px) scale(${1 - Math.abs(offset) * 0.05})`,
+                    zIndex: allMessages.length - Math.abs(offset),
+                    opacity: Math.abs(offset) > 3 ? 0 : 1 - Math.abs(offset) * 0.15
+                  }}
+                >
+                  <div className="history-card-inner">
+                    <div className="history-card-header">
+                      <span className="history-id">#{msg.id}</span>
+                      <span className="history-sender">{msg.sender}</span>
+                      {classification && (
+                        <span className={`history-badge ${classification}`}>
+                          {classification === 'left' ? '완료' : '해야할 일'}
+                        </span>
+                      )}
+                      {deadline && (
+                        <span className="history-deadline">
+                          {formatDate(deadline)}
+                        </span>
+                      )}
+                      <button 
+                        className="history-set-deadline-btn"
+                        onClick={() => setScheduleModal({ open: true, id: msg.id })}
+                      >
+                        마감 설정
+                      </button>
+                    </div>
+                    <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  const renderSearchResults = () => (
+    <>
+      <div className="history-header">
+        <h2>검색 결과 ({searchResults?.length || 0})</h2>
+        <div className="history-search">
+          <input 
+            type="text" 
+            placeholder="발송자 또는 내용으로 검색..." 
+            value={historySearchTerm}
+            onChange={(e) => setHistorySearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="history-search-layout">
+        <div className="history-main-pane">
+          {isLoadingActiveSearch && <div className="empty">로딩 중...</div>}
+          {!isLoadingActiveSearch && activeSearchMessage && (
+            <div className="history-card current">
+              <div className="history-card-inner">
+                <div className="history-card-header">
+                  <span className="history-id">#{activeSearchMessage.id}</span>
+                  <span className="history-sender">{activeSearchMessage.sender}</span>
+                  <button 
+                    className="history-set-deadline-btn"
+                    onClick={() => setScheduleModal({ open: true, id: activeSearchMessage.id })}
+                  >
+                    마감 설정
+                  </button>
+                </div>
+                <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
+              </div>
+            </div>
+          )}
+          {!isLoadingActiveSearch && !activeSearchMessage && (
+            <div className="empty">
+              {isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}
+            </div>
+          )}
+        </div>
+        <div className="history-results-pane">
+          {isLoadingSearch && <div className="empty">검색 중...</div>}
+          {!isLoadingSearch && searchResults && (
+            <div className="results-list">
+              {searchResults.map(item => (
+                <div 
+                  key={item.id} 
+                  className={`result-item ${activeSearchMessage?.id === item.id ? 'active' : ''}`}
+                  onClick={() => handleSearchResultClick(item.id)}
+                >
+                  <div className="result-sender">{item.sender}</div>
+                  <div className="result-snippet">{item.snippet}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  const renderHistory = () => {
+    return (
+      <div className="history">
+        {historySearchTerm.trim() ? renderSearchResults() : renderNormalHistory()}
       </div>
     );
   };
@@ -472,6 +806,9 @@ function App() {
           <button className={page === 'todos' ? 'active' : ''} onClick={() => setPage('todos')}>
             <span className="icon"><TodosIcon /></span><span className="label">해야할 일</span>
           </button>
+          <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>
+            <span className="icon"><HistoryIcon /></span><span className="label">전체 메시지</span>
+          </button>
           <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
             <span className="icon"><SettingsIcon /></span><span className="label">설정</span>
           </button>
@@ -480,6 +817,7 @@ function App() {
       <main className="content">
         {page === 'classify' && renderClassifier()}
         {page === 'todos' && renderTodos()}
+        {page === 'history' && renderHistory()}
         {page === 'settings' && renderSettings()}
         <ScheduleModal />
       </main>
