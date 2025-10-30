@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { List } from 'react-window';
 import './App.css';
 
 interface Message {
@@ -22,6 +23,13 @@ const REG_KEY_UDB = 'UdbPath';
 const REG_KEY_CLASSIFIED = 'ClassifiedMap';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const DRAG_THRESHOLD = 160;
+
+const PageHeader = ({ title, children }: { title: React.ReactNode, children?: React.ReactNode }) => (
+  <div className="page-header">
+    <h2 className="page-title">{title}</h2>
+    <div className="page-header-actions">{children}</div>
+  </div>
+);
 
 // SVG Icons for sidebar
 const ClassifyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>;
@@ -121,12 +129,13 @@ function App() {
         return;
       }
       
-      const { messages, total_count } = await invoke('read_udb_messages', { 
+      const result = await invoke<{ messages: Message[]; total_count: number }>('read_udb_messages', { 
         dbPath: finalPath,
         limit: HISTORY_PAGE_SIZE,
         offset,
         searchTerm,
       });
+      const { messages, total_count } = result;
 
       // 새 검색이면 메시지 목록을 교체하고, 아니면 추가합니다.
       setAllMessages(offset === 0 ? messages : prev => [...prev, ...messages]);
@@ -280,6 +289,43 @@ function App() {
       });
   }, [classified, allMessages, deadlines]);
 
+  // 누락된 메시지들을 로드
+  useEffect(() => {
+    const loadMissingMessages = async () => {
+      if (!udbPath) return;
+      
+      const rightIds = new Set(Object.keys(classified).filter(k => classified[Number(k)] === 'right').map(Number));
+      const existingIds = new Set(allMessages.map(m => m.id));
+      const missingIds = Array.from(rightIds).filter(id => !existingIds.has(id));
+      
+      if (missingIds.length === 0) return;
+      
+      // 누락된 메시지들을 하나씩 로드
+      const promises = missingIds.map(async (id) => {
+        try {
+          const msg: Message = await invoke('get_message_by_id', { dbPath: udbPath, id });
+          return msg;
+        } catch (e) {
+          console.error(`Failed to load message ${id}`, e);
+          return null;
+        }
+      });
+      
+      const loadedMessages = await Promise.all(promises);
+      const validMessages = loadedMessages.filter((m): m is Message => m !== null);
+      
+      if (validMessages.length > 0) {
+        setAllMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMessages = validMessages.filter(m => !existingIds.has(m.id));
+          return [...prev, ...newMessages];
+        });
+      }
+    };
+    
+    void loadMissingMessages();
+  }, [classified, allMessages, udbPath]);
+
   useEffect(() => {
     if (udbPath) {
       setHistoryIndex(0);
@@ -287,7 +333,6 @@ function App() {
     }
   }, [udbPath]);
 
-  const totalCount = allMessages.length;
   const unclassifiedCount = pendingIndexes.length;
   const statusText = isLoading ? '로딩 중...' : `총 메시지 ${totalMessageCount}개 / 미분류 ${unclassifiedCount}개 (현재 로드된 메시지 기준)`;
 
@@ -311,15 +356,15 @@ function App() {
   }, []);
 
   const renderClassifier = () => (
-    <div className="classifier">
-      <div className="classifier-header">
+    <div className="classifier page-content">
+      <PageHeader title="메시지 분류">
         <button onClick={() => { setHistoryIndex(0); loadUdbFile(udbPath, 0); }} disabled={isLoading} className="load-btn small">
           {isLoading ? '로딩 중...' : '메시지 다시 로드'}
         </button>
         <span className="status">{statusText}</span>
         <button className="complete-all-btn" onClick={completeAllPending} disabled={unclassifiedCount === 0}>전부 완료 처리</button>
-        <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
-      </div>
+      </PageHeader>
+      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="classifier-stage">
         {visibleMessages.length === 0 && <div className="empty">분류할 메시지가 없습니다.</div>}
         {visibleMessages.map((msg, idx) => (
@@ -388,6 +433,39 @@ function App() {
   };
 
   const renderTodos = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const endOfWeek = new Date(today);
+    endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
+    const endOfNextWeek = new Date(endOfWeek);
+    endOfNextWeek.setDate(endOfWeek.getDate() + 7);
+
+    const getColorForDeadline = (deadline: string | null) => {
+      if (!deadline) return 'var(--text-secondary)';
+      const deadlineDate = new Date(deadline);
+      if (deadlineDate < today) return 'var(--danger)';
+      if (deadlineDate >= today && deadlineDate < tomorrow) return 'var(--danger)';
+      if (deadlineDate >= tomorrow && deadlineDate < new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)) return 'var(--warning)';
+      if (deadlineDate >= tomorrow && deadlineDate <= endOfWeek) return 'var(--primary)';
+      if (deadlineDate > endOfWeek && deadlineDate <= endOfNextWeek) return 'var(--primary-light)';
+      return 'var(--text-secondary)';
+    };
+
+    const tasksWithDeadlines = keptMessages
+      .filter(m => deadlines[m.id])
+      .sort((a, b) => new Date(deadlines[a.id]!).getTime() - new Date(deadlines[b.id]!).getTime());
+
+    const groupedTasks = tasksWithDeadlines.reduce((acc, m) => {
+      const date = formatDate(deadlines[m.id]!);
+      if (!acc[date]) {
+        acc[date] = [];
+      }
+      acc[date].push(m);
+      return acc;
+    }, {} as Record<string, Message[]>);
+
     const groupedMessages = keptMessages.reduce((acc, m) => {
       const deadline = deadlines[m.id];
       const date = deadline ? formatDate(deadline) : '마감 없음';
@@ -398,15 +476,47 @@ function App() {
       return acc;
     }, {} as Record<string, Message[]>);
 
-    const sortedGroups = Object.entries(groupedMessages).sort(([dateA], [dateB]) => {
+    const sortedGroups = Object.entries(groupedMessages).sort((a, b) => {
+      const dateA = a[0];
+      const dateB = b[0];
       if (dateA === '마감 없음') return 1;
       if (dateB === '마감 없음') return -1;
       return new Date(dateA).getTime() - new Date(dateB).getTime();
     });
 
     return (
-      <div className="timeline">
-        <h2>타임라인 ({keptMessages.length})</h2>
+      <div className="timeline page-content">
+        <PageHeader title={`타임라인 (${keptMessages.length})`}>
+          <div className="todo-summary simple">
+            <div className="spark-line">
+              {Object.entries(groupedTasks).map(([date, tasks]) => {
+                const firstTaskDeadline = tasks.length > 0 ? deadlines[tasks[0].id] : null;
+                const remainingTime = getRemainingTimeInfo(firstTaskDeadline);
+                return (
+                  <div key={date} className="spark-line-group">
+                    {remainingTime.text && (
+                      <span className="spark-line-remaining" style={{ color: remainingTime.color }}>
+                        {remainingTime.text}
+                      </span>
+                    )}
+                    <span className="spark-line-date">{date}</span>
+                    <div className="spark-line-items">
+                      {tasks.map(m => (
+                        <div
+                          key={m.id}
+                          className="spark-line-item"
+                          style={{ backgroundColor: getColorForDeadline(deadlines[m.id]) }}
+                          title={`마감: ${new Date(deadlines[m.id]!).toLocaleString()}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </PageHeader>
+        <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
         {keptMessages.length === 0 ? (
           <p>오른쪽으로 분류된 메시지가 없습니다.</p>
         ) : (
@@ -553,8 +663,7 @@ function App() {
 
   const renderNormalHistory = () => (
     <>
-      <div className="history-header">
-        <h2>전체 메시지 ({totalMessageCount})</h2>
+      <PageHeader title={`전체 메시지 (${totalMessageCount})`}>
         <div className="history-search">
           <input 
             type="text" 
@@ -591,136 +700,161 @@ function App() {
             다음 →
           </button>
         </div>
-      </div>
+      </PageHeader>
+      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="history-stage" onWheel={handleHistoryWheel}>
         {allMessages.length === 0 ? (
           <p className="empty">메시지가 없습니다.</p>
         ) : (
           <div className="history-card-stack" onMouseDown={historyOnMouseDown}>
-            {allMessages.map((msg, idx) => {
-              const isCurrent = idx === historyIndex;
-              const offset = idx - historyIndex;
-              const classification = classified[msg.id];
-              const deadline = deadlines[msg.id];
-              
-              // 현재 카드와 주변 몇 개만 렌더링하여 성능 최적화
-              if (Math.abs(offset) > 5) {
-                return null;
-              }
-              
-              return (
-                <div 
-                  key={msg.id} 
-                  className={`history-card ${isCurrent ? 'current' : 'offset'}`}
-                  style={{
-                    transform: `translateX(${offset * 20}px) translateY(${Math.abs(offset) * 20}px) scale(${1 - Math.abs(offset) * 0.05})`,
-                    zIndex: allMessages.length - Math.abs(offset),
-                    opacity: Math.abs(offset) > 3 ? 0 : 1 - Math.abs(offset) * 0.15
-                  }}
-                >
-                  <div className="history-card-inner">
-                    <div className="history-card-header">
-                      <span className="history-id">#{msg.id}</span>
-                      <span className="history-sender">{msg.sender}</span>
-                      {classification && (
-                        <span className={`history-badge ${classification}`}>
-                          {classification === 'left' ? '완료' : '해야할 일'}
-                        </span>
-                      )}
-                      {deadline && (
-                        <span className="history-deadline">
-                          {formatDate(deadline)}
-                        </span>
-                      )}
-                      <button 
-                        className="history-set-deadline-btn"
-                        onClick={() => setScheduleModal({ open: true, id: msg.id })}
-                      >
-                        마감 설정
-                      </button>
+            {(() => {
+              const renderWindow = 11; // 현재 아이템 기준 앞뒤로 5개씩
+              const startIndex = Math.max(0, historyIndex - Math.floor(renderWindow / 2));
+              const endIndex = Math.min(allMessages.length, startIndex + renderWindow);
+
+              return allMessages.slice(startIndex, endIndex).map((msg, i) => {
+                const idx = startIndex + i; // 원래 인덱스 복원
+                const isCurrent = idx === historyIndex;
+                const offset = idx - historyIndex;
+                const classification = classified[msg.id];
+                const deadline = deadlines[msg.id];
+                
+                return (
+                  <div 
+                    key={msg.id} 
+                    className={`history-card ${isCurrent ? 'current' : 'offset'}`}
+                    style={{
+                      transform: `translateX(${offset * 20}px) translateY(${Math.abs(offset) * 20}px) scale(${1 - Math.abs(offset) * 0.05})`,
+                      zIndex: allMessages.length - Math.abs(offset),
+                      opacity: Math.abs(offset) > 3 ? 0 : 1 - Math.abs(offset) * 0.15
+                    }}
+                  >
+                    <div className="history-card-inner">
+                      <div className="history-card-header">
+                        <span className="history-id">#{msg.id}</span>
+                        <span className="history-sender">{msg.sender}</span>
+                        {classification && (
+                          <span className={`history-badge ${classification}`}>
+                            {classification === 'left' ? '완료' : '해야할 일'}
+                          </span>
+                        )}
+                        {deadline && (
+                          <span className="history-deadline">
+                            {formatDate(deadline)}
+                          </span>
+                        )}
+                        <button 
+                          className="history-set-deadline-btn"
+                          onClick={() => setScheduleModal({ open: true, id: msg.id })}
+                        >
+                          마감 설정
+                        </button>
+                      </div>
+                      <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
                     </div>
-                    <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
       </div>
     </>
   );
 
-  const renderSearchResults = () => (
-    <>
-      <div className="history-header">
-        <h2>검색 결과 ({searchResults?.length || 0})</h2>
-        <div className="history-search">
-          <input 
-            type="text" 
-            placeholder="발송자 또는 내용으로 검색..." 
-            value={historySearchTerm}
-            onChange={(e) => setHistorySearchTerm(e.target.value)}
-          />
-        </div>
+  
+  
+  const SearchResultRowComponent = ({ index, style, results, activeId, onClick }: { index: number, style: React.CSSProperties, ariaAttributes: { "aria-posinset": number, "aria-setsize": number, role: "listitem" }, results: SearchResultItem[], activeId: number | null, onClick: (id: number) => void }) => {
+    const item = results[index];
+    return (
+      <div
+        style={style}
+        className={`result-item ${activeId === item.id ? 'active' : ''}`}
+        onClick={() => onClick(item.id)}
+      >
+        <div className="result-sender">{item.sender}</div>
+        <div className="result-snippet">{item.snippet}</div>
       </div>
-      <div className="history-search-layout">
-        <div className="history-main-pane">
-          {isLoadingActiveSearch && <div className="empty">로딩 중...</div>}
-          {!isLoadingActiveSearch && activeSearchMessage && (
-            <div className="history-card current">
-              <div className="history-card-inner">
-                <div className="history-card-header">
-                  <span className="history-id">#{activeSearchMessage.id}</span>
-                  <span className="history-sender">{activeSearchMessage.sender}</span>
-                  <button 
-                    className="history-set-deadline-btn"
-                    onClick={() => setScheduleModal({ open: true, id: activeSearchMessage.id })}
-                  >
-                    마감 설정
-                  </button>
+    );
+  };
+
+  const renderSearchResults = () => {
+
+    return (
+      <>
+        <PageHeader title={`검색 결과 (${searchResults?.length || 0})`}>
+          <div className="history-search">
+            <input
+              type="text"
+              placeholder="발송자 또는 내용으로 검색..."
+              value={historySearchTerm}
+              onChange={(e) => setHistorySearchTerm(e.target.value)}
+            />
+          </div>
+        </PageHeader>
+        <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
+        <div className="history-search-layout">
+          <div className="history-main-pane">
+            {isLoadingActiveSearch && <div className="empty">로딩 중...</div>}
+            {!isLoadingActiveSearch && activeSearchMessage && (
+              <div className="history-card current">
+                <div className="history-card-inner">
+                  <div className="history-card-header">
+                    <span className="history-id">#{activeSearchMessage.id}</span>
+                    <span className="history-sender">{activeSearchMessage.sender}</span>
+                    <button
+                      className="history-set-deadline-btn"
+                      onClick={() => setScheduleModal({ open: true, id: activeSearchMessage.id })}
+                    >
+                      마감 설정
+                    </button>
+                  </div>
+                  <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
                 </div>
-                <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
               </div>
-            </div>
-          )}
-          {!isLoadingActiveSearch && !activeSearchMessage && (
-            <div className="empty">
-              {isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}
-            </div>
-          )}
+            )}
+            {!isLoadingActiveSearch && !activeSearchMessage && (
+              <div className="empty">
+                {isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}
+              </div>
+            )}
+          </div>
+          <div className="history-results-pane">
+            {isLoadingSearch && <div className="empty">검색 중...</div>}
+            {!isLoadingSearch && searchResults && (
+              <div className="results-list">
+                <List<{ results: SearchResultItem[], activeId: number | null, onClick: (id: number) => void }>
+                  rowCount={searchResults.length}
+                  rowHeight={60}
+                  rowComponent={SearchResultRowComponent}
+                  rowProps={{
+                    results: searchResults,
+                    activeId: activeSearchMessage?.id || null,
+                    onClick: handleSearchResultClick,
+                  }}
+                  overscanCount={5}
+                  style={{ height: '100%', width: '100%' }}
+                />
+              </div>
+            )}
+          </div>
         </div>
-        <div className="history-results-pane">
-          {isLoadingSearch && <div className="empty">검색 중...</div>}
-          {!isLoadingSearch && searchResults && (
-            <div className="results-list">
-              {searchResults.map(item => (
-                <div 
-                  key={item.id} 
-                  className={`result-item ${activeSearchMessage?.id === item.id ? 'active' : ''}`}
-                  onClick={() => handleSearchResultClick(item.id)}
-                >
-                  <div className="result-sender">{item.sender}</div>
-                  <div className="result-snippet">{item.snippet}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
+      </>
+    );
+  };
 
   const renderHistory = () => {
     return (
-      <div className="history">
+      <div className="history page-content">
         {historySearchTerm.trim() ? renderSearchResults() : renderNormalHistory()}
       </div>
     );
   };
 
   const renderSettings = () => (
-    <div className="settings">
-      <h2>설정</h2>
+    <div className="settings page-content">
+      <PageHeader title="설정" />
+      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="field">
         <label htmlFor="udbPathInput">UDB 경로</label>
         <div className="row">
@@ -736,7 +870,40 @@ function App() {
     if (!scheduleModal.open || scheduleModal.id === undefined) return null;
 
     const id = scheduleModal.id;
-    const msg = allMessages.find((m) => m.id === id);
+    const [modalMsg, setModalMsg] = useState<Message | null>(null);
+    const [isLoadingModalMsg, setIsLoadingModalMsg] = useState(false);
+    
+    useEffect(() => {
+      const loadMsg = async () => {
+        const found = allMessages.find((m) => m.id === id);
+        if (found) {
+          setModalMsg(found);
+        } else if (udbPath) {
+          setIsLoadingModalMsg(true);
+          try {
+            const msg: Message = await invoke('get_message_by_id', { dbPath: udbPath, id });
+            setModalMsg(msg);
+            // 메시지를 allMessages에 추가
+            setAllMessages(prev => {
+              if (prev.find(m => m.id === id)) return prev;
+              return [...prev, msg];
+            });
+          } catch (e) {
+            console.error("Failed to load message for modal", e);
+          } finally {
+            setIsLoadingModalMsg(false);
+          }
+        }
+      };
+      void loadMsg();
+      
+      // 모달이 닫히면 초기화
+      return () => {
+        setModalMsg(null);
+        setIsLoadingModalMsg(false);
+      };
+    }, [id, udbPath, allMessages]);
+
     const current = deadlines[id] || '';
     const d = current ? new Date(current) : new Date();
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -755,6 +922,13 @@ function App() {
         void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
         return next;
       });
+      if (classified[id] !== 'right') {
+        setClassified(prev => {
+          const next = { ...prev, [id]: 'right' as const };
+          void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
+          return next;
+        });
+      }
       setScheduleModal({ open: false });
     };
 
@@ -771,7 +945,15 @@ function App() {
         <div className="schedule-modal-overlay" onClick={() => setScheduleModal({ open: false }) }>
             <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
               <div className="schedule-inner">
-                <div className="schedule-preview" dangerouslySetInnerHTML={{ __html: msg ? decodeEntities(msg.content) : '' }} />
+                <div className="schedule-preview">
+                  {isLoadingModalMsg ? (
+                    <div>로딩 중...</div>
+                  ) : modalMsg ? (
+                    <div dangerouslySetInnerHTML={{ __html: decodeEntities(modalMsg.content) }} />
+                  ) : (
+                    <div>메시지를 불러올 수 없습니다.</div>
+                  )}
+                </div>
                 <div className="schedule-panel">
                   <h3>완료 시간 설정</h3>
                   <label htmlFor="deadline-date">날짜</label>

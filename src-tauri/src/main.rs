@@ -13,6 +13,8 @@ use notify::{Watcher, recommended_watcher, RecursiveMode, EventKind};
 use std::sync::{mpsc, OnceLock, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Manager, Emitter};
+use lru::LruCache;
+use std::num::NonZeroUsize;
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
 
@@ -29,7 +31,7 @@ struct PaginatedMessages {
     total_count: i64,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct SearchResultItem {
     id: i64,
     sender: String,
@@ -55,17 +57,27 @@ fn read_udb_messages(db_path: String, limit: Option<i64>, offset: Option<i64>, s
 }
 
 #[tauri::command]
-fn search_messages(db_path: String, search_term: String) -> Result<Vec<SearchResultItem>, String> {
+fn search_messages(db_path: String, search_term: String, cache: tauri::State<CacheState>) -> Result<Vec<SearchResultItem>, String> {
     if search_term.is_empty() {
         return Ok(Vec::new());
     }
+
+    // 1. Check cache first
+    {
+        let mut search_cache = cache.search_cache.lock().unwrap();
+        if let Some(cached_results) = search_cache.get(&search_term) {
+            return Ok(cached_results.clone());
+        }
+    }
+
+    // 2. Cache miss, proceed with DB query
     let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
     let pattern = format!("%{}%", search_term);
     let mut stmt = conn.prepare(
         "SELECT MessageKey, Sender, substr(MessageText, 1, 100) FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC"
     ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
     
-    let iter = stmt.query_map([pattern], |row| {
+    let iter = stmt.query_map([&pattern], |row| {
         Ok(SearchResultItem {
             id: row.get(0)?,
             sender: row.get(1)?,
@@ -73,10 +85,15 @@ fn search_messages(db_path: String, search_term: String) -> Result<Vec<SearchRes
         })
     }).map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;
 
-    let mut results = Vec::new();
-    for item in iter {
-        results.push(item.map_err(|e| format!("검색 결과 처리 실패: {}", e))?);
+    let results: Result<Vec<_>, _> = iter.collect();
+    let results = results.map_err(|e| format!("검색 결과 처리 실패: {}", e))?;
+
+    // 3. Store result in cache before returning
+    {
+        let mut search_cache = cache.search_cache.lock().unwrap();
+        search_cache.put(search_term, results.clone());
     }
+    
     Ok(results)
 }
 
@@ -301,8 +318,18 @@ fn hide_main_window(app: tauri::AppHandle) {
     }
 }
 
+struct CacheState {
+    search_cache: Mutex<LruCache<String, Vec<SearchResultItem>>>,
+}
+
 fn main() {
+    let cache_size = NonZeroUsize::new(50).unwrap();
+    let cache_state = CacheState {
+        search_cache: Mutex::new(LruCache::new(cache_size)),
+    };
+
     tauri::Builder::default()
+        .manage(cache_state)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

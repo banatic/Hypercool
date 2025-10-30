@@ -71,6 +71,7 @@
 }
 
 .sidebar nav button {
+  -webkit-app-region: no-drag;
   text-align: left;
   background: transparent;
   color: var(--text-light);
@@ -117,6 +118,55 @@
   -webkit-app-region: drag;
   height: 100vh;
   overflow-y: auto;
+}
+
+.page-content {
+  padding: 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-shrink: 0;
+  gap: 16px;
+  position: relative;
+}
+
+.page-title {
+  font-size: 28px;
+  margin: 0;
+  font-weight: 700;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+
+.page-header-actions .history-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+  margin: 0;
+}
+
+.page-header-actions .history-nav {
+  flex-shrink: 0;
 }
 
 /* Classifier View */
@@ -174,7 +224,9 @@
 .complete-all-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .title-x {
-  margin-left: auto;
+  position: absolute;
+  right: 0;
+  top: 0;
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -185,6 +237,10 @@
   background: transparent;
   border: none;
   color: var(--text-secondary);
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  z-index: 10;
 }
 .title-x:hover { background: rgba(255,255,255,0.08); }
 
@@ -285,15 +341,70 @@
 }
 
 /* Timeline View */
-.timeline {
-  padding: 24px;
-  max-width: 1000px;
-  margin: 0 auto;
-}
 
 .timeline h2 {
   font-size: 28px;
   margin-bottom: 24px;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.todo-summary.simple {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.spark-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spark-line-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.spark-line-remaining {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.spark-line-date {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.spark-line-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.spark-line-item {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.summary-label {
+  color: var(--text-secondary);
+}
+
+.summary-count {
+  color: white;
+  font-weight: 600;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 12px;
 }
 
 .timeline-group {
@@ -389,14 +500,6 @@
 }
 
 /* History View */
-.history {
-  padding: 24px;
-  max-width: 1000px;
-  margin: 0 auto;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
 
 .history-header {
   margin-bottom: 24px;
@@ -411,8 +514,9 @@
 }
 
 .history-search {
-  flex-grow: 1;
-  margin: 0 24px;
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
 }
 
 .history-search input {
@@ -596,15 +700,19 @@
 }
 
 .history-results-pane {
-  overflow-y: auto;
+  overflow: hidden;
   border-left: 1px solid var(--border-color);
   padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .results-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  overflow: hidden;
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .result-item {
@@ -613,6 +721,12 @@
   border: 1px solid transparent;
   cursor: pointer;
   -webkit-app-region: no-drag;
+  box-sizing: border-box;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .result-item:hover {
@@ -632,20 +746,22 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .result-snippet {
   font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
 }
 
 /* Settings View */
-.settings {
-  padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
-}
 
 .settings h2 {
   font-size: 28px;
@@ -778,3 +894,66 @@
   border-color: var(--primary);
 }
 .schedule-panel .row button:first-child:hover { background: var(--primary-dark); }
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.todo-summary {
+  display: flex;
+  gap: 12px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.summary-label {
+  color: var(--text-secondary);
+}
+
+.summary-count {
+  color: white;
+  font-weight: 600;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.todo-summary {
+  display: flex;
+  gap: 12px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.summary-label {
+  color: var(--text-secondary);
+}
+
+.summary-count {
+  color: white;
+  font-weight: 600;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
