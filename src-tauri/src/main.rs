@@ -8,7 +8,7 @@ use winreg::enums::*;
 use winreg::RegKey;
 use base64::Engine;
 use flate2::read::ZlibDecoder;
-use tauri::{tray::TrayIconBuilder, menu::{Menu, MenuItem}};
+use tauri::{tray::TrayIconBuilder, menu::{Menu, MenuItem}, image::Image};
 use notify::{Watcher, recommended_watcher, RecursiveMode, EventKind};
 use std::sync::{mpsc, OnceLock, Mutex};
 use std::time::{Duration, Instant};
@@ -17,6 +17,7 @@ use lru::LruCache;
 use std::num::NonZeroUsize;
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
+use chrono::{Local, NaiveTime};
 
 #[derive(serde::Serialize, Clone)]
 struct Message {
@@ -318,6 +319,91 @@ fn hide_main_window(app: tauri::AppHandle) {
     }
 }
 
+/// 현재 시간이 수업 시간인지 확인하는 함수
+fn is_class_time() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let reg_base = REG_BASE;
+    
+    let class_times_json = match hkcu.open_subkey(reg_base) {
+        Ok(subkey) => {
+            match subkey.get_value::<String, _>("ClassTimes") {
+                Ok(v) if !v.is_empty() => Some(v),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    
+    // 수업 시간이 설정되지 않았으면 false 반환 (항상 표시)
+    let class_times: Vec<String> = match class_times_json {
+        Some(json) => {
+            match serde_json::from_str::<Vec<String>>(&json) {
+                Ok(times) if !times.is_empty() => times,
+                _ => return false,
+            }
+        }
+        None => return false,
+    };
+    
+    let now = Local::now().time();
+    
+    // 각 수업 시간대를 체크
+    for time_range in class_times {
+        // HHMM-HHMM 형식 파싱 (예: "0830-0920")
+        let parts: Vec<&str> = time_range.split('-').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        
+        let start_str = parts[0].trim();
+        let end_str = parts[1].trim();
+        
+        // HHMM 형식을 NaiveTime으로 변환
+        let start_time = match parse_hhmm(start_str) {
+            Some(t) => t,
+            None => continue,
+        };
+        
+        let end_time = match parse_hhmm(end_str) {
+            Some(t) => t,
+            None => continue,
+        };
+        
+        // 현재 시간이 이 시간대 내에 있는지 확인
+        let in_range = if start_time <= end_time {
+            now >= start_time && now <= end_time
+        } else {
+            // 자정을 넘어가는 경우
+            now >= start_time || now <= end_time
+        };
+        
+        if in_range {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// HHMM 형식 문자열을 NaiveTime으로 변환하는 헬퍼 함수
+fn parse_hhmm(hhmm: &str) -> Option<NaiveTime> {
+    if hhmm.len() != 4 {
+        return None;
+    }
+    
+    let hour_str = &hhmm[0..2];
+    let min_str = &hhmm[2..4];
+    
+    let hour: u32 = hour_str.parse().ok()?;
+    let minute: u32 = min_str.parse().ok()?;
+    
+    if hour >= 24 || minute >= 60 {
+        return None;
+    }
+    
+    NaiveTime::from_hms_opt(hour, minute, 0)
+}
+
 struct CacheState {
     search_cache: Mutex<LruCache<String, Vec<SearchResultItem>>>,
 }
@@ -355,7 +441,53 @@ fn main() {
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            TrayIconBuilder::new()
+            // Load tray icon - try multiple paths and formats
+            let icon_path = {
+                // Try resource directory first (production)
+                let resource_icon = app.path().resource_dir()
+                    .ok()
+                    .and_then(|dir| {
+                        let png_path = dir.join("icons").join("32x32.png");
+                        let ico_path = dir.join("icons").join("icon.ico");
+                        if png_path.exists() {
+                            Some(png_path)
+                        } else if ico_path.exists() {
+                            Some(ico_path)
+                        } else {
+                            None
+                        }
+                    });
+
+                // Fallback to development path - try from current executable directory
+                let dev_icon = resource_icon.or_else(|| {
+                    // Try relative to executable
+                    if let Ok(exe_dir) = std::env::current_exe() {
+                        if let Some(parent) = exe_dir.parent() {
+                            let png_path = parent.join("src-tauri").join("icons").join("32x32.png");
+                            let ico_path = parent.join("src-tauri").join("icons").join("icon.ico");
+                            if png_path.exists() {
+                                return Some(png_path);
+                            } else if ico_path.exists() {
+                                return Some(ico_path);
+                            }
+                        }
+                    }
+                    // Try relative to current working directory
+                    let dev_png = std::path::PathBuf::from("src-tauri/icons/32x32.png");
+                    let dev_ico = std::path::PathBuf::from("src-tauri/icons/icon.ico");
+                    if dev_png.exists() {
+                        Some(dev_png)
+                    } else if dev_ico.exists() {
+                        Some(dev_ico)
+                    } else {
+                        None
+                    }
+                });
+                
+                dev_icon
+            };
+
+            let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
@@ -369,8 +501,103 @@ fn main() {
                 .on_tray_icon_event(|tray, _event| {
                     let app = tray.app_handle();
                     if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); }
-                })
-                .build(app)?;
+                });
+
+            // Set icon - try file path first, then fallback to embedded icon
+            let mut icon_set = false;
+            
+            // Try loading from file path
+            if let Some(path) = icon_path {
+                eprintln!("트레이 아이콘 경로 찾음: {:?}", path);
+                if let Ok(icon_bytes) = fs::read(&path) {
+                    eprintln!("아이콘 파일 읽기 성공: {} bytes", icon_bytes.len());
+                    match image::load_from_memory(&icon_bytes) {
+                        Ok(img) => {
+                            let rgba = img.to_rgba8();
+                            let (width, height) = rgba.dimensions();
+                            eprintln!("이미지 디코딩 성공: {}x{}", width, height);
+                            // Resize to 32x32 if needed for tray icon
+                            let resized = if width != 32 || height != 32 {
+                                image::imageops::resize(&rgba, 32, 32, image::imageops::FilterType::Lanczos3)
+                            } else {
+                                rgba
+                            };
+                            let image = Image::new_owned(resized.into_raw(), 32, 32);
+                            tray_builder = tray_builder.icon(image);
+                            icon_set = true;
+                            eprintln!("트레이 아이콘 설정 완료 (파일에서)");
+                        }
+                        Err(e) => {
+                            eprintln!("이미지 디코딩 실패: {}", e);
+                        }
+                    }
+                } else {
+                    eprintln!("아이콘 파일 읽기 실패");
+                }
+            }
+            
+            // Fallback: try embedded icon using include_bytes!
+            if !icon_set {
+                eprintln!("파일 경로에서 아이콘을 찾지 못함, 포함된 아이콘 시도...");
+                // Try to use include_bytes! at compile time
+                // Note: This path is relative to src-tauri/src/main.rs
+                #[cfg(not(test))]
+                {
+                    let icon_bytes = include_bytes!("../icons/32x32.png");
+                    match image::load_from_memory(icon_bytes) {
+                        Ok(img) => {
+                            let rgba = img.to_rgba8();
+                            let (width, height) = rgba.dimensions();
+                            eprintln!("포함된 이미지 디코딩 성공: {}x{}", width, height);
+                            let resized = if width != 32 || height != 32 {
+                                image::imageops::resize(&rgba, 32, 32, image::imageops::FilterType::Lanczos3)
+                            } else {
+                                rgba
+                            };
+                            let image = Image::new_owned(resized.into_raw(), 32, 32);
+                            tray_builder = tray_builder.icon(image);
+                            icon_set = true;
+                            eprintln!("트레이 아이콘 설정 완료 (포함된 아이콘에서)");
+                        }
+                        Err(e) => {
+                            eprintln!("포함된 이미지 디코딩 실패: {}", e);
+                            // Try icon.ico as fallback
+                            let ico_bytes = include_bytes!("../icons/icon.ico");
+                            if let Ok(img) = image::load_from_memory(ico_bytes) {
+                                let rgba = img.to_rgba8();
+                                let (width, height) = rgba.dimensions();
+                                let resized = if width != 32 || height != 32 {
+                                    image::imageops::resize(&rgba, 32, 32, image::imageops::FilterType::Lanczos3)
+                                } else {
+                                    rgba
+                                };
+                                let image = Image::new_owned(resized.into_raw(), 32, 32);
+                                tray_builder = tray_builder.icon(image);
+                                icon_set = true;
+                                eprintln!("트레이 아이콘 설정 완료 (포함된 ICO에서)");
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if !icon_set {
+                eprintln!("경고: 트레이 아이콘이 설정되지 않았습니다");
+            }
+
+            let tray = tray_builder.build(app)?;
+            
+            // Ensure tray icon is visible
+            #[cfg(target_os = "windows")]
+            {
+                // On Windows, make sure the tray icon is visible
+                if let Err(e) = tray.set_visible(true) {
+                    eprintln!("트레이 아이콘 표시 설정 실패: {:?}", e);
+                } else {
+                    eprintln!("트레이 아이콘 표시 설정 성공");
+                }
+            }
+            
             // Watchdog for UDB file: read from registry and watch (spawn dedicated thread)
             if let Ok(subkey) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(REG_BASE) {
                 if let Ok(path) = subkey.get_value::<String, _>("UdbPath") {
@@ -419,14 +646,18 @@ fn main() {
                                 let _ = app_handle.emit("udb-changed", ());
                                 if has_new_message {
                                     // 최근 숨김 직후에는 자동 표시 억제 (2초)
-                                    let suppress = LAST_HIDE_AT
+                                    let suppress_hide = LAST_HIDE_AT
                                         .get_or_init(|| Mutex::new(None))
                                         .lock()
                                         .ok()
                                         .and_then(|slot| *slot)
                                         .map(|t| t.elapsed() < Duration::from_secs(2))
                                         .unwrap_or(false);
-                                    if !suppress {
+                                    
+                                    // 수업 시간 체크
+                                    let suppress_class_time = is_class_time();
+                                    
+                                    if !suppress_hide && !suppress_class_time {
                                         if let Some(wv) = app_handle.get_webview_window("main") { let _ = wv.show(); let _ = wv.set_focus(); }
                                     }
                                 }

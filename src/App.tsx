@@ -22,7 +22,19 @@ type Page = 'classify' | 'todos' | 'history' | 'settings';
 const REG_KEY_UDB = 'UdbPath';
 const REG_KEY_CLASSIFIED = 'ClassifiedMap';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
+const REG_KEY_CLASS_TIMES = 'ClassTimes';
 const DRAG_THRESHOLD = 160;
+
+// 기본 수업 시간 (HHMM-HHMM 형식)
+const DEFAULT_CLASS_TIMES = [
+  '0830-0920',
+  '0930-1020',
+  '1030-1120',
+  '1130-1220',
+  '1320-1410',
+  '1420-1510',
+  '1520-1610',
+];
 
 const PageHeader = ({ title, children }: { title: React.ReactNode, children?: React.ReactNode }) => (
   <div className="page-header">
@@ -32,9 +44,12 @@ const PageHeader = ({ title, children }: { title: React.ReactNode, children?: Re
 );
 
 // SVG Icons for sidebar
-const ClassifyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>;
-const TodosIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 22a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h.5a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-.5z"/><path d="M2 11.5a.5.5 0 0 1 .5-.5h19a.5.5 0 0 1 0 1h-19a.5.5 0 0 1-.5-.5z"/><path d="m12 2-7.07 7.07a1 1 0 0 0 0 1.41L12 17.5l7.07-7.07a1 1 0 0 0 0-1.41L12 2z"/></svg>;
-const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><path d="M12.5 7v5l3.5 2.5"/></svg>;
+// 메시지 분류 아이콘 - 태그/레이블 아이콘
+const ClassifyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>;
+// 해야할 일 아이콘 - 체크리스트 아이콘
+const TodosIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>;
+// 전체 메시지 아이콘 - 메시지 대화 아이콘
+const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
 const SettingsIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>;
 const CollapseIcon = ({ collapsed }: { collapsed: boolean }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -60,6 +75,7 @@ function App() {
   const [activeSearchMessage, setActiveSearchMessage] = useState<Message | null>(null);
   const [isLoadingSearch, setIsLoadingSearch] = useState(false);
   const [isLoadingActiveSearch, setIsLoadingActiveSearch] = useState(false);
+  const [classTimes, setClassTimes] = useState<string[]>(DEFAULT_CLASS_TIMES);
   const HISTORY_PAGE_SIZE = 20;
   
   const wheelLastProcessed = useRef(0);
@@ -92,6 +108,14 @@ function App() {
     });
   }, [pendingIndexes.length]);
 
+  const saveToRegistry = useCallback(async (key: string, value: string) => {
+    try {
+      await invoke('set_registry_value', { key, value });
+    } catch (e) {
+      console.warn('레지스트리 저장 실패', e);
+    }
+  }, []);
+
   const loadFromRegistry = useCallback(async () => {
     try {
       const savedPath = await invoke<string | null>('get_registry_value', { key: REG_KEY_UDB });
@@ -103,18 +127,30 @@ function App() {
       const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
       if (savedDeadlines) setDeadlines(JSON.parse(savedDeadlines) || {});
 
+      const savedClassTimes = await invoke<string | null>('get_registry_value', { key: REG_KEY_CLASS_TIMES });
+      if (savedClassTimes) {
+        try {
+          const parsed = JSON.parse(savedClassTimes);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setClassTimes(parsed);
+          } else {
+            setClassTimes(DEFAULT_CLASS_TIMES);
+            await saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(DEFAULT_CLASS_TIMES));
+          }
+        } catch {
+          setClassTimes(DEFAULT_CLASS_TIMES);
+          await saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(DEFAULT_CLASS_TIMES));
+        }
+      } else {
+        // 기본값이 없으면 기본값 설정
+        setClassTimes(DEFAULT_CLASS_TIMES);
+        await saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(DEFAULT_CLASS_TIMES));
+      }
+
     } catch (e) {
       console.warn('레지스트리 로드 실패', e);
     }
-  }, []);
-
-  const saveToRegistry = useCallback(async (key: string, value: string) => {
-    try {
-      await invoke('set_registry_value', { key, value });
-    } catch (e) {
-      console.warn('레지스트리 저장 실패', e);
-    }
-  }, []);
+  }, [saveToRegistry]);
 
   useEffect(() => {
     loadFromRegistry();
@@ -583,7 +619,7 @@ function App() {
     if (isLoading) return;
 
     const now = Date.now();
-    if (now - wheelLastProcessed.current < 500) { // 250ms 딜레이 추가
+    if (now - wheelLastProcessed.current < 100) { // 100ms 딜레이
       return;
     }
 
@@ -660,6 +696,57 @@ function App() {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, [historyIndex, allMessages.length]);
+
+  // 키보드 이벤트로 메시지 넘기기
+  const handleHistoryKeyDown = useCallback((e: KeyboardEvent) => {
+    if (page !== 'history' || isLoading) return;
+    
+    // 입력 필드에 포커스가 있으면 키보드 이벤트 무시
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - wheelLastProcessed.current < 100) {
+      return;
+    }
+
+    let isActionTaken = false;
+
+    // 우측/아래 키: 다음 메시지
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      if (historyIndex < allMessages.length - 1) {
+        setHistoryIndex(prev => prev + 1);
+        isActionTaken = true;
+      }
+      
+      // 로드된 메시지의 끝에 가까워지면 다음 페이지 로드
+      const loadThreshold = 5;
+      if (historyIndex >= allMessages.length - loadThreshold && allMessages.length < totalMessageCount) {
+        loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+        isActionTaken = true;
+      }
+    }
+    // 좌측/위 키: 이전 메시지
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowUp') && historyIndex > 0) {
+      setHistoryIndex(prev => prev - 1);
+      isActionTaken = true;
+    }
+
+    if (isActionTaken) {
+      wheelLastProcessed.current = now;
+      e.preventDefault();
+    }
+  }, [page, historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, historySearchTerm]);
+
+  // 키보드 이벤트 리스너 등록
+  useEffect(() => {
+    window.addEventListener('keydown', handleHistoryKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleHistoryKeyDown);
+    };
+  }, [handleHistoryKeyDown]);
 
   const renderNormalHistory = () => (
     <>
@@ -825,7 +912,11 @@ function App() {
               <div className="results-list">
                 <List<{ results: SearchResultItem[], activeId: number | null, onClick: (id: number) => void }>
                   rowCount={searchResults.length}
-                  rowHeight={60}
+                  rowHeight={(index) => {
+                    const item = searchResults[index];
+                    const isActive = activeSearchMessage?.id === item.id;
+                    return isActive ? 120 : 100;
+                  }}
                   rowComponent={SearchResultRowComponent}
                   rowProps={{
                     results: searchResults,
@@ -851,20 +942,76 @@ function App() {
     );
   };
 
-  const renderSettings = () => (
-    <div className="settings page-content">
-      <PageHeader title="설정" />
-      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
-      <div className="field">
-        <label htmlFor="udbPathInput">UDB 경로</label>
-        <div className="row">
-          <input id="udbPathInput" type="text" value={udbPath} onChange={(e) => setUdbPath(e.target.value)} placeholder="C:\...\your.udb" />
-          <button onClick={pickUdb}>찾기</button>
-          <button onClick={() => saveToRegistry(REG_KEY_UDB, udbPath)}>저장</button>
+  const renderSettings = () => {
+    const addClassTime = () => {
+      const newTime = '0900-0950';
+      setClassTimes([...classTimes, newTime]);
+    };
+
+    const removeClassTime = (index: number) => {
+      setClassTimes(classTimes.filter((_, i) => i !== index));
+    };
+
+    const updateClassTime = (index: number, value: string) => {
+      const newTimes = [...classTimes];
+      newTimes[index] = value;
+      setClassTimes(newTimes);
+    };
+
+    const saveClassTimes = () => {
+      saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(classTimes));
+    };
+
+    const formatTimeDisplay = (timeStr: string) => {
+      // HHMM-HHMM 형식을 HH:MM - HH:MM로 변환
+      const match = timeStr.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
+      if (match) {
+        return `${match[1]}:${match[2]} - ${match[3]}:${match[4]}`;
+      }
+      return timeStr;
+    };
+
+    return (
+      <div className="settings page-content">
+        <PageHeader title="설정" />
+        <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
+        <div className="field">
+          <label htmlFor="udbPathInput">UDB 경로</label>
+          <div className="row">
+            <input id="udbPathInput" type="text" value={udbPath} onChange={(e) => setUdbPath(e.target.value)} placeholder="C:\...\your.udb" />
+            <button onClick={pickUdb}>찾기</button>
+            <button onClick={() => saveToRegistry(REG_KEY_UDB, udbPath)}>저장</button>
+          </div>
+        </div>
+        <div className="field">
+          <label>수업 시간</label>
+          <div className="class-times-list">
+            {classTimes.map((time, index) => (
+              <div key={index} className="class-time-item">
+                <input
+                  type="text"
+                  value={time}
+                  onChange={(e) => updateClassTime(index, e.target.value)}
+                  placeholder="0830-0920"
+                  pattern="\d{4}-\d{4}"
+                  style={{ width: '120px', fontFamily: 'monospace' }}
+                />
+                <span className="class-time-display">{formatTimeDisplay(time)}</span>
+                <button onClick={() => removeClassTime(index)} className="remove-btn">삭제</button>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: '10px' }}>
+            <button onClick={addClassTime}>수업 시간 추가</button>
+            <button onClick={saveClassTimes}>저장</button>
+          </div>
+          <div className="field-description">
+            수업 시간 동안에는 새로운 메시지가 와도 창이 자동으로 표시되지 않습니다. 형식: HHMM-HHMM (예: 0830-0920)
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const ScheduleModal = () => {
     if (!scheduleModal.open || scheduleModal.id === undefined) return null;
