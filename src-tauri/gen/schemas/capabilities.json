@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"기본 권한: core 기본 + dialog open 허용","local":true,"windows":["*"],"permissions":["core:default","dialog:allow-open"]}}
+{"default":{"identifier":"default","description":"기본 권한: core 기본 + dialog open 허용","local":true,"windows":["*"],"permissions":["core:default","dialog:allow-open"]},"desktop-capability":{"identifier":"desktop-capability","description":"","local":true,"windows":["main"],"permissions":["updater:default"],"platforms":["macOS","windows","linux"]}}

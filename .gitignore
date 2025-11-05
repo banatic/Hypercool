@@ -25,6 +25,8 @@ dist-ssr
 
 # Tauri
 src-tauri/target
+.tauri
+.tauri/*
 
 # Python 프로토타이핑 테스트용
-python_test
+python_test/*

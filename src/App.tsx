@@ -3,6 +3,8 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { List } from 'react-window';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import './App.css';
 
 interface Message {
@@ -89,6 +91,10 @@ function App() {
   const [isLoadingActiveSearch, setIsLoadingActiveSearch] = useState(false);
   const [classTimes, setClassTimes] = useState<string[]>(DEFAULT_CLASS_TIMES);
   const [uiScale, setUiScale] = useState<number>(1.0);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; date: string; body: string } | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number } | null>(null);
+  const [isInstalling, setIsInstalling] = useState(false);
   const HISTORY_PAGE_SIZE = 20;
   
   const wheelLastProcessed = useRef(0);
@@ -1332,6 +1338,78 @@ function App() {
       return timeStr;
     };
 
+    const checkForUpdates = async () => {
+      setIsCheckingUpdate(true);
+      setUpdateInfo(null);
+      setUpdateProgress(null);
+      try {
+        const update = await check();
+        if (update) {
+          console.log(
+            `found update ${update.version} from ${update.date} with notes ${update.body}`
+          );
+          setUpdateInfo({
+            version: update.version,
+            date: update.date || '',
+            body: update.body || '',
+          });
+        } else {
+          setUpdateInfo(null);
+          alert('최신 버전입니다.');
+        }
+      } catch (error) {
+        console.error('업데이트 확인 중 오류:', error);
+        alert('업데이트 확인 중 오류가 발생했습니다.');
+      } finally {
+        setIsCheckingUpdate(false);
+      }
+    };
+
+    const downloadAndInstallUpdate = async () => {
+      if (!updateInfo) return;
+      
+      setIsInstalling(true);
+      setUpdateProgress({ downloaded: 0, total: 0 });
+      
+      try {
+        const update = await check();
+        if (!update) {
+          alert('업데이트를 찾을 수 없습니다.');
+          setIsInstalling(false);
+          return;
+        }
+
+        let downloaded = 0;
+        let contentLength = 0;
+
+        await update.downloadAndInstall((event) => {
+          switch (event.event) {
+            case 'Started':
+              contentLength = event.data.contentLength ?? 0;
+              setUpdateProgress({ downloaded: 0, total: contentLength });
+              console.log(`started downloading ${event.data.contentLength ?? 0} bytes`);
+              break;
+            case 'Progress':
+              downloaded += event.data.chunkLength ?? 0;
+              setUpdateProgress({ downloaded, total: contentLength });
+              console.log(`downloaded ${downloaded} from ${contentLength}`);
+              break;
+            case 'Finished':
+              console.log('download finished');
+              break;
+          }
+        });
+
+        console.log('update installed');
+        await relaunch();
+      } catch (error) {
+        console.error('업데이트 설치 중 오류:', error);
+        alert('업데이트 설치 중 오류가 발생했습니다.');
+        setIsInstalling(false);
+        setUpdateProgress(null);
+      }
+    };
+
     return (
       <div className="settings page-content">
         <PageHeader title="설정" />
@@ -1392,6 +1470,68 @@ function App() {
           <div className="field-description">
             전체 UI의 크기를 조정합니다. (50% ~ 200%)
           </div>
+        </div>
+        <br /> <br />
+        <div className="field">
+          <label>업데이트</label>
+          <div className="row">
+            <button 
+              onClick={checkForUpdates} 
+              disabled={isCheckingUpdate || isInstalling}
+            >
+              {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
+            </button>
+          </div>
+          {updateInfo && (
+            <div style={{ marginTop: '15px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>새 버전 발견:</strong> {updateInfo.version}
+              </div>
+              <div style={{ marginBottom: '10px', fontSize: '0.9em', color: '#666' }}>
+                <strong>날짜:</strong> {updateInfo.date}
+              </div>
+              {updateInfo.body && (
+                <div style={{ marginBottom: '10px', fontSize: '0.9em', color: '#666', whiteSpace: 'pre-wrap' }}>
+                  <strong>변경 사항:</strong><br />
+                  {updateInfo.body}
+                </div>
+              )}
+              {updateProgress && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ marginBottom: '5px', fontSize: '0.9em' }}>
+                    다운로드 중: {Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%
+                  </div>
+                  <div style={{ width: '100%', height: '20px', backgroundColor: '#e0e0e0', borderRadius: '10px', overflow: 'hidden' }}>
+                    <div 
+                      style={{ 
+                        width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`, 
+                        height: '100%', 
+                        backgroundColor: '#4CAF50',
+                        transition: 'width 0.3s ease'
+                      }} 
+                    />
+                  </div>
+                  <div style={{ fontSize: '0.8em', color: '#666', marginTop: '5px' }}>
+                    {Math.round(updateProgress.downloaded / 1024 / 1024 * 100) / 100} MB / {Math.round(updateProgress.total / 1024 / 1024 * 100) / 100} MB
+                  </div>
+                </div>
+              )}
+              {!isInstalling && (
+                <button 
+                  onClick={downloadAndInstallUpdate}
+                  disabled={isCheckingUpdate}
+                  style={{ marginTop: '10px' }}
+                >
+                  업데이트 다운로드 및 설치
+                </button>
+              )}
+              {isInstalling && (
+                <div style={{ marginTop: '10px', color: '#666' }}>
+                  업데이트 설치 중... 설치가 완료되면 앱이 자동으로 재시작됩니다.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

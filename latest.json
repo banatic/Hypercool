@@ -1,0 +1,11 @@
+{
+    "version": "0.1.2",
+    "notes": "Update Test",
+    "pub_date": "2025-11-05",
+    "platforms": {
+      "windows-x86_64": {
+        "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTRvNmJPbVJUeVRtbE1HM2t4MDBHbDZNaE90N200MUVkTFJTUkRDalhQcEZScFp0NVdJcEsvS3BwNmNmZ2RZejRjTDJuKzJYVVpMTjJ4czV0eFBia2dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYyMzE4NzU0CWZpbGU6SHlwZXJDb29sXzAuMS4xX3g2NC1zZXR1cC5leGUKVzlUS2E0U2JRaTIyZHV4UVBoc0xHMVBkZ0VwdTRKQTRSay9rNEthcnBIRFluMDAvZWp4dWxYZEJscVJWRUpZVEo1MG5EV3NNSi95a3pBclIxNVNLREE9PQo=",
+        "url": "https://github.com/banatic/hypercool/releases/download/0.1.2/HyperCool_0.1.1_x64-setup.exe"
+    }
+  }
+}
