@@ -6,8 +6,10 @@
   background: transparent;
 }
 
-.with-sidebar {
+.app.with-sidebar {
   display: flex;
+  align-items: stretch;
+  height: 100vh;
 }
 
 /* Sidebar */
@@ -24,9 +26,11 @@
   border-right: 1px solid var(--border-color-dark);
   transition: width 0.3s ease;
   -webkit-app-region: drag;
-  height: 100vh;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100%;
+  align-self: stretch;
   justify-content: space-between;
+  overflow: hidden;
 }
 
 .sidebar.collapsed {
@@ -177,7 +181,7 @@
   background: transparent;
   position: relative;
   -webkit-app-region: drag;
-  height: 100vh;
+  height: 100%;
   overflow-y: auto;
 }
 

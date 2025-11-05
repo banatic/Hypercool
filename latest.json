@@ -1,11 +1,11 @@
 {
-    "version": "0.1.2",
-    "notes": "Update Test",
+    "version": "0.1.3",
+    "notes": "버그 수정",
     "pub_date": "2025-11-05T00:00:00.675Z",
     "platforms": {
       "windows-x86_64": {
-        "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dStVM2dyUDZjTjh1VUZLQXZEcjRZbUk4d2Y1NVcwcEx0R0llZjQrRFJrWHV3bE1yVi95UWZONGJRcjJkdTRzc2p1RStSOUM4RGdhcjFoektWZll2QndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYyMzE4NzU0CWZpbGU6SHlwZXJDb29sXzAuMS4xX3g2NF9lbi1VUy5tc2kKM3ZuSExhTm9WSkNuZitXbFE2ZFFIQ2NvdVFyVWtnN3FhNlRCR3ZFbTRqS0JQbzlXUFIzODIyRy9QMit6YmNramlnRzVKRW1JL1JWMmkwMzl5NExhRGc9PQo=",
-        "url": "https://github.com/banatic/Hypercool/releases/download/0.1.2/HyperCool_0.1.1_x64_en-US.msi"
+        "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dXpNQlRpSFdYL2lUN0RpaDlYc2R3cUxsM2dHNlErekZmcTdYRUNSVXpjbzB6YS8zcHJqMDFjQU1aVnJ2U3JVWTlvYlZVVmFObkRNa2paZ0lQcWg0NFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYyMzIwNDg3CWZpbGU6SHlwZXJDb29sXzAuMS4zX3g2NF9lbi1VUy5tc2kKelhDeVgxb2t5MUlKeHR4aFFlbkoxYkZmaEt6Rkp1TklWMG01OWR4ODhTUkFaRkxWWVNaRk1lbzNVNTJFeEg0NVVWbk54RFFJSjZ0NXp3ZTFXeC9iQkE9PQo=",
+        "url": "https://github.com/banatic/Hypercool/releases/download/0.1.3/HyperCool_0.1.3_x64_en-US.msi"
     }
   }
 }

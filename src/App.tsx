@@ -1482,6 +1482,7 @@ function App() {
               {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
             </button>
           </div>
+          <br />
           {updateInfo && (
             <div style={{ marginTop: '15px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
               <div style={{ marginBottom: '10px' }}>
@@ -1532,6 +1533,7 @@ function App() {
               )}
             </div>
           )}
+          <br /><br />
         </div>
       </div>
     );
