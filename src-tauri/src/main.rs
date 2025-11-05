@@ -18,6 +18,13 @@ use std::num::NonZeroUsize;
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
 use chrono::{Local, NaiveTime};
+use single_instance::SingleInstance;
+#[cfg(target_os = "windows")]
+use winapi::um::winuser::{MessageBoxW, MB_OK, MB_ICONINFORMATION};
+#[cfg(target_os = "windows")]
+use std::ffi::OsStr;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
 
 #[derive(serde::Serialize, Clone)]
 struct Message {
@@ -408,7 +415,32 @@ struct CacheState {
     search_cache: Mutex<LruCache<String, Vec<SearchResultItem>>>,
 }
 
+#[cfg(target_os = "windows")]
+fn show_message_box(message: &str, title: &str) {
+    unsafe {
+        let message_wide: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
+        let title_wide: Vec<u16> = OsStr::new(title).encode_wide().chain(Some(0)).collect();
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message_wide.as_ptr(),
+            title_wide.as_ptr(),
+            MB_OK | MB_ICONINFORMATION,
+        );
+    }
+}
+
 fn main() {
+    // 단일 인스턴스 체크 - 이미 실행 중이면 종료
+    // instance 변수를 유지하여 mutex가 해제되지 않도록 함
+    let _instance = SingleInstance::new("hypercool-app").unwrap();
+    if !_instance.is_single() {
+        #[cfg(target_os = "windows")]
+        show_message_box("이미 실행 중입니다.", "HyperCool");
+        #[cfg(not(target_os = "windows"))]
+        eprintln!("이미 실행 중입니다.");
+        std::process::exit(1);
+    }
+
     let cache_size = NonZeroUsize::new(50).unwrap();
     let cache_state = CacheState {
         search_cache: Mutex::new(LruCache::new(cache_size)),
@@ -626,12 +658,35 @@ fn main() {
                         let mut baseline_initialized = last_seen_id.is_some();
                         while let Ok(event) = rx.recv() {
                             // 이벤트가 udb-wal 파일과 관련된 경우에만 처리합니다.
-                            let is_wal_related = event.paths.iter().any(|p| p == &wal_path);
+                            // 경로 비교를 정규화하여 정확하게 비교합니다.
+                            let wal_path_canonical = wal_path.canonicalize().ok();
+                            let is_wal_related = event.paths.iter().any(|p| {
+                                // 정규화된 경로로 비교 시도
+                                if let Ok(canonical) = p.canonicalize() {
+                                    if let Some(ref wal_canonical) = wal_path_canonical {
+                                        return canonical == *wal_canonical;
+                                    }
+                                }
+                                // 정규화 실패 시 원본 경로로 비교
+                                p == &wal_path
+                            });
+                            
                             if !is_wal_related {
                                 continue;
                             }
 
-                            if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                            // udb-wal 파일이 존재하는지 확인 (오프라인 상태에서는 파일이 없을 수 있음)
+                            let wal_exists = wal_path.exists();
+                            
+                            // Create 이벤트는 파일이 실제로 생성되었을 때만 처리
+                            // Modify 이벤트는 파일이 존재할 때만 처리 (오프라인 상태 방지)
+                            let should_process = match event.kind {
+                                EventKind::Create(_) => wal_exists, // Create 이벤트 발생 시 실제로 파일이 존재하는지 확인
+                                EventKind::Modify(_) => wal_exists,
+                                _ => false,
+                            };
+
+                            if should_process {
                                 let mut has_new_message = false;
                                 if let Ok(result) = read_udb_messages(path.clone(), Some(1), Some(0), None) {
                                     if let Some(current_id) = result.messages.first().map(|m| m.id) {
@@ -643,8 +698,10 @@ fn main() {
                                         baseline_initialized = true;
                                     }
                                 }
-                                let _ = app_handle.emit("udb-changed", ());
+                                
+                                // 메시지가 실제로 변경되었을 때만 이벤트 발생
                                 if has_new_message {
+                                    let _ = app_handle.emit("udb-changed", ());
                                     // 최근 숨김 직후에는 자동 표시 억제 (2초)
                                     let suppress_hide = LAST_HIDE_AT
                                         .get_or_init(|| Mutex::new(None))

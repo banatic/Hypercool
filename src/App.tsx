@@ -17,12 +17,20 @@ interface SearchResultItem {
   snippet: string;
 }
 
+interface ManualTodo {
+  id: number;
+  content: string;
+  deadline: string | null;
+  createdAt: string;
+}
+
 type Page = 'classify' | 'todos' | 'history' | 'settings';
 
 const REG_KEY_UDB = 'UdbPath';
 const REG_KEY_CLASSIFIED = 'ClassifiedMap';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CLASS_TIMES = 'ClassTimes';
+const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const DRAG_THRESHOLD = 160;
 
 // 기본 수업 시간 (HHMM-HHMM 형식)
@@ -68,6 +76,8 @@ function App() {
   const [classified, setClassified] = useState<Record<number, 'left' | 'right'>>({});
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
   const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number }>({ open: false });
+  const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
+  const [addTodoModal, setAddTodoModal] = useState<boolean>(false);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [totalMessageCount, setTotalMessageCount] = useState(0);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -126,6 +136,9 @@ function App() {
 
       const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
       if (savedDeadlines) setDeadlines(JSON.parse(savedDeadlines) || {});
+
+      const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
+      if (savedManualTodos) setManualTodos(JSON.parse(savedManualTodos) || []);
 
       const savedClassTimes = await invoke<string | null>('get_registry_value', { key: REG_KEY_CLASS_TIMES });
       if (savedClassTimes) {
@@ -489,30 +502,35 @@ function App() {
       return 'var(--text-secondary)';
     };
 
-    const tasksWithDeadlines = keptMessages
-      .filter(m => deadlines[m.id])
-      .sort((a, b) => new Date(deadlines[a.id]!).getTime() - new Date(deadlines[b.id]!).getTime());
+    // 메시지 기반 할 일과 직접 추가한 할 일을 합침
+    const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean }> = [
+      ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false })),
+      ...manualTodos.map(t => ({ id: t.id, content: t.content, deadline: t.deadline, isManual: true }))
+    ];
 
-    const groupedTasks = tasksWithDeadlines.reduce((acc, m) => {
-      const date = formatDate(deadlines[m.id]!);
+    const tasksWithDeadlines = allTodos
+      .filter(t => t.deadline)
+      .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime());
+
+    const groupedTasks = tasksWithDeadlines.reduce((acc, t) => {
+      const date = formatDate(t.deadline!);
       if (!acc[date]) {
         acc[date] = [];
       }
-      acc[date].push(m);
+      acc[date].push(t);
       return acc;
-    }, {} as Record<string, Message[]>);
+    }, {} as Record<string, typeof allTodos>);
 
-    const groupedMessages = keptMessages.reduce((acc, m) => {
-      const deadline = deadlines[m.id];
-      const date = deadline ? formatDate(deadline) : '마감 없음';
+    const groupedTodos = allTodos.reduce((acc, t) => {
+      const date = t.deadline ? formatDate(t.deadline) : '마감 없음';
       if (!acc[date]) {
         acc[date] = [];
       }
-      acc[date].push(m);
+      acc[date].push(t);
       return acc;
-    }, {} as Record<string, Message[]>);
+    }, {} as Record<string, typeof allTodos>);
 
-    const sortedGroups = Object.entries(groupedMessages).sort((a, b) => {
+    const sortedGroups = Object.entries(groupedTodos).sort((a, b) => {
       const dateA = a[0];
       const dateB = b[0];
       if (dateA === '마감 없음') return 1;
@@ -522,11 +540,11 @@ function App() {
 
     return (
       <div className="timeline page-content">
-        <PageHeader title={`타임라인 (${keptMessages.length})`}>
+        <PageHeader title={`타임라인 (${allTodos.length})`}>
           <div className="todo-summary simple">
             <div className="spark-line">
               {Object.entries(groupedTasks).map(([date, tasks]) => {
-                const firstTaskDeadline = tasks.length > 0 ? deadlines[tasks[0].id] : null;
+                const firstTaskDeadline = tasks.length > 0 ? tasks[0].deadline : null;
                 const remainingTime = getRemainingTimeInfo(firstTaskDeadline);
                 return (
                   <div key={date} className="spark-line-group">
@@ -537,12 +555,12 @@ function App() {
                     )}
                     <span className="spark-line-date">{date}</span>
                     <div className="spark-line-items">
-                      {tasks.map(m => (
+                      {tasks.map(task => (
                         <div
-                          key={m.id}
+                          key={task.id}
                           className="spark-line-item"
-                          style={{ backgroundColor: getColorForDeadline(deadlines[m.id]) }}
-                          title={`마감: ${new Date(deadlines[m.id]!).toLocaleString()}`}
+                          style={{ backgroundColor: getColorForDeadline(task.deadline) }}
+                          title={task.deadline ? `마감: ${new Date(task.deadline).toLocaleString()}` : '마감 없음'}
                         />
                       ))}
                     </div>
@@ -551,15 +569,18 @@ function App() {
               })}
             </div>
           </div>
+          <button onClick={() => setAddTodoModal(true)} className="add-todo-btn">
+            할 일 추가
+          </button>
         </PageHeader>
         <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
-        {keptMessages.length === 0 ? (
-          <p>오른쪽으로 분류된 메시지가 없습니다.</p>
+        {allTodos.length === 0 ? (
+          <p>할 일이 없습니다. 할 일을 추가해보세요.</p>
         ) : (
           <div>
-            {sortedGroups.map(([date, messages]) => {
-              const firstMessageDeadline = messages.length > 0 ? deadlines[messages[0].id] : null;
-              const remainingTime = getRemainingTimeInfo(firstMessageDeadline);
+            {sortedGroups.map(([date, todos]) => {
+              const firstTodoDeadline = todos.length > 0 ? todos[0].deadline : null;
+              const remainingTime = getRemainingTimeInfo(firstTodoDeadline);
 
               return (
                 <div key={date} className="timeline-group">
@@ -573,8 +594,8 @@ function App() {
                   </div>
                   <div className="timeline-vline"></div>
                   <div className="timeline-items">
-                    {messages.map((m) => {
-                      const deadline = deadlines[m.id];
+                    {todos.map((todo) => {
+                      const deadline = todo.deadline;
                       const remainingTimeForItem = getRemainingTimeInfo(deadline);
                       
                       let deadlineDisplay = '마감 없음';
@@ -587,17 +608,40 @@ function App() {
                         }
                       }
 
+                      const handleDelete = () => {
+                        if (todo.isManual) {
+                          setManualTodos(prev => {
+                            const next = prev.filter(t => t.id !== todo.id);
+                            void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
+                            return next;
+                          });
+                          // deadlines에서도 제거
+                          setDeadlines(prev => {
+                            const next = { ...prev };
+                            delete next[todo.id];
+                            void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
+                            return next;
+                          });
+                        } else {
+                          classify(todo.id, 'left');
+                        }
+                      };
+
+                      const handleSetDeadline = () => {
+                        setScheduleModal({ open: true, id: todo.id });
+                      };
+
                       return (
-                        <div key={m.id} className="todo-item">
+                        <div key={todo.id} className="todo-item">
                           <div className="todo-actions">
                             <span className="deadline-label" title={deadlineTitle} style={{ color: remainingTimeForItem.color }}>
                               {deadlineDisplay}
                             </span>
-                            <button onClick={() => setScheduleModal({ open: true, id: m.id })}>마감 설정</button>
-                            <button onClick={() => classify(m.id, 'left')}>완료</button>
+                            <button onClick={handleSetDeadline}>마감 설정</button>
+                            <button onClick={handleDelete}>완료</button>
                           </div>
-                          <div className="todo-sender">{m.sender}</div>
-                          <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(m.content) }} />
+                          {todo.sender && <div className="todo-sender">{todo.sender}</div>}
+                          <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(todo.content) }} />
                         </div>
                       );
                     })}
@@ -1017,10 +1061,16 @@ function App() {
     if (!scheduleModal.open || scheduleModal.id === undefined) return null;
 
     const id = scheduleModal.id;
+    const isManualTodo = manualTodos.some(t => t.id === id);
     const [modalMsg, setModalMsg] = useState<Message | null>(null);
     const [isLoadingModalMsg, setIsLoadingModalMsg] = useState(false);
     
     useEffect(() => {
+      if (isManualTodo) {
+        // 수동 할 일인 경우 메시지 로드 불필요
+        return;
+      }
+      
       const loadMsg = async () => {
         const found = allMessages.find((m) => m.id === id);
         if (found) {
@@ -1049,7 +1099,7 @@ function App() {
         setModalMsg(null);
         setIsLoadingModalMsg(false);
       };
-    }, [id, udbPath, allMessages]);
+    }, [id, udbPath, allMessages, isManualTodo]);
 
     const current = deadlines[id] || '';
     const d = current ? new Date(current) : new Date();
@@ -1064,36 +1114,73 @@ function App() {
 
     const onSave = () => {
       const iso = new Date(`${dateVal}T${timeVal}:00`).toISOString();
-      setDeadlines(prev => {
-        const next = { ...prev, [id]: iso };
-        void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
-        return next;
-      });
-      if (classified[id] !== 'right') {
-        setClassified(prev => {
-          const next = { ...prev, [id]: 'right' as const };
-          void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
+      
+      if (isManualTodo) {
+        // 수동 할 일의 경우 manualTodos 업데이트
+        setManualTodos(prev => {
+          const next = prev.map(t => t.id === id ? { ...t, deadline: iso } : t);
+          void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
+          return next;
+        });
+        // deadlines에도 저장 (일관성 유지)
+        setDeadlines(prev => {
+          const next = { ...prev, [id]: iso };
+          void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
+          return next;
+        });
+      } else {
+        setDeadlines(prev => {
+          const next = { ...prev, [id]: iso };
+          void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
+          return next;
+        });
+        if (classified[id] !== 'right') {
+          setClassified(prev => {
+            const next = { ...prev, [id]: 'right' as const };
+            void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
+            return next;
+          });
+        }
+      }
+      setScheduleModal({ open: false });
+    };
+
+    const onNoDeadline = () => {
+      if (isManualTodo) {
+        setManualTodos(prev => {
+          const next = prev.map(t => t.id === id ? { ...t, deadline: null } : t);
+          void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
+          return next;
+        });
+        setDeadlines(prev => {
+          const next = { ...prev, [id]: null };
+          void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
+          return next;
+        });
+      } else {
+        setDeadlines(prev => {
+          const next = { ...prev, [id]: null };
+          void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
           return next;
         });
       }
       setScheduleModal({ open: false });
     };
 
-    const onNoDeadline = () => {
-      setDeadlines(prev => {
-        const next = { ...prev, [id]: null };
-        void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
-        return next;
-      });
-      setScheduleModal({ open: false });
-    };
+    const manualTodo = isManualTodo ? manualTodos.find(t => t.id === id) : null;
 
     return (
         <div className="schedule-modal-overlay" onClick={() => setScheduleModal({ open: false }) }>
             <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
               <div className="schedule-inner">
                 <div className="schedule-preview">
-                  {isLoadingModalMsg ? (
+                  {isManualTodo ? (
+                    manualTodo ? (
+                      <div dangerouslySetInnerHTML={{ __html: decodeEntities(manualTodo.content) }} />
+                    ) : (
+                      <div>할 일을 불러올 수 없습니다.</div>
+                    )
+                  ) : isLoadingModalMsg ? (
                     <div>로딩 중...</div>
                   ) : modalMsg ? (
                     <div dangerouslySetInnerHTML={{ __html: decodeEntities(modalMsg.content) }} />
@@ -1116,6 +1203,113 @@ function App() {
               </div>
             </div>
         </div>
+    );
+  };
+
+  const AddTodoModal = () => {
+    if (!addTodoModal) return null;
+
+    const [content, setContent] = useState<string>('');
+    const [deadlineDate, setDeadlineDate] = useState<string>('');
+    const [deadlineTime, setDeadlineTime] = useState<string>('');
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const now = new Date();
+    const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    const onSave = () => {
+      if (!content.trim()) {
+        alert('할 일 내용을 입력해주세요.');
+        return;
+      }
+
+      const newId = Date.now(); // 타임스탬프 기반 ID 생성 (메시지 ID와 충돌 방지)
+      const deadline = deadlineDate && deadlineTime 
+        ? new Date(`${deadlineDate}T${deadlineTime}:00`).toISOString()
+        : null;
+
+      const newTodo: ManualTodo = {
+        id: newId,
+        content: content.trim(),
+        deadline,
+        createdAt: new Date().toISOString(),
+      };
+
+      setManualTodos(prev => {
+        const next = [...prev, newTodo];
+        void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
+        return next;
+      });
+
+      // deadline이 있으면 deadlines에도 저장
+      if (deadline) {
+        setDeadlines(prev => {
+          const next = { ...prev, [newId]: deadline };
+          void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
+          return next;
+        });
+      }
+
+      setContent('');
+      setDeadlineDate('');
+      setDeadlineTime('');
+      setAddTodoModal(false);
+    };
+
+    return (
+      <div className="schedule-modal-overlay" onClick={() => setAddTodoModal(false)}>
+        <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="schedule-inner">
+            <div className="schedule-preview">
+              <div style={{ padding: '16px' }}>
+                <h3 style={{ marginBottom: '12px' }}>할 일 내용</h3>
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="할 일 내용을 입력하세요..."
+                  style={{
+                    width: '100%',
+                    minHeight: '200px',
+                    padding: '12px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius)',
+                    fontSize: '15px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                  }}
+                />
+              </div>
+            </div>
+            <div className="schedule-panel">
+              <h3>마감 시간 설정</h3>
+              <label htmlFor="add-todo-deadline-date">날짜</label>
+              <input 
+                id="add-todo-deadline-date" 
+                type="date" 
+                value={deadlineDate || defaultDate}
+                onChange={(e) => setDeadlineDate(e.target.value)} 
+              />
+              <label htmlFor="add-todo-deadline-time">시간</label>
+              <input 
+                id="add-todo-deadline-time" 
+                type="time" 
+                value={deadlineTime || defaultTime}
+                onChange={(e) => setDeadlineTime(e.target.value)} 
+              />
+              <div className="row">
+                <button onClick={onSave}>저장</button>
+                <button onClick={() => {
+                  setContent('');
+                  setDeadlineDate('');
+                  setDeadlineTime('');
+                  setAddTodoModal(false);
+                }}>취소</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -1149,6 +1343,7 @@ function App() {
         {page === 'history' && renderHistory()}
         {page === 'settings' && renderSettings()}
         <ScheduleModal />
+        <AddTodoModal />
       </main>
     </div>
   );

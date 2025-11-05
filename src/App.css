@@ -450,6 +450,8 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0; /* Prevent overflow in flex context */
+  flex: 1;
+  width: 100%;
 }
 
 .todo-item {
@@ -462,6 +464,9 @@
   padding: 16px;
   box-shadow: var(--shadow);
   -webkit-app-region: no-drag;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .todo-sender {
@@ -474,6 +479,9 @@
 .todo-content {
   line-height: 1.6;
   overflow-wrap: break-word;
+  word-break: break-word;
+  width: 100%;
+  min-width: 0;
 }
 
 .todo-actions {
@@ -497,6 +505,25 @@
   border-radius: var(--radius);
   padding: 6px 10px;
   font-size: 13px;
+}
+
+.add-todo-btn {
+  padding: 6px 12px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.add-todo-btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 /* History View */
