@@ -8,7 +8,8 @@ import './App.css';
 interface Message {
   id: number;
   sender: string;
-  content: string; 
+  content: string;
+  receive_date?: string | null;
 }
 
 interface SearchResultItem {
@@ -404,6 +405,21 @@ function App() {
     void invoke('hide_main_window');
   }, []);
 
+  const formatReceiveDate = (receiveDate: string | null | undefined) => {
+    if (!receiveDate) return null;
+    try {
+      const date = new Date(receiveDate);
+      const year = date.getFullYear().toString().slice(-2);
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      return `${year}.${month}.${day} ${hours}:${minutes}`;
+    } catch {
+      return null;
+    }
+  };
+
   const renderClassifier = () => (
     <div className="classifier page-content">
       <PageHeader title="메시지 분류">
@@ -419,7 +435,14 @@ function App() {
         {visibleMessages.map((msg, idx) => (
           <div key={msg.id} className={`card ${idx === 0 ? 'top' : 'back'}`} onMouseDown={onMouseDown(msg.id)}>
             <div className="card-inner">
-              <div className="card-sender">{msg.sender}</div>
+              <div className="card-sender">
+                {msg.sender}
+                {msg.receive_date && (
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 'normal', marginLeft: '8px' }}>
+                    {formatReceiveDate(msg.receive_date)}
+                  </span>
+                )}
+              </div>
               <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
               <div className="card-actions">
                 <button className="left" onClick={() => classify(msg.id, 'left')}>◀ 완료된 일</button>
@@ -481,6 +504,206 @@ function App() {
     return { text: `${days}일 남음`, color: 'var(--text-secondary)' };
   };
 
+  // 날짜 파싱 함수: 다양한 형식의 날짜 문자열을 파싱하여 ISO 날짜 문자열과 시간을 반환
+  const parseDateFromText = (text: string, baseDate?: Date): { date: string | null; time: string | null } => {
+    const now = baseDate || new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    
+    // 텍스트 정규화 (공백 제거, 소문자 변환)
+    const normalizedText = text.replace(/\s+/g, ' ').trim();
+    
+    // 상대적 날짜 패턴
+    const relativeDatePatterns = [
+      { pattern: /오늘|지금/i, days: 0 },
+      { pattern: /내일/i, days: 1 },
+      { pattern: /모레/i, days: 2 },
+      { pattern: /글피/i, days: 3 },
+      { pattern: /다음\s*주|다음주/i, days: 7 },
+      { pattern: /이번\s*주|이번주/i, days: 0 },
+      { pattern: /다다음\s*주|다다음주/i, days: 14 },
+    ];
+
+    // 요일 패턴 (한국어)
+    const weekdays = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
+    const weekdayMap: Record<string, number> = {};
+    weekdays.forEach((day, index) => {
+      weekdayMap[day] = index;
+    });
+
+    // 절대 날짜 패턴들 (각 패턴마다 파싱 로직이 다름)
+    const absoluteDatePatterns: Array<{ pattern: RegExp; parse: (match: RegExpMatchArray, today: Date) => Date | null }> = [
+      {
+        // YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD
+        pattern: /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/,
+        parse: (match) => {
+          const year = parseInt(match[1]);
+          const month = parseInt(match[2]) - 1;
+          const day = parseInt(match[3]);
+          return new Date(year, month, day);
+        }
+      },
+      {
+        // YYYY년 MM월 DD일
+        pattern: /(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/,
+        parse: (match) => {
+          const year = parseInt(match[1]);
+          const month = parseInt(match[2]) - 1;
+          const day = parseInt(match[3]);
+          return new Date(year, month, day);
+        }
+      },
+      {
+        // MM월 DD일
+        pattern: /(\d{1,2})\s*월\s*(\d{1,2})\s*일/,
+        parse: (match, today) => {
+          const month = parseInt(match[1]) - 1;
+          const day = parseInt(match[2]);
+          const date = new Date(today.getFullYear(), month, day);
+          // 이미 지난 날짜면 내년으로
+          if (date < today) {
+            date.setFullYear(date.getFullYear() + 1);
+          }
+          return date;
+        }
+      },
+      {
+        // MM-DD, MM.DD, MM/DD (올해로 가정)
+        pattern: /(\d{1,2})[.\-\/](\d{1,2})(?!\d)/,
+        parse: (match, today) => {
+          const month = parseInt(match[1]) - 1;
+          const day = parseInt(match[2]);
+          const date = new Date(today.getFullYear(), month, day);
+          // 이미 지난 날짜면 내년으로
+          if (date < today) {
+            date.setFullYear(date.getFullYear() + 1);
+          }
+          return date;
+        }
+      },
+    ];
+
+    // 시간 패턴들
+    const timePatterns: Array<{ pattern: RegExp; parse: (match: RegExpMatchArray) => string | null }> = [
+      {
+        // 오전/오후 시간
+        pattern: /(오전|오후|AM|PM|am|pm)\s*(\d{1,2})시(?:\s*(\d{1,2})분)?/,
+        parse: (match) => {
+          const period = match[1].toLowerCase();
+          let hours = parseInt(match[2]) || 0;
+          const minutes = match[3] ? parseInt(match[3]) : 0;
+          
+          if (period.includes('오후') || period.includes('pm')) {
+            if (hours !== 12) hours += 12;
+          } else if (period.includes('오전') || period.includes('am')) {
+            if (hours === 12) hours = 0;
+          }
+          return `${pad(hours)}:${pad(minutes)}`;
+        }
+      },
+      {
+        // HH:MM 형식
+        pattern: /(\d{1,2}):(\d{2})/,
+        parse: (match) => {
+          const hours = parseInt(match[1]);
+          const minutes = parseInt(match[2]);
+          return `${pad(hours)}:${pad(minutes)}`;
+        }
+      },
+      {
+        // HH시 MM분 형식
+        pattern: /(\d{1,2})\s*시\s*(\d{1,2})\s*분/,
+        parse: (match) => {
+          const hours = parseInt(match[1]);
+          const minutes = parseInt(match[2]);
+          return `${pad(hours)}:${pad(minutes)}`;
+        }
+      },
+      {
+        // HHMM 형식 (4자리 숫자)
+        pattern: /(\d{2})(\d{2})(?=\s|$|[^\d])/,
+        parse: (match) => {
+          const hours = parseInt(match[1]);
+          const minutes = parseInt(match[2]);
+          if (hours < 24 && minutes < 60) {
+            return `${pad(hours)}:${pad(minutes)}`;
+          }
+          return null;
+        }
+      },
+      {
+        // N시 형식
+        pattern: /(\d{1,2})\s*시(?!\s*\d)/,
+        parse: (match) => {
+          const hours = parseInt(match[1]);
+          return `${pad(hours)}:00`;
+        }
+      },
+    ];
+
+    // 모든 날짜와 시간을 수집
+    const foundDates: Date[] = [];
+    let parsedTime: string | null = null;
+
+    // 1. 상대적 날짜 패턴 매칭 (모든 매칭 찾기)
+    for (const { pattern, days } of relativeDatePatterns) {
+      const matches = normalizedText.matchAll(pattern);
+      for (const match of matches) {
+        const date = new Date(today);
+        date.setDate(date.getDate() + days);
+        foundDates.push(date);
+      }
+    }
+
+    // 2. 요일 패턴 매칭 (모든 매칭 찾기)
+    for (const [weekday, weekdayIndex] of Object.entries(weekdayMap)) {
+      if (normalizedText.includes(weekday)) {
+        const targetDate = new Date(today);
+        const currentDay = today.getDay();
+        let daysToAdd = (weekdayIndex - currentDay + 7) % 7;
+        if (daysToAdd === 0) daysToAdd = 7; // 이번 주가 아니라 다음 주로
+        targetDate.setDate(targetDate.getDate() + daysToAdd);
+        foundDates.push(targetDate);
+      }
+    }
+
+    // 3. 절대 날짜 패턴 매칭 (모든 매칭 찾기)
+    for (const { pattern, parse } of absoluteDatePatterns) {
+      const matches = normalizedText.matchAll(pattern);
+      for (const match of matches) {
+        const date = parse(match, today);
+        if (date) {
+          foundDates.push(date);
+        }
+      }
+    }
+
+    // 4. 시간 패턴 매칭 (첫 번째 매칭만 사용)
+    for (const { pattern, parse } of timePatterns) {
+      const match = normalizedText.match(pattern);
+      if (match) {
+        parsedTime = parse(match);
+        if (parsedTime) break;
+      }
+    }
+
+    // 가장 빠른 날짜 선택
+    let parsedDate: Date | null = null;
+    if (foundDates.length > 0) {
+      // 날짜 배열을 정렬하여 가장 빠른 날짜 선택
+      foundDates.sort((a, b) => a.getTime() - b.getTime());
+      parsedDate = foundDates[0];
+    }
+
+    // 파싱된 날짜를 YYYY-MM-DD 형식으로 변환
+    if (parsedDate) {
+      const dateStr = `${parsedDate.getFullYear()}-${pad(parsedDate.getMonth() + 1)}-${pad(parsedDate.getDate())}`;
+      return { date: dateStr, time: parsedTime };
+    }
+
+    return { date: null, time: null };
+  };
+
   const renderTodos = () => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -503,10 +726,32 @@ function App() {
     };
 
     // 메시지 기반 할 일과 직접 추가한 할 일을 합침
-    const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean }> = [
-      ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false })),
+    const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null }> = [
+      ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false, receive_date: m.receive_date })),
       ...manualTodos.map(t => ({ id: t.id, content: t.content, deadline: t.deadline, isManual: true }))
     ];
+
+    // 전체 항목을 먼저 정렬 (마감일 시간 순으로 전체 정렬, 수동 추가 항목은 같은 조건에서 뒤로)
+    allTodos.sort((a, b) => {
+      // 둘 다 마감일이 있으면 마감일 시간 순으로 정렬
+      if (a.deadline && b.deadline) {
+        const deadlineDiff = new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+        if (deadlineDiff !== 0) return deadlineDiff;
+        // 마감일 시간이 같으면 수동 추가 항목을 뒤로
+        if (a.isManual !== b.isManual) {
+          return a.isManual ? 1 : -1;
+        }
+        return a.id - b.id;
+      }
+      // 마감일이 있는 항목이 먼저
+      if (a.deadline && !b.deadline) return -1;
+      if (!a.deadline && b.deadline) return 1;
+      // 둘 다 마감일이 없으면 수동 추가 항목을 뒤로
+      if (a.isManual !== b.isManual) {
+        return a.isManual ? 1 : -1;
+      }
+      return a.id - b.id;
+    });
 
     const tasksWithDeadlines = allTodos
       .filter(t => t.deadline)
@@ -529,6 +774,8 @@ function App() {
       acc[date].push(t);
       return acc;
     }, {} as Record<string, typeof allTodos>);
+
+    // 그룹화는 이미 정렬된 순서를 유지하므로 별도 정렬 불필요
 
     const sortedGroups = Object.entries(groupedTodos).sort((a, b) => {
       const dateA = a[0];
@@ -640,7 +887,16 @@ function App() {
                             <button onClick={handleSetDeadline}>마감 설정</button>
                             <button onClick={handleDelete}>완료</button>
                           </div>
-                          {todo.sender && <div className="todo-sender">{todo.sender}</div>}
+                          {todo.sender && (
+                            <div className="todo-sender">
+                              {todo.sender}
+                              {(todo as any).receive_date && (
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 'normal', marginLeft: '8px' }}>
+                                  {formatReceiveDate((todo as any).receive_date)}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(todo.content) }} />
                         </div>
                       );
@@ -864,6 +1120,11 @@ function App() {
                       <div className="history-card-header">
                         <span className="history-id">#{msg.id}</span>
                         <span className="history-sender">{msg.sender}</span>
+                        {msg.receive_date && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                            {formatReceiveDate(msg.receive_date)}
+                          </span>
+                        )}
                         {classification && (
                           <span className={`history-badge ${classification}`}>
                             {classification === 'left' ? '완료' : '해야할 일'}
@@ -1064,7 +1325,73 @@ function App() {
     const isManualTodo = manualTodos.some(t => t.id === id);
     const [modalMsg, setModalMsg] = useState<Message | null>(null);
     const [isLoadingModalMsg, setIsLoadingModalMsg] = useState(false);
+    const [dateVal, setDateVal] = useState<string>('');
+    const [timeVal, setTimeVal] = useState<string>('');
+    const [parsedDateInfo, setParsedDateInfo] = useState<{ date: string | null; time: string | null }>({ date: null, time: null });
     
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const now = new Date();
+    const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    // 메시지 내용에서 날짜 파싱 및 초기값 설정
+    useEffect(() => {
+      const current = deadlines[id] || '';
+      
+      // 이미 deadline이 있으면 그것을 사용
+      if (current) {
+        const d = new Date(current);
+        setDateVal(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+        setTimeVal(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+        return;
+      }
+
+      // 메시지 내용 파싱
+      let contentToParse = '';
+      if (isManualTodo) {
+        const manualTodo = manualTodos.find(t => t.id === id);
+        if (manualTodo) {
+          contentToParse = manualTodo.content;
+        }
+      } else if (modalMsg) {
+        contentToParse = modalMsg.content;
+      }
+
+      if (contentToParse) {
+        // HTML 태그 제거하고 텍스트만 추출
+        const textContent = contentToParse.replace(/<[^>]*>/g, '');
+        
+        // 메시지의 receiveDate를 기준으로 날짜 파싱
+        let baseDate: Date | undefined = undefined;
+        if (!isManualTodo && modalMsg?.receive_date) {
+          try {
+            baseDate = new Date(modalMsg.receive_date);
+          } catch {
+            // 파싱 실패 시 무시
+          }
+        }
+        
+        const parsed = parseDateFromText(textContent, baseDate);
+        setParsedDateInfo(parsed);
+        
+        if (parsed.date) {
+          setDateVal(parsed.date);
+        } else {
+          setDateVal(defaultDate);
+        }
+        
+        if (parsed.time) {
+          setTimeVal(parsed.time);
+        } else {
+          setTimeVal(defaultTime);
+        }
+      } else {
+        // 파싱할 내용이 없으면 기본값 사용
+        setDateVal(defaultDate);
+        setTimeVal(defaultTime);
+      }
+    }, [id, modalMsg, isManualTodo, manualTodos, deadlines, defaultDate, defaultTime]);
+
     useEffect(() => {
       if (isManualTodo) {
         // 수동 할 일인 경우 메시지 로드 불필요
@@ -1098,19 +1425,11 @@ function App() {
       return () => {
         setModalMsg(null);
         setIsLoadingModalMsg(false);
+        setDateVal('');
+        setTimeVal('');
+        setParsedDateInfo({ date: null, time: null });
       };
     }, [id, udbPath, allMessages, isManualTodo]);
-
-    const current = deadlines[id] || '';
-    const d = current ? new Date(current) : new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const [defDate, defTime] = [
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-      `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-    ];
-
-    let dateVal = defDate;
-    let timeVal = defTime;
 
     const onSave = () => {
       const iso = new Date(`${dateVal}T${timeVal}:00`).toISOString();
@@ -1190,10 +1509,32 @@ function App() {
                 </div>
                 <div className="schedule-panel">
                   <h3>완료 시간 설정</h3>
+                  {parsedDateInfo.date && (
+                    <div style={{ 
+                      marginBottom: '12px', 
+                      padding: '8px', 
+                      backgroundColor: 'var(--bg-light)', 
+                      borderRadius: 'var(--radius)',
+                      fontSize: '13px',
+                      color: 'var(--primary)'
+                    }}>
+                      📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
+                    </div>
+                  )}
                   <label htmlFor="deadline-date">날짜</label>
-                  <input id="deadline-date" type="date" defaultValue={defDate} onChange={(e) => (dateVal = e.target.value)} />
+                  <input 
+                    id="deadline-date" 
+                    type="date" 
+                    value={dateVal || defaultDate}
+                    onChange={(e) => setDateVal(e.target.value)} 
+                  />
                   <label htmlFor="deadline-time">시간</label>
-                  <input id="deadline-time" type="time" defaultValue={defTime} onChange={(e) => (timeVal = e.target.value)} />
+                  <input 
+                    id="deadline-time" 
+                    type="time" 
+                    value={timeVal || defaultTime}
+                    onChange={(e) => setTimeVal(e.target.value)} 
+                  />
                   <div className="row">
                     <button onClick={onSave}>저장</button>
                     <button onClick={onNoDeadline}>완료 시간 없음</button>
@@ -1212,11 +1553,29 @@ function App() {
     const [content, setContent] = useState<string>('');
     const [deadlineDate, setDeadlineDate] = useState<string>('');
     const [deadlineTime, setDeadlineTime] = useState<string>('');
+    const [parsedDateInfo, setParsedDateInfo] = useState<{ date: string | null; time: string | null }>({ date: null, time: null });
 
     const pad = (n: number) => n.toString().padStart(2, '0');
     const now = new Date();
     const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    // 텍스트 변경 시 날짜 자동 파싱
+    const handleContentChange = (newContent: string) => {
+      setContent(newContent);
+      
+      // 날짜 파싱 시도
+      const parsed = parseDateFromText(newContent);
+      setParsedDateInfo(parsed);
+      
+      // 파싱된 날짜가 있으면 자동으로 설정 (사용자가 수동으로 변경하지 않은 경우에만)
+      if (parsed.date && !deadlineDate) {
+        setDeadlineDate(parsed.date);
+      }
+      if (parsed.time && !deadlineTime) {
+        setDeadlineTime(parsed.time);
+      }
+    };
 
     const onSave = () => {
       if (!content.trim()) {
@@ -1254,6 +1613,7 @@ function App() {
       setContent('');
       setDeadlineDate('');
       setDeadlineTime('');
+      setParsedDateInfo({ date: null, time: null });
       setAddTodoModal(false);
     };
 
@@ -1266,8 +1626,8 @@ function App() {
                 <h3 style={{ marginBottom: '12px' }}>할 일 내용</h3>
                 <textarea
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="할 일 내용을 입력하세요..."
+                  onChange={(e) => handleContentChange(e.target.value)}
+                  placeholder="할 일 내용을 입력하세요... (예: 내일까지 과제 제출, 12월 25일 오후 3시 회의)"
                   style={{
                     width: '100%',
                     minHeight: '200px',
@@ -1279,6 +1639,18 @@ function App() {
                     resize: 'vertical',
                   }}
                 />
+                {parsedDateInfo.date && (
+                  <div style={{ 
+                    marginTop: '8px', 
+                    padding: '8px', 
+                    backgroundColor: 'var(--bg-light)', 
+                    borderRadius: 'var(--radius)',
+                    fontSize: '13px',
+                    color: 'var(--primary)'
+                  }}>
+                    📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
+                  </div>
+                )}
               </div>
             </div>
             <div className="schedule-panel">
@@ -1303,6 +1675,7 @@ function App() {
                   setContent('');
                   setDeadlineDate('');
                   setDeadlineTime('');
+                  setParsedDateInfo({ date: null, time: null });
                   setAddTodoModal(false);
                 }}>취소</button>
               </div>

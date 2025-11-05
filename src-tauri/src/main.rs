@@ -31,6 +31,7 @@ struct Message {
     id: i64,
     sender: String,
     content: String,
+    receive_date: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -109,7 +110,7 @@ fn search_messages(db_path: String, search_term: String, cache: tauri::State<Cac
 fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
     let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
     conn.query_row(
-        "SELECT MessageKey, Sender, MessageText, MessageBody FROM tbl_recv WHERE MessageKey = ?1",
+        "SELECT MessageKey, Sender, MessageText, MessageBody, ReceiveDate FROM tbl_recv WHERE MessageKey = ?1",
         [id],
         |row| {
             // read_from_recv_only에 있는 변환 로직과 유사하게 구현
@@ -117,6 +118,7 @@ fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
             let sender: String = row.get(1)?;
             let text_ref = row.get_ref(2)?;
             let body_ref = row.get_ref(3)?;
+            let receive_date: Option<String> = row.get(4)?;
 
             let text_value = match text_ref {
                 ValueRef::Text(t) => Some(String::from_utf8_lossy(t).to_string()),
@@ -144,7 +146,7 @@ fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
                 if !t.is_empty() { t } else { body_value }
             } else { body_value };
 
-            Ok(Message { id, sender, content })
+            Ok(Message { id, sender, content, receive_date })
         }
     ).map_err(|e| format!("ID로 메시지 조회 실패: {}", e))
 }
@@ -182,7 +184,7 @@ fn read_from_recv_only(conn: &Connection, limit: Option<i64>, offset: Option<i64
     params.push(Box::new(offset.unwrap_or(0)));
 
     let query_sql = format!(
-        "SELECT MessageKey as id, Sender, MessageText, MessageBody FROM tbl_recv {} ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT ? OFFSET ?",
+        "SELECT MessageKey as id, Sender, MessageText, MessageBody, ReceiveDate FROM tbl_recv {} ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT ? OFFSET ?",
         where_clause
     );
 
@@ -198,6 +200,7 @@ fn read_from_recv_only(conn: &Connection, limit: Option<i64>, offset: Option<i64
             // 1) MessageText가 있으면 우선 사용
             let text_ref = row.get_ref(2)?;
             let body_ref = row.get_ref(3)?;
+            let receive_date: Option<String> = row.get(4)?;
 
             // MessageText 처리
             let text_value = match text_ref {
@@ -232,7 +235,7 @@ fn read_from_recv_only(conn: &Connection, limit: Option<i64>, offset: Option<i64
                 if !t.is_empty() { t } else { body_value }
             } else { body_value };
 
-            Ok(Message { id, sender, content })
+            Ok(Message { id, sender, content, receive_date })
         })
         .map_err(|e| format!("tbl_recv 데이터 조회 실패: {}", e))?;
 
