@@ -1,10 +1,10 @@
 [package]
 name = "hypercool"
-version = "0.1.0"
-description = "메시지 포스트잇 관리 앱"
-authors = ["you"]
+version = "0.1.1"
+description = "쿨 메신저 메시지 관리 프로그램"
+authors = ["moominda"]
 license = ""
-repository = ""
+repository = "banatic/hypercool"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

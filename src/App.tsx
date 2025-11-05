@@ -32,6 +32,7 @@ const REG_KEY_CLASSIFIED = 'ClassifiedMap';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CLASS_TIMES = 'ClassTimes';
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
+const REG_KEY_UI_SCALE = 'UIScale';
 const DRAG_THRESHOLD = 160;
 
 // 기본 수업 시간 (HHMM-HHMM 형식)
@@ -87,6 +88,7 @@ function App() {
   const [isLoadingSearch, setIsLoadingSearch] = useState(false);
   const [isLoadingActiveSearch, setIsLoadingActiveSearch] = useState(false);
   const [classTimes, setClassTimes] = useState<string[]>(DEFAULT_CLASS_TIMES);
+  const [uiScale, setUiScale] = useState<number>(1.0);
   const HISTORY_PAGE_SIZE = 20;
   
   const wheelLastProcessed = useRef(0);
@@ -161,10 +163,62 @@ function App() {
         await saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(DEFAULT_CLASS_TIMES));
       }
 
+      const savedUIScale = await invoke<string | null>('get_registry_value', { key: REG_KEY_UI_SCALE });
+      if (savedUIScale) {
+        try {
+          const scale = parseFloat(savedUIScale);
+          if (scale >= 0.5 && scale <= 2.0) {
+            setUiScale(scale);
+          }
+        } catch {
+          // 파싱 실패 시 기본값 사용
+        }
+      }
+
     } catch (e) {
       console.warn('레지스트리 로드 실패', e);
     }
   }, [saveToRegistry]);
+
+  // UI 배율 적용
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--ui-scale', uiScale.toString());
+    const appElement = document.querySelector('.app') as HTMLElement;
+    const contentElement = document.querySelector('.content') as HTMLElement;
+    
+    if (appElement) {
+      appElement.style.transform = `scale(${uiScale})`;
+      appElement.style.transformOrigin = 'top left';
+      
+      // 스케일 적용 시 너비와 높이 조정
+      const width = window.innerWidth / uiScale;
+      const height = window.innerHeight / uiScale;
+      appElement.style.width = `${width}px`;
+      appElement.style.height = `${height}px`;
+      
+      // .content의 높이도 조정
+      if (contentElement) {
+        contentElement.style.height = `${height}px`;
+      }
+    }
+    
+    // 윈도우 리사이즈 시에도 높이 업데이트
+    const handleResize = () => {
+      if (appElement && contentElement) {
+        const width = window.innerWidth / uiScale;
+        const height = window.innerHeight / uiScale;
+        appElement.style.width = `${width}px`;
+        appElement.style.height = `${height}px`;
+        contentElement.style.height = `${height}px`;
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [uiScale]);
 
   useEffect(() => {
     loadFromRegistry();
@@ -647,8 +701,9 @@ function App() {
 
     // 1. 상대적 날짜 패턴 매칭 (모든 매칭 찾기)
     for (const { pattern, days } of relativeDatePatterns) {
-      const matches = normalizedText.matchAll(pattern);
-      for (const match of matches) {
+      const globalPattern = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+      const matches = normalizedText.matchAll(globalPattern);
+      for (const _match of matches) {
         const date = new Date(today);
         date.setDate(date.getDate() + days);
         foundDates.push(date);
@@ -669,7 +724,8 @@ function App() {
 
     // 3. 절대 날짜 패턴 매칭 (모든 매칭 찾기)
     for (const { pattern, parse } of absoluteDatePatterns) {
-      const matches = normalizedText.matchAll(pattern);
+      const globalPattern = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+      const matches = normalizedText.matchAll(globalPattern);
       for (const match of matches) {
         const date = parse(match, today);
         if (date) {
@@ -1299,7 +1355,6 @@ function App() {
                   onChange={(e) => updateClassTime(index, e.target.value)}
                   placeholder="0830-0920"
                   pattern="\d{4}-\d{4}"
-                  style={{ width: '120px', fontFamily: 'monospace' }}
                 />
                 <span className="class-time-display">{formatTimeDisplay(time)}</span>
                 <button onClick={() => removeClassTime(index)} className="remove-btn">삭제</button>
@@ -1312,6 +1367,30 @@ function App() {
           </div>
           <div className="field-description">
             수업 시간 동안에는 새로운 메시지가 와도 창이 자동으로 표시되지 않습니다. 형식: HHMM-HHMM (예: 0830-0920)
+          </div>
+        </div>
+        <br /> <br />
+        <div className="field">
+          <label htmlFor="uiScaleInput">UI 배율</label>
+          <div className="row">
+            <input 
+              id="uiScaleInput" 
+              type="range" 
+              min="0.5" 
+              max="2.0" 
+              step="0.1" 
+              value={uiScale} 
+              onChange={(e) => {
+                const newScale = parseFloat(e.target.value);
+                setUiScale(newScale);
+                saveToRegistry(REG_KEY_UI_SCALE, newScale.toString());
+              }}
+              style={{ flex: 1 }}
+            />
+            <span style={{ minWidth: '60px', textAlign: 'right' }}>{(uiScale * 100).toFixed(0)}%</span>
+          </div>
+          <div className="field-description">
+            전체 UI의 크기를 조정합니다. (50% ~ 200%)
           </div>
         </div>
       </div>
@@ -1705,6 +1784,8 @@ function App() {
           <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>
             <span className="icon"><HistoryIcon /></span><span className="label">전체 메시지</span>
           </button>
+        </nav>
+        <nav className="sidebar-bottom-nav">
           <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
             <span className="icon"><SettingsIcon /></span><span className="label">설정</span>
           </button>
