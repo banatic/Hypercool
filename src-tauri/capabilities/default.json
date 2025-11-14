@@ -5,7 +5,8 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "shell:allow-open"
   ]
 }
 
