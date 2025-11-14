@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { List } from 'react-window';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -229,6 +230,54 @@ function App() {
   useEffect(() => {
     loadFromRegistry();
   }, [loadFromRegistry]);
+
+  // 하이퍼링크 클릭 시 외부 브라우저에서 열기
+  useEffect(() => {
+    const handleLinkClick = async (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a');
+      
+      if (link) {
+        // href 속성에서 원본 URL 가져오기 (상대 경로도 처리)
+        const href = link.getAttribute('href') || link.href;
+        
+        if (href) {
+          console.log('링크 발견:', href, 'link.href:', link.href);
+          
+          // http:// 또는 https://로 시작하는 외부 링크인 경우
+          if (href.startsWith('http://') || href.startsWith('https://')) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('외부 브라우저에서 열기 시도:', href);
+            try {
+              await shellOpen(href);
+              console.log('링크 열기 성공:', href);
+            } catch (error) {
+              console.error('링크 열기 실패:', error);
+            }
+          } else if (link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
+            // link.href가 절대 URL로 변환된 경우
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('외부 브라우저에서 열기 시도 (절대 URL):', link.href);
+            try {
+              await shellOpen(link.href);
+              console.log('링크 열기 성공:', link.href);
+            } catch (error) {
+              console.error('링크 열기 실패:', error);
+            }
+          }
+        }
+      }
+    };
+
+    // 이벤트 위임을 사용해서 동적으로 추가되는 링크도 처리
+    document.addEventListener('click', handleLinkClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, []);
 
   const loadUdbFile = useCallback(async (path?: string, offset: number = 0, searchTerm: string = historySearchTerm) => {
     try {
@@ -570,8 +619,11 @@ function App() {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const pad = (n: number) => n.toString().padStart(2, '0');
     
+    // "님의 보낸 메시지 전달 >> YYYY/MM/DD HH:MM:SS (요일)" 형식 제거
+    const textWithoutDeliveryTime = text.replace(/님의\s*보낸\s*메시지\s*전달\s*>>\s*\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s*\([일월화수목금토]\)/gi, '');
+    
     // 텍스트 정규화 (공백 제거, 소문자 변환)
-    const normalizedText = text.replace(/\s+/g, ' ').trim();
+    const normalizedText = textWithoutDeliveryTime.replace(/\s+/g, ' ').trim();
     
     // 상대적 날짜 패턴
     const relativeDatePatterns = [

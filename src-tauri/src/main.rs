@@ -24,7 +24,7 @@ use tauri::{
 };
 use tauri::{Emitter, Manager};
 #[cfg(target_os = "windows")]
-use winapi::um::winuser::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
+use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE};
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
 use winreg::enums::*;
@@ -450,26 +450,30 @@ struct CacheState {
 }
 
 #[cfg(target_os = "windows")]
-fn show_message_box(message: &str, title: &str) {
+fn show_existing_window() {
     unsafe {
-        let message_wide: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
-        let title_wide: Vec<u16> = OsStr::new(title).encode_wide().chain(Some(0)).collect();
-        MessageBoxW(
-            std::ptr::null_mut(),
-            message_wide.as_ptr(),
-            title_wide.as_ptr(),
-            MB_OK | MB_ICONINFORMATION,
-        );
+        // Tauri 윈도우의 클래스 이름을 찾기 위해 타이틀을 사용
+        let title_wide: Vec<u16> = OsStr::new("HyperCool").encode_wide().chain(Some(0)).collect();
+        
+        // FindWindowW로 윈도우 핸들 찾기 (클래스 이름이 NULL이면 타이틀로만 검색)
+        let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
+        
+        if !hwnd.is_null() {
+            // 윈도우가 최소화되어 있으면 복원
+            ShowWindow(hwnd, SW_RESTORE);
+            // 윈도우를 포그라운드로 가져오기
+            SetForegroundWindow(hwnd);
+        }
     }
 }
 
 fn main() {
-    // 단일 인스턴스 체크 - 이미 실행 중이면 종료
+    // 단일 인스턴스 체크 - 이미 실행 중이면 기존 윈도우를 Show하고 종료
     // instance 변수를 유지하여 mutex가 해제되지 않도록 함
     let _instance = SingleInstance::new("hypercool-app").unwrap();
     if !_instance.is_single() {
         #[cfg(target_os = "windows")]
-        show_message_box("이미 실행 중입니다.", "HyperCool");
+        show_existing_window();
         #[cfg(not(target_os = "windows"))]
         eprintln!("이미 실행 중입니다.");
         std::process::exit(1);
