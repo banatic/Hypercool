@@ -498,6 +498,9 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     
     // 저장된 위치와 크기가 있으면 사용
     if let Some(bounds) = saved_bounds {
+        // outer_size를 저장했으므로 outer_size로 복원
+        // Tauri에서는 outer_size를 직접 설정할 수 없으므로 inner_size로 근사치 설정
+        // (실제로는 윈도우가 생성된 후 outer_size로 조정)
         builder = builder
             .inner_size(bounds.width, bounds.height)
             .position(bounds.x, bounds.y);
@@ -512,42 +515,54 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
     apply_vibrancy_effect(&window);
     
+    // 디바운싱을 위한 타이머
+    let save_timer: std::sync::Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = std::sync::Arc::new(Mutex::new(None));
+    
+    // 윈도우 위치와 크기를 저장하는 헬퍼 함수
+    let save_bounds = |window: &tauri::WebviewWindow<_>| {
+        // inner_size와 outer_position을 사용하여 일관성 유지
+        if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
+            let bounds = WindowBounds {
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+            };
+            if let Ok(json) = serde_json::to_string(&bounds) {
+                let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
+            }
+        }
+    };
+    
     // 윈도우 위치와 크기 저장을 위한 이벤트 리스너
     let window_clone = window.clone();
+    let save_timer_clone = save_timer.clone();
     window.on_window_event(move |event| {
         match event {
-            tauri::WindowEvent::Moved(position) => {
-                // 위치 변경 시 저장
-                if let Ok(size) = window_clone.inner_size() {
-                    let bounds = WindowBounds {
-                        x: position.x as f64,
-                        y: position.y as f64,
-                        width: size.width as f64,
-                        height: size.height as f64,
-                    };
-                    if let Ok(json) = serde_json::to_string(&bounds) {
-                        let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
-                    }
-                }
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                // 디바운싱: 기존 타이머가 있으면 취소하고 새로 시작
+                let mut timer_guard = save_timer_clone.lock().unwrap();
+                let _ = timer_guard.take(); // 기존 타이머는 무시하고 새로 시작
+                
+                let window_for_save = window_clone.clone();
+                let timer_clone = save_timer_clone.clone();
+                let handle = std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(500));
+                    save_bounds(&window_for_save);
+                    // 타이머 완료 후 정리
+                    let _ = timer_clone.lock().unwrap().take();
+                });
+                *timer_guard = Some(handle);
             }
-            tauri::WindowEvent::Resized(size) => {
-                // 크기 변경 시 저장
-                if let Ok(position) = window_clone.outer_position() {
-                    let bounds = WindowBounds {
-                        x: position.x as f64,
-                        y: position.y as f64,
-                        width: size.width as f64,
-                        height: size.height as f64,
-                    };
-                    if let Ok(json) = serde_json::to_string(&bounds) {
-                        let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
-                    }
-                }
+            tauri::WindowEvent::CloseRequested { .. } => {
+                // 윈도우가 닫힐 때 최종 위치 저장 (즉시)
+                save_bounds(&window_clone);
             }
             tauri::WindowEvent::Focused(false) => {
-                // 포커스를 잃었을 때 효과 재적용
+                // 포커스를 잃었을 때 효과 재적용 및 위치 저장
                 std::thread::sleep(Duration::from_millis(50));
                 apply_vibrancy_effect(&window_clone);
+                save_bounds(&window_clone);
             }
             tauri::WindowEvent::Focused(true) => {
                 // 포커스를 얻었을 때도 효과 재적용
@@ -556,6 +571,13 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
             }
             _ => {}
         }
+    });
+    
+    // 윈도우가 보여질 때도 위치 저장 (초기 위치 확인)
+    let window_for_init = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1000)); // 윈도우가 완전히 로드된 후
+        save_bounds(&window_for_init);
     });
     
     Ok(())

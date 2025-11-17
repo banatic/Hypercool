@@ -7,7 +7,6 @@ interface AddTodoModalProps {
   setAddTodoModal: (open: boolean) => void;
   setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
   setDeadlines: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  calendarTitles: Record<number, string>;
   setCalendarTitles: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   saveToRegistry: (key: string, value: string) => Promise<void>;
   parseDateFromText: (text: string, baseDate?: Date) => { date: string | null; time: string | null };
@@ -22,7 +21,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   setAddTodoModal,
   setManualTodos,
   setDeadlines,
-  calendarTitles,
   setCalendarTitles,
   saveToRegistry,
   parseDateFromText,

@@ -8,6 +8,8 @@ interface ScheduleModalProps {
   setScheduleModal: (modal: { open: boolean; id?: number }) => void;
   deadlines: Record<number, string | null>;
   setDeadlines: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  calendarTitles: Record<number, string>;
+  setCalendarTitles: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   manualTodos: ManualTodo[];
   setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
   allMessages: Message[];
@@ -174,7 +176,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     
     // calendarTitle 저장
     if (calendarTitle.trim()) {
-      setCalendarTitles(prev => {
+      setCalendarTitles((prev: Record<number, string>) => {
         const next = { ...prev, [id]: calendarTitle.trim() };
         void saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(next));
         return next;

@@ -321,8 +321,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.1.5",
-        notes="테스트 릴리즈",
+        version="0.1.6",
+        notes="달력 위젯 추가 (Experimental)",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,
