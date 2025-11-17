@@ -20,4 +20,4 @@ Tag 지정해서 `src-tauri\target\release\bundle\msi\` 안에 .msi 업로드
 
 pub_date는 RFC 3339 만족하게끔
 
-하고 push 
+remote에 push
