@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>메시지 내용</title>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: transparent;
+        color: #1a1a1a;
+        overflow: hidden;
+      }
+      #root {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(20px);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      }
+      .message-header {
+        padding: 14px 18px;
+        background: #ffffff;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: move;
+        -webkit-app-region: drag;
+      }
+      .message-header h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #1a1a1a;
+      }
+      .close-btn {
+        background: rgba(0, 0, 0, 0.05);
+        border: none;
+        color: #666666;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        -webkit-app-region: no-drag;
+        padding: 0;
+        line-height: 1;
+      }
+      .close-btn:hover {
+        background: rgba(255, 100, 100, 0.15);
+        color: #ff6464;
+      }
+      .message-content {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+        line-height: 1.7;
+        background: #ffffff;
+        color: #1a1a1a;
+      }
+      .message-content::-webkit-scrollbar {
+        width: 8px;
+      }
+      .message-content::-webkit-scrollbar-track {
+        background: #f5f5f5;
+      }
+      .message-content::-webkit-scrollbar-thumb {
+        background: #d0d0d0;
+        border-radius: 4px;
+      }
+      .message-content::-webkit-scrollbar-thumb:hover {
+        background: #b0b0b0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="message-header">
+        <h2>메시지 내용</h2>
+        <button class="close-btn" id="close-btn" title="닫기">×</button>
+      </div>
+      <div class="message-content" id="message-content"></div>
+    </div>
+    <script type="module">
+      import { getCurrentWindow } from '@tauri-apps/api/window';
+      import { invoke } from '@tauri-apps/api/core';
+      
+      // 닫기 버튼
+      const closeBtn = document.getElementById('close-btn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', async () => {
+          try {
+            // URL에서 메시지 ID 가져오기
+            const urlParams = new URLSearchParams(window.location.search);
+            const messageId = parseInt(urlParams.get('id') || '0', 10);
+            
+            if (messageId) {
+              // Rust command로 창 닫기
+              await invoke('close_message_viewer', { messageId });
+            } else {
+              // 메시지 ID가 없으면 직접 닫기 시도
+              const window = getCurrentWindow();
+              await window.close();
+            }
+          } catch (e) {
+            console.error('창 닫기 실패:', e);
+            // 대안: 직접 닫기 시도
+            try {
+              const window = getCurrentWindow();
+              await window.close();
+            } catch (e2) {
+              console.error('직접 닫기 실패:', e2);
+            }
+          }
+        });
+      }
+      
+      // HTML 엔티티 디코딩 함수 (기존 App.tsx와 동일)
+      function decodeEntities(html) {
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = html;
+        return textarea.value;
+      }
+      
+      // URL에서 메시지 ID 추출
+      const urlParams = new URLSearchParams(window.location.search);
+      const messageId = parseInt(urlParams.get('id') || '0', 10);
+      
+      // 데이터베이스에서 메시지 로드
+      async function loadMessage() {
+        if (!messageId) {
+          document.getElementById('message-content').innerHTML = '메시지 ID가 없습니다.';
+          return;
+        }
+        
+        try {
+          // UDB 경로 가져오기
+          const udbPath = await invoke('get_registry_value', { key: 'UdbPath' });
+          if (!udbPath) {
+            document.getElementById('message-content').innerHTML = '데이터베이스 경로를 찾을 수 없습니다.';
+            return;
+          }
+          
+          // 메시지 가져오기
+          const message = await invoke('get_message_by_id', {
+            dbPath: udbPath,
+            id: messageId
+          });
+          
+          if (message && message.content) {
+            // HTML 엔티티 디코딩
+            const decodedContent = decodeEntities(message.content);
+            document.getElementById('message-content').innerHTML = decodedContent;
+          } else {
+            document.getElementById('message-content').innerHTML = '메시지를 찾을 수 없습니다.';
+          }
+        } catch (e) {
+          console.error('메시지 로드 실패:', e);
+          document.getElementById('message-content').innerHTML = '메시지를 불러올 수 없습니다: ' + e;
+        }
+      }
+      
+      // 페이지 로드 시 메시지 로드
+      loadMessage();
+    </script>
+  </body>
+</html>
+

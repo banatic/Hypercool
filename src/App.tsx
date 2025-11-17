@@ -21,6 +21,7 @@ const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CLASS_TIMES = 'ClassTimes';
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_UI_SCALE = 'UIScale';
+const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
 const DRAG_THRESHOLD = 160;
 
 // 기본 수업 시간 (HHMM-HHMM 형식)
@@ -44,6 +45,7 @@ function App() {
 
   const [classified, setClassified] = useState<Record<number, 'left' | 'right'>>({});
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
+  const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
   const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number }>({ open: false });
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
   const [addTodoModal, setAddTodoModal] = useState<boolean>(false);
@@ -104,6 +106,9 @@ function App() {
 
       const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
       if (savedDeadlines) setDeadlines(JSON.parse(savedDeadlines) || {});
+
+      const savedCalendarTitles = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
+      if (savedCalendarTitles) setCalendarTitles(JSON.parse(savedCalendarTitles) || {});
 
       const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
       if (savedManualTodos) setManualTodos(JSON.parse(savedManualTodos) || []);
@@ -237,7 +242,7 @@ function App() {
     };
   }, []);
 
-  const loadUdbFile = useCallback(async (path?: string, offset: number = 0, searchTerm: string = historySearchTerm) => {
+  const loadUdbFile = useCallback(async (path?: string, offset: number = 0, searchTerm?: string) => {
     try {
       setIsLoading(true);
 
@@ -246,11 +251,13 @@ function App() {
         return;
       }
       
+      const finalSearchTerm = searchTerm ?? '';
+      
       const result = await invoke<{ messages: Message[]; total_count: number }>('read_udb_messages', { 
         dbPath: finalPath,
         limit: HISTORY_PAGE_SIZE,
         offset,
-        searchTerm,
+        searchTerm: finalSearchTerm,
       });
       const { messages, total_count } = result;
 
@@ -263,7 +270,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [udbPath, historySearchTerm]);
+  }, [udbPath]);
 
   // UDB 변경 이벤트 구독 (Watchdog에서 발생)
   useEffect(() => {
@@ -271,11 +278,11 @@ function App() {
       if (udbPath) {
         // 히스토리 첫 페이지 및 관련 상태 초기화
         setHistoryIndex(0);
-        await loadUdbFile(udbPath, 0, historySearchTerm);
+        await loadUdbFile(udbPath, 0, '');
       }
     });
     return () => { void unlistenPromise.then(unlisten => unlisten()); };
-  }, [udbPath, loadUdbFile, historySearchTerm]);
+  }, [udbPath, loadUdbFile]);
 
   // UDB 경로 변경 시 데이터 다시 로드
   useEffect(() => {
@@ -786,6 +793,8 @@ function App() {
           setScheduleModal={setScheduleModal}
           deadlines={deadlines}
           setDeadlines={setDeadlines}
+          calendarTitles={calendarTitles}
+          setCalendarTitles={setCalendarTitles}
           manualTodos={manualTodos}
           setManualTodos={setManualTodos}
           allMessages={allMessages}
@@ -802,6 +811,8 @@ function App() {
           setAddTodoModal={setAddTodoModal}
           setManualTodos={setManualTodos}
           setDeadlines={setDeadlines}
+          calendarTitles={calendarTitles}
+          setCalendarTitles={setCalendarTitles}
           saveToRegistry={saveToRegistry}
           parseDateFromText={parseDateFromText}
         />

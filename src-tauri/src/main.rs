@@ -22,11 +22,33 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, Runtime};
 #[cfg(target_os = "windows")]
 use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE};
 #[cfg(target_os = "windows")]
-use window_vibrancy::apply_mica;
+use window_vibrancy::apply_acrylic;
+#[cfg(target_os = "macos")]
+use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+use window_vibrancy::apply_blur;
+
+// 윈도우에 vibrancy 효과를 적용하는 헬퍼 함수
+fn apply_vibrancy_effect<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = apply_acrylic(window, Some((18, 18, 18, 125)));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = apply_vibrancy(window, NSVisualEffectMaterial::HudWindow, None, None);
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let _ = apply_blur(window, Some((18, 18, 18, 125)));
+    }
+}
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -374,6 +396,171 @@ fn hide_main_window(app: tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+async fn close_message_viewer(app: tauri::AppHandle, message_id: i64) -> Result<(), String> {
+    let window_label = format!("message-viewer-{}", message_id);
+    if let Some(window) = app.get_webview_window(&window_label) {
+        let _ = window.close();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_message_viewer(app: tauri::AppHandle, message_id: i64) -> Result<(), String> {
+    // 이미 열려있는지 확인 (같은 메시지 ID로)
+    let window_label = format!("message-viewer-{}", message_id);
+    if let Some(window) = app.get_webview_window(&window_label) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    
+    // 메시지 ID만 전달 (데이터베이스에서 직접 로드)
+    let url = if cfg!(dev) {
+        tauri::WebviewUrl::External(
+            std::str::FromStr::from_str(&format!("http://localhost:1420/message-viewer.html?id={}", message_id))
+                .map_err(|e| format!("URL 파싱 실패: {}", e))?
+        )
+    } else {
+        tauri::WebviewUrl::App(format!("message-viewer.html?id={}", message_id).into())
+    };
+    
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        &window_label,
+        url,
+    )
+    .title(&format!("메시지 #{}", message_id))
+    .inner_size(500.0, 400.0)
+    .min_inner_size(400.0, 300.0)
+    .resizable(true)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(false)
+    .skip_taskbar(false)
+    .build()
+    .map_err(|e| format!("메시지 뷰어 윈도우 생성 실패: {}", e))?;
+    
+    apply_vibrancy_effect(&window);
+    
+    Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WindowBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[tauri::command]
+async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
+    // 이미 열려있는지 확인
+    if let Some(window) = app.get_webview_window("calendar-widget") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(()); // 이미 열려있으면 포커스만 주기
+    }
+    
+    let url = if cfg!(dev) {
+        // 개발 모드에서는 외부 URL 사용
+        // Tauri 2.0에서는 WebviewUrl::External이 자동으로 URL을 파싱합니다
+        tauri::WebviewUrl::External(
+            std::str::FromStr::from_str("http://localhost:1420/calendar-widget.html")
+                .map_err(|e| format!("URL 파싱 실패: {}", e))?
+        )
+    } else {
+        // 프로덕션에서는 앱 내부 파일 사용
+        tauri::WebviewUrl::App("calendar-widget.html".into())
+    };
+    
+    // 저장된 위치와 크기 불러오기
+    let saved_bounds: Option<WindowBounds> = match get_registry_value("CalendarWidgetBounds".to_string()) {
+        Ok(Some(json_str)) => {
+            serde_json::from_str(&json_str).ok()
+        }
+        _ => None
+    };
+    
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "calendar-widget",
+        url,
+    )
+    .title("달력 위젯")
+    .min_inner_size(350.0, 450.0)
+    .resizable(true)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(false)
+    .skip_taskbar(true);
+    
+    // 저장된 위치와 크기가 있으면 사용
+    if let Some(bounds) = saved_bounds {
+        builder = builder
+            .inner_size(bounds.width, bounds.height)
+            .position(bounds.x, bounds.y);
+    } else {
+        builder = builder.inner_size(400.0, 500.0);
+    }
+    
+    let window = builder
+        .build()
+        .map_err(|e| format!("달력 위젯 윈도우 생성 실패: {}", e))?;
+    
+    // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
+    apply_vibrancy_effect(&window);
+    
+    // 윈도우 위치와 크기 저장을 위한 이벤트 리스너
+    let window_clone = window.clone();
+    window.on_window_event(move |event| {
+        match event {
+            tauri::WindowEvent::Moved(position) => {
+                // 위치 변경 시 저장
+                if let Ok(size) = window_clone.inner_size() {
+                    let bounds = WindowBounds {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                        width: size.width as f64,
+                        height: size.height as f64,
+                    };
+                    if let Ok(json) = serde_json::to_string(&bounds) {
+                        let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
+                    }
+                }
+            }
+            tauri::WindowEvent::Resized(size) => {
+                // 크기 변경 시 저장
+                if let Ok(position) = window_clone.outer_position() {
+                    let bounds = WindowBounds {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                        width: size.width as f64,
+                        height: size.height as f64,
+                    };
+                    if let Ok(json) = serde_json::to_string(&bounds) {
+                        let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
+                    }
+                }
+            }
+            tauri::WindowEvent::Focused(false) => {
+                // 포커스를 잃었을 때 효과 재적용
+                std::thread::sleep(Duration::from_millis(50));
+                apply_vibrancy_effect(&window_clone);
+            }
+            tauri::WindowEvent::Focused(true) => {
+                // 포커스를 얻었을 때도 효과 재적용
+                std::thread::sleep(Duration::from_millis(50));
+                apply_vibrancy_effect(&window_clone);
+            }
+            _ => {}
+        }
+    });
+    
+    Ok(())
+}
+
 /// 현재 시간이 수업 시간인지 확인하는 함수
 fn is_class_time() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -518,15 +705,33 @@ fn main() {
             notify_hidden,
             hide_main_window,
             search_messages,
-            get_message_by_id
+            get_message_by_id,
+            open_calendar_widget,
+            open_message_viewer,
+            close_message_viewer
         ])
         .setup(|app| {
-            #[cfg(target_os = "windows")]
-            {
-                let handle = app.handle();
-                if let Some(window) = handle.get_webview_window("main") {
-                    let _ = apply_mica(&window, None);
-                }
+            // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
+            if let Some(win) = app.get_webview_window("main") {
+                apply_vibrancy_effect(&win);
+                
+                // 포커스를 잃었을 때 효과를 다시 적용하기 위한 이벤트 리스너
+                let win_clone = win.clone();
+                win.on_window_event(move |event| {
+                    match event {
+                        tauri::WindowEvent::Focused(false) => {
+                            // 포커스를 잃었을 때 효과 재적용
+                            std::thread::sleep(Duration::from_millis(50));
+                            apply_vibrancy_effect(&win_clone);
+                        }
+                        tauri::WindowEvent::Focused(true) => {
+                            // 포커스를 얻었을 때도 효과 재적용
+                            std::thread::sleep(Duration::from_millis(50));
+                            apply_vibrancy_effect(&win_clone);
+                        }
+                        _ => {}
+                    }
+                });
             }
 
             // Build system tray

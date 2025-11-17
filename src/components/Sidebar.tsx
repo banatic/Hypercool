@@ -1,6 +1,7 @@
 import React from 'react';
-import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon } from './icons';
+import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon } from './icons';
 import { Page } from '../types';
+import { invoke } from '@tauri-apps/api/core';
 
 interface SidebarProps {
   page: Page;
@@ -30,6 +31,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapse
         </button>
       </nav>
       <nav className="sidebar-bottom-nav">
+        <button 
+          onClick={async () => {
+            try {
+              await invoke('open_calendar_widget');
+            } catch (e) {
+              console.error('달력 위젯 열기 실패:', e);
+            }
+          }}
+          title="달력 위젯 열기"
+        >
+          <span className="icon"><CalendarIcon /></span><span className="label">달력 위젯</span>
+        </button>
         <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
           <span className="icon"><SettingsIcon /></span><span className="label">설정</span>
         </button>

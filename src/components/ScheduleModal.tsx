@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
 import { Message, ManualTodo } from '../types';
 
 interface ScheduleModalProps {
@@ -22,12 +23,15 @@ interface ScheduleModalProps {
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CLASSIFIED = 'ClassifiedMap';
+const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
 
 export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   scheduleModal,
   setScheduleModal,
   deadlines,
   setDeadlines,
+  calendarTitles,
+  setCalendarTitles,
   manualTodos,
   setManualTodos,
   allMessages,
@@ -48,6 +52,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const [dateVal, setDateVal] = useState<string>('');
   const [timeVal, setTimeVal] = useState<string>('');
   const [parsedDateInfo, setParsedDateInfo] = useState<{ date: string | null; time: string | null }>({ date: null, time: null });
+  const [calendarTitle, setCalendarTitle] = useState<string>('');
   
   const pad = (n: number) => n.toString().padStart(2, '0');
   const now = new Date();
@@ -56,6 +61,18 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
 
   // 메시지 내용에서 날짜 파싱 및 초기값 설정
   useEffect(() => {
+    // 기존 calendarTitle 로드
+    if (isManualTodo) {
+      const manualTodo = manualTodos.find(t => t.id === id);
+      if (manualTodo?.calendarTitle) {
+        setCalendarTitle(manualTodo.calendarTitle);
+      } else {
+        setCalendarTitle(calendarTitles[id] || '');
+      }
+    } else {
+      setCalendarTitle(calendarTitles[id] || '');
+    }
+    
     const current = deadlines[id] || '';
     
     // 이미 deadline이 있으면 그것을 사용
@@ -110,7 +127,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
       setDateVal(defaultDate);
       setTimeVal(defaultTime);
     }
-  }, [id, modalMsg, isManualTodo, manualTodos, deadlines, defaultDate, defaultTime, parseDateFromText]);
+  }, [id, modalMsg, isManualTodo, manualTodos, deadlines, calendarTitles, defaultDate, defaultTime, parseDateFromText]);
 
   useEffect(() => {
     if (isManualTodo) {
@@ -147,6 +164,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
       setIsLoadingModalMsg(false);
       setDateVal('');
       setTimeVal('');
+      setCalendarTitle('');
       setParsedDateInfo({ date: null, time: null });
     };
   }, [id, udbPath, allMessages, isManualTodo, setAllMessages]);
@@ -154,10 +172,19 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const onSave = () => {
     const iso = new Date(`${dateVal}T${timeVal}:00`).toISOString();
     
+    // calendarTitle 저장
+    if (calendarTitle.trim()) {
+      setCalendarTitles(prev => {
+        const next = { ...prev, [id]: calendarTitle.trim() };
+        void saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(next));
+        return next;
+      });
+    }
+    
     if (isManualTodo) {
       // 수동 할 일의 경우 manualTodos 업데이트
       setManualTodos(prev => {
-        const next = prev.map(t => t.id === id ? { ...t, deadline: iso } : t);
+        const next = prev.map(t => t.id === id ? { ...t, deadline: iso, calendarTitle: calendarTitle.trim() || undefined } : t);
         void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
         return next;
       });
@@ -181,6 +208,8 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
         });
       }
     }
+    // 달력 업데이트 이벤트 발생
+    void emit('calendar-update');
     setScheduleModal({ open: false });
   };
 
@@ -203,6 +232,8 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
         return next;
       });
     }
+    // 달력 업데이트 이벤트 발생
+    void emit('calendar-update');
     setScheduleModal({ open: false });
   };
 
@@ -241,6 +272,22 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
                     📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
                   </div>
                 )}
+                <label htmlFor="calendar-title">달력 제목 (짧게)</label>
+                <input 
+                  id="calendar-title" 
+                  type="text" 
+                  value={calendarTitle}
+                  onChange={(e) => setCalendarTitle(e.target.value)}
+                  placeholder="예: 과제 제출, 회의"
+                  maxLength={20}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius)',
+                    fontSize: '14px',
+                  }}
+                />
                 <label htmlFor="deadline-date">날짜</label>
                 <input 
                   id="deadline-date" 
