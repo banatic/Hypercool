@@ -209,7 +209,6 @@ html, body, #root {
   .calendar-todo-item {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.9);
-    background: rgba(0, 150, 255, 0.3);
     padding: 3px 2px;
     border-radius: 4px;
     white-space: nowrap;
@@ -221,6 +220,24 @@ html, body, #root {
     line-height: 1.3;
     font-weight: 500;
     cursor: pointer;
+  }
+  
+  /* 메시지 기반 일정: 파란색 (기본) */
+  .calendar-todo-item.calendar-todo-message {
+    background: rgba(0, 150, 255, 0.3);
+  }
+  
+  .calendar-todo-item.calendar-todo-message:hover {
+    background: rgba(0, 150, 255, 0.5);
+  }
+  
+  /* 수동 등록 일정: 초록색 */
+  .calendar-todo-item.calendar-todo-manual {
+    background: rgba(50, 200, 100, 0.3);
+  }
+  
+  .calendar-todo-item.calendar-todo-manual:hover {
+    background: rgba(50, 200, 100, 0.5);
   }
 
   .calendar-period-schedule {
@@ -277,10 +294,6 @@ html, body, #root {
     margin-left: 0;
     margin-right: 0;
     width: 100%;
-  }
-  
-  .calendar-todo-item:hover {
-    background: rgba(0, 150, 255, 0.5);
   }
   
   .calendar-todo-more {
@@ -536,4 +549,40 @@ html, body, #root {
   
   .calendar-grid::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+  }
+  
+  /* 컨텍스트 메뉴 스타일 */
+  .calendar-context-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: transparent;
+  }
+  
+  .calendar-context-menu {
+    background: rgba(40, 40, 50, 0.95);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    min-width: 120px;
+  }
+  
+  .calendar-context-menu-item {
+    padding: 8px 16px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+    user-select: none;
+  }
+  
+  .calendar-context-menu-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  
+  .calendar-context-menu-item:active {
+    background: rgba(255, 255, 255, 0.15);
   }
