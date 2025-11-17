@@ -252,7 +252,7 @@ function CalendarWidget() {
                     );
                   })}
                   {/* 일반 할 일 표시 */}
-                  {dayTodos.slice(0, 2).map(todo => {
+                  {dayTodos.map(todo => {
                     const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
                     return (
                       <div
@@ -296,9 +296,6 @@ function CalendarWidget() {
                       </div>
                     );
                   })}
-                  {(dayPeriodSchedules.length === 0 && dayTodos.length > 2) && (
-                    <div className="calendar-todo-more">+{dayTodos.length - 2}</div>
-                  )}
                 </div>
               )}
             </div>
