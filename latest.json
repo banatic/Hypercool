@@ -1,11 +1,11 @@
 {
-    "version": "0.1.6",
+    "version": "0.1.7",
     "notes": "달력 위젯 추가 (Experimental)",
-    "pub_date": "2025-11-17T05:51:49.539Z",
+    "pub_date": "2025-11-17T05:59:25.471Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dS9BMUxiTy9XUmpUSHJrbXZ6bnh2bzI0WXoxUjZ6TkZiRE12WHlPS1ArTDhDSEMxenlXZTFPbDZwbEZwYVVFZTdwVWZFSkNBd2w1Mm41bzNMUmhiSFFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzMzU4ODM5CWZpbGU6SHlwZXJDb29sXzAuMS42X3g2NF9lbi1VUy5tc2kKVjk2UXM2eVlZQ3JqbHp4MHF5S1Q4T1hJNkZZWGN0clJwdFhzcTlXSjB5aGkwU2JibDM4WkJ6MGo2NVczMmFVaXdsNnluSEUyMmk3ZmNtWVdVWlkrQWc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/0.1.6/HyperCool_0.1.6_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTBLTFpSRHpLK3RTcENPTi9pQlNYdmF0N3hNOCtTeEpRWnh4dWp4M3lXMDdRQWhQQkY4WjJ0TUlvaHZ2RWFpcmtEWDAvQmRQWG01Y0RyNXZZZ29iS2drPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzMzU5MjQ1CWZpbGU6SHlwZXJDb29sXzAuMS43X3g2NF9lbi1VUy5tc2kKU0VFTW95ZmNHVlg3UGtZdjdNbk1OZStGUFcxL3BocGVoWHFzMzgyMlFUOGk2b1BZVFJwRTRvUFgrbnJKTi9obkFZKzk3WExhRy94Q0RENVdGWFhwRHc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/0.1.7/HyperCool_0.1.7_x64_en-US.msi"
         }
     }
 }

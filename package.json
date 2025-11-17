@@ -1,11 +1,12 @@
 {
     "name": "hypercool",
     "private": true,
-    "version": "0.1.6",
+    "version": "0.1.7",
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "tsc && vite build",
+        "build": "tsc && vite build && npm run copy-html",
+        "copy-html": "node -e \"const fs = require('fs'); fs.copyFileSync('message-viewer.html', 'dist/message-viewer.html');\"",
         "preview": "vite preview",
         "tauri": "tauri"
     },
