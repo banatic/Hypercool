@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { emit } from '@tauri-apps/api/event';
 import { ManualTodo } from '../types';
 
 interface AddTodoModalProps {
@@ -6,24 +7,30 @@ interface AddTodoModalProps {
   setAddTodoModal: (open: boolean) => void;
   setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
   setDeadlines: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  calendarTitles: Record<number, string>;
+  setCalendarTitles: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   saveToRegistry: (key: string, value: string) => Promise<void>;
   parseDateFromText: (text: string, baseDate?: Date) => { date: string | null; time: string | null };
 }
 
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
+const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
 
 export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   addTodoModal,
   setAddTodoModal,
   setManualTodos,
   setDeadlines,
+  calendarTitles,
+  setCalendarTitles,
   saveToRegistry,
   parseDateFromText,
 }) => {
   if (!addTodoModal) return null;
 
   const [content, setContent] = useState<string>('');
+  const [calendarTitle, setCalendarTitle] = useState<string>('');
   const [deadlineDate, setDeadlineDate] = useState<string>('');
   const [deadlineTime, setDeadlineTime] = useState<string>('');
   const [parsedDateInfo, setParsedDateInfo] = useState<{ date: string | null; time: string | null }>({ date: null, time: null });
@@ -66,6 +73,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       content: content.trim(),
       deadline,
       createdAt: new Date().toISOString(),
+      calendarTitle: calendarTitle.trim() || undefined,
     };
 
     setManualTodos(prev => {
@@ -83,7 +91,20 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       });
     }
 
+    // calendarTitle 저장
+    if (calendarTitle.trim()) {
+      setCalendarTitles(prev => {
+        const next = { ...prev, [newId]: calendarTitle.trim() };
+        void saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(next));
+        return next;
+      });
+    }
+
+    // 달력 업데이트 이벤트 발생
+    void emit('calendar-update');
+    
     setContent('');
+    setCalendarTitle('');
     setDeadlineDate('');
     setDeadlineTime('');
     setParsedDateInfo({ date: null, time: null });
@@ -128,6 +149,22 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
           </div>
           <div className="schedule-panel">
             <h3>마감 시간 설정</h3>
+            <label htmlFor="add-todo-calendar-title">달력 제목 (짧게)</label>
+            <input 
+              id="add-todo-calendar-title" 
+              type="text" 
+              value={calendarTitle}
+              onChange={(e) => setCalendarTitle(e.target.value)}
+              placeholder="예: 과제 제출, 회의"
+              maxLength={20}
+              style={{
+                width: '100%',
+                padding: '8px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius)',
+                fontSize: '14px',
+              }}
+            />
             <label htmlFor="add-todo-deadline-date">날짜</label>
             <input 
               id="add-todo-deadline-date" 

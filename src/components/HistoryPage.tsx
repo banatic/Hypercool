@@ -76,7 +76,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       // 로드된 메시지의 끝에 가까워지면 다음 페이지 로드
       const loadThreshold = 5; // 5개 남았을 때 미리 로드
       if (historyIndex >= allMessages.length - loadThreshold && allMessages.length < totalMessageCount) {
-        loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+        loadUdbFile(udbPath, allMessages.length, '');
         isActionTaken = true; // 데이터 로드도 액션으로 간주
       }
     } 
@@ -149,7 +149,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       // 로드된 메시지의 끝에 가까워지면 다음 페이지 로드
       const loadThreshold = 5;
       if (historyIndex >= allMessages.length - loadThreshold && allMessages.length < totalMessageCount) {
-        loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+        loadUdbFile(udbPath, allMessages.length, '');
         isActionTaken = true;
       }
     }
@@ -203,7 +203,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
               }
               // 다음 메시지가 로드되지 않았다면 로드
               if (nextIndex >= allMessages.length && allMessages.length < totalMessageCount && !isLoading) {
-                loadUdbFile(udbPath, allMessages.length, historySearchTerm);
+                loadUdbFile(udbPath, allMessages.length, '');
               }
             }}
             disabled={historyIndex >= totalMessageCount - 1}

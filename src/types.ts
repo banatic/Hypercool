@@ -16,6 +16,7 @@ export interface ManualTodo {
   content: string;
   deadline: string | null;
   createdAt: string;
+  calendarTitle?: string; // 달력에 표시될 짧은 제목
 }
 
 export type Page = 'classify' | 'todos' | 'history' | 'settings';
