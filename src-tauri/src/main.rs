@@ -496,21 +496,39 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     .always_on_top(false)
     .skip_taskbar(true);
     
-    // 저장된 위치와 크기가 있으면 사용
-    if let Some(bounds) = saved_bounds {
-        // outer_size를 저장했으므로 outer_size로 복원
-        // Tauri에서는 outer_size를 직접 설정할 수 없으므로 inner_size로 근사치 설정
-        // (실제로는 윈도우가 생성된 후 outer_size로 조정)
-        builder = builder
-            .inner_size(bounds.width, bounds.height)
-            .position(bounds.x, bounds.y);
-    } else {
+    // 기본 크기 설정 (저장된 값이 있으면 나중에 덮어씀)
+    if saved_bounds.is_none() {
         builder = builder.inner_size(400.0, 500.0);
     }
     
     let window = builder
         .build()
         .map_err(|e| format!("달력 위젯 윈도우 생성 실패: {}", e))?;
+    
+    // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
+    // borderless 윈도우에서는 builder의 position이 정확히 작동하지 않을 수 있으므로
+    // 윈도우 생성 후 set_position과 set_size를 사용
+    if let Some(bounds) = saved_bounds {
+        // 윈도우가 완전히 초기화될 때까지 약간 대기
+        std::thread::sleep(Duration::from_millis(100));
+        
+        // 위치 설정: outer_position으로 저장했으므로 Physical 좌표로 설정
+        // Windows에서는 일반적으로 Physical 좌표를 사용
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+            x: bounds.x as i32,
+            y: bounds.y as i32,
+        }));
+        
+        // 크기 설정: inner_size로 저장했으므로 Physical 크기로 설정
+        // inner_size()는 PhysicalSize<u32>를 반환하므로 Physical로 저장/불러오기
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: bounds.width as u32,
+            height: bounds.height as u32,
+        }));
+        
+        // 위치와 크기 설정 후 다시 확인하여 정확히 적용되었는지 확인
+        // (필요시 추가 조정)
+    }
     
     // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
     apply_vibrancy_effect(&window);
@@ -520,14 +538,18 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     
     // 윈도우 위치와 크기를 저장하는 헬퍼 함수
     let save_bounds = |window: &tauri::WebviewWindow<_>| {
-        // inner_size와 outer_position을 사용하여 일관성 유지
+        // outer_position과 inner_size를 사용
+        // outer_position()은 PhysicalPosition<i32>를 직접 반환
+        // inner_size()는 PhysicalSize<u32>를 직접 반환
         if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
-            let bounds = WindowBounds {
-                x: position.x as f64,
-                y: position.y as f64,
-                width: size.width as f64,
-                height: size.height as f64,
-            };
+            // PhysicalPosition에서 Physical 좌표 추출
+            let x = position.x as f64;
+            let y = position.y as f64;
+            // PhysicalSize에서 Physical 크기 추출 (u32 -> f64 변환)
+            let width = size.width as f64;
+            let height = size.height as f64;
+            
+            let bounds = WindowBounds { x, y, width, height };
             if let Ok(json) = serde_json::to_string(&bounds) {
                 let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
             }

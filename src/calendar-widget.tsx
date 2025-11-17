@@ -50,6 +50,7 @@ function CalendarWidget() {
   const [editTodoModalOpen, setEditTodoModalOpen] = useState(false);
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null);
   const [addPeriodModalOpen, setAddPeriodModalOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; todo?: TodoItem; schedule?: PeriodSchedule } | null>(null);
 
   const loadTodos = useCallback(async () => {
     try {
@@ -246,6 +247,11 @@ function CalendarWidget() {
                           e.stopPropagation();
                           // 기간 일정 편집 모달 (추후 구현 가능)
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ x: e.clientX, y: e.clientY, schedule });
+                        }}
                       >
                         {title}
                       </div>
@@ -254,31 +260,35 @@ function CalendarWidget() {
                   {/* 일반 할 일 표시 */}
                   {dayTodos.map(todo => {
                     const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
+                    const isManual = todo.isManual ?? false;
                     return (
                       <div
                         key={todo.id}
-                        className="calendar-todo-item"
+                        className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedTodo(todo);
                           setEditTodoModalOpen(true);
                         }}
                         onMouseEnter={() => {
-                          // 기존 타이머가 있으면 제거
-                          if (hoverTimers[todo.id]) {
-                            clearTimeout(hoverTimers[todo.id]);
-                          }
-                          // 2초 후 메시지 뷰어 열기
-                          const timer = setTimeout(async () => {
-                            try {
-                              await invoke('open_message_viewer', {
-                                messageId: todo.id
-                              });
-                            } catch (e) {
-                              console.error('메시지 뷰어 열기 실패:', e);
+                          // 수동 등록 일정이 아닌 경우에만 메시지 뷰어 열기
+                          if (!isManual) {
+                            // 기존 타이머가 있으면 제거
+                            if (hoverTimers[todo.id]) {
+                              clearTimeout(hoverTimers[todo.id]);
                             }
-                          }, 2000);
+                            // 2초 후 메시지 뷰어 열기
+                            const timer = setTimeout(async () => {
+                              try {
+                                await invoke('open_message_viewer', {
+                                  messageId: todo.id
+                                });
+                              } catch (e) {
+                                console.error('메시지 뷰어 열기 실패:', e);
+                              }
+                            }, 2000);
                             setHoverTimers((prev: Record<number, ReturnType<typeof setTimeout>>) => ({ ...prev, [todo.id]: timer }));
+                          }
                         }}
                         onMouseLeave={() => {
                           // 마우스가 벗어나면 타이머 제거
@@ -290,6 +300,11 @@ function CalendarWidget() {
                               return next;
                             });
                           }
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ x: e.clientX, y: e.clientY, todo });
                         }}
                       >
                         {title}
@@ -367,6 +382,42 @@ function CalendarWidget() {
 
   const saveToRegistry = async (key: string, value: string) => {
     await invoke('set_registry_value', { key, value });
+  };
+
+  const deleteTodo = async (todo: TodoItem) => {
+    const todoId = todo.id;
+    
+    // ManualTodo인 경우
+    if (todo.isManual) {
+      const updatedTodos = manualTodos.filter(t => t.id !== todoId);
+      await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
+      setManualTodos(updatedTodos);
+    }
+
+    // deadline 삭제
+    const updatedDeadlines = { ...deadlines };
+    delete updatedDeadlines[todoId];
+    await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
+    setDeadlines(updatedDeadlines);
+
+    // calendarTitle 삭제
+    const updatedTitles = { ...calendarTitles };
+    delete updatedTitles[todoId];
+    await saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(updatedTitles));
+    setCalendarTitles(updatedTitles);
+
+    void emit('calendar-update');
+    setContextMenu(null);
+    loadTodos();
+  };
+
+  const deletePeriodSchedule = async (schedule: PeriodSchedule) => {
+    const updatedSchedules = periodSchedules.filter(s => s.id !== schedule.id);
+    await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
+    setPeriodSchedules(updatedSchedules);
+    void emit('calendar-update');
+    setContextMenu(null);
+    loadTodos();
   };
 
   return (
@@ -548,6 +599,53 @@ function CalendarWidget() {
             loadTodos();
           }}
         />
+      )}
+      {contextMenu && (
+        <>
+          <div 
+            className="calendar-context-menu-overlay"
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu(null);
+            }}
+          />
+          <div 
+            className="calendar-context-menu"
+            style={{
+              position: 'fixed',
+              left: `${contextMenu.x}px`,
+              top: `${contextMenu.y}px`,
+              zIndex: 10000,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {contextMenu.todo && (
+              <div 
+                className="calendar-context-menu-item"
+                onClick={() => {
+                  if (confirm('이 일정을 삭제하시겠습니까?')) {
+                    deleteTodo(contextMenu.todo!);
+                  }
+                }}
+              >
+                삭제
+              </div>
+            )}
+            {contextMenu.schedule && (
+              <div 
+                className="calendar-context-menu-item"
+                onClick={() => {
+                  if (confirm('이 기간 일정을 삭제하시겠습니까?')) {
+                    deletePeriodSchedule(contextMenu.schedule!);
+                  }
+                }}
+              >
+                삭제
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
