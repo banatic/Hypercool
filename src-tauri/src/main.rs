@@ -51,9 +51,8 @@ struct SearchResultItem {
     snippet: String,
 }
 
-/// UDB 파일에서 메시지를 읽어오는 함수
-#[tauri::command]
-fn read_udb_messages(
+/// UDB 파일에서 메시지를 읽어오는 내부 함수 (watchdog 등에서 직접 호출 가능)
+fn read_udb_messages_internal(
     db_path: String,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -73,11 +72,22 @@ fn read_udb_messages(
     }
 }
 
+/// UDB 파일에서 메시지를 읽어오는 함수 (Tauri command)
+#[tauri::command]
+fn read_udb_messages(
+    db_path: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    search_term: Option<String>,
+) -> Result<PaginatedMessages, String> {
+    read_udb_messages_internal(db_path, limit, offset, search_term)
+}
+
 #[tauri::command]
 fn search_messages(
     db_path: String,
     search_term: String,
-    cache: tauri::State<CacheState>,
+    cache: tauri::State<'_, CacheState>,
 ) -> Result<Vec<SearchResultItem>, String> {
     if search_term.is_empty() {
         return Ok(Vec::new());
@@ -470,14 +480,26 @@ fn show_existing_window() {
 fn main() {
     // 단일 인스턴스 체크 - 이미 실행 중이면 기존 윈도우를 Show하고 종료
     // instance 변수를 유지하여 mutex가 해제되지 않도록 함
-    let _instance = SingleInstance::new("hypercool-app").unwrap();
-    if !_instance.is_single() {
-        #[cfg(target_os = "windows")]
-        show_existing_window();
-        #[cfg(not(target_os = "windows"))]
-        eprintln!("이미 실행 중입니다.");
-        std::process::exit(1);
-    }
+    eprintln!("단일 인스턴스 체크 시작...");
+    let _instance = match SingleInstance::new("hypercool-app") {
+        Ok(instance) => {
+            eprintln!("SingleInstance 생성 성공");
+            if !instance.is_single() {
+                eprintln!("이미 실행 중인 인스턴스 발견");
+                #[cfg(target_os = "windows")]
+                show_existing_window();
+                #[cfg(not(target_os = "windows"))]
+                eprintln!("이미 실행 중입니다.");
+                std::process::exit(1);
+            }
+            instance
+        },
+        Err(e) => {
+            eprintln!("SingleInstance 생성 실패: {:?}", e);
+            panic!("SingleInstance 생성 실패: {:?}", e);
+        }
+    };
+    eprintln!("단일 인스턴스 체크 완료");
 
     let cache_size = NonZeroUsize::new(50).unwrap();
     let cache_state = CacheState {
@@ -508,9 +530,38 @@ fn main() {
             }
 
             // Build system tray
-            let show_item = MenuItem::with_id(app, "show", "창 열기", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            eprintln!("트레이 메뉴 생성 시작...");
+            let show_item = match MenuItem::with_id(app, "show", "창 열기", true, None::<&str>) {
+                Ok(item) => {
+                    eprintln!("show 메뉴 항목 생성 성공");
+                    item
+                },
+                Err(e) => {
+                    eprintln!("메뉴 항목 생성 실패: {:?}", e);
+                    return Err(e.into());
+                }
+            };
+            let quit_item = match MenuItem::with_id(app, "quit", "종료", true, None::<&str>) {
+                Ok(item) => {
+                    eprintln!("quit 메뉴 항목 생성 성공");
+                    item
+                },
+                Err(e) => {
+                    eprintln!("메뉴 항목 생성 실패: {:?}", e);
+                    return Err(e.into());
+                }
+            };
+            eprintln!("메뉴 생성 시도...");
+            let menu = match Menu::with_items(app, &[&show_item, &quit_item]) {
+                Ok(m) => {
+                    eprintln!("메뉴 생성 성공");
+                    m
+                },
+                Err(e) => {
+                    eprintln!("메뉴 생성 실패: {:?}", e);
+                    return Err(e.into());
+                }
+            };
 
             // Load tray icon - try multiple paths and formats
             let icon_path = {
@@ -675,7 +726,13 @@ fn main() {
                 eprintln!("경고: 트레이 아이콘이 설정되지 않았습니다");
             }
 
-            let tray = tray_builder.build(app)?;
+            let tray = match tray_builder.build(app) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("트레이 아이콘 빌드 실패: {:?}", e);
+                    return Err(e.into());
+                }
+            };
 
             // Ensure tray icon is visible
             #[cfg(target_os = "windows")]
@@ -716,7 +773,7 @@ fn main() {
                         }
 
                         let mut last_seen_id =
-                            read_udb_messages(path.clone(), Some(1), Some(0), None)
+                            read_udb_messages_internal(path.clone(), Some(1), Some(0), None)
                                 .ok()
                                 .and_then(|result| result.messages.first().map(|m| m.id));
                         let mut baseline_initialized = last_seen_id.is_some();
@@ -753,7 +810,7 @@ fn main() {
                             if should_process {
                                 let mut has_new_message = false;
                                 if let Ok(result) =
-                                    read_udb_messages(path.clone(), Some(1), Some(0), None)
+                                    read_udb_messages_internal(path.clone(), Some(1), Some(0), None)
                                 {
                                     if let Some(current_id) = result.messages.first().map(|m| m.id)
                                     {

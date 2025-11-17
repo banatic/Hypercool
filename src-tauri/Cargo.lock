@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "hypercool"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64 0.22.1",
  "brotli 3.5.0",
