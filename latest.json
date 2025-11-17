@@ -1,11 +1,11 @@
 {
-    "version": "0.1.4",
-    "notes": "하이퍼링크 열기 방법 수정",
-    "pub_date": "2025-11-14T00:00:00.675Z",
+    "version": "0.1.6",
+    "notes": "달력 위젯 추가 (Experimental)",
+    "pub_date": "2025-11-17T05:51:49.539Z",
     "platforms": {
-      "windows-x86_64": {
-        "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTd1ZEl6emNzV2ZrS0RlT2pvUmZUd0VKQlg1dlpjUDJ6OXlsSTNKRDJLTk5sanViaFAzci9BSDdROFhHRkR3NXNxZHhjTnFDc2JBZ3NkWGVlOTFqRlE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzMDc5NzE0CWZpbGU6SHlwZXJDb29sXzAuMS40X3g2NF9lbi1VUy5tc2kKRGc1cEd4aUhBY2ZBSFBvZis2VWRhektDSXJYYmc1eCtqWnBJZE5TRVVmaVJTTU5PNjFNYTFHczlieTZmYU5VajhYMnBHeUxuWFI5MG9Ca1k1T2tRQ0E9PQo=",
-        "url": "https://github.com/banatic/Hypercool/releases/download/0.1.4/HyperCool_0.1.4_x64_en-US.msi"
+        "windows-x86_64": {
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dS9BMUxiTy9XUmpUSHJrbXZ6bnh2bzI0WXoxUjZ6TkZiRE12WHlPS1ArTDhDSEMxenlXZTFPbDZwbEZwYVVFZTdwVWZFSkNBd2w1Mm41bzNMUmhiSFFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzMzU4ODM5CWZpbGU6SHlwZXJDb29sXzAuMS42X3g2NF9lbi1VUy5tc2kKVjk2UXM2eVlZQ3JqbHp4MHF5S1Q4T1hJNkZZWGN0clJwdFhzcTlXSjB5aGkwU2JibDM4WkJ6MGo2NVczMmFVaXdsNnluSEUyMmk3ZmNtWVdVWlkrQWc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/0.1.6/HyperCool_0.1.6_x64_en-US.msi"
+        }
     }
-  }
 }

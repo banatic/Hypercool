@@ -9,6 +9,7 @@ import './CalendarWidget.css';
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
+const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
 
 interface ManualTodo {
   id: number;
@@ -16,6 +17,15 @@ interface ManualTodo {
   deadline: string | null;
   createdAt: string;
   calendarTitle?: string;
+}
+
+interface PeriodSchedule {
+  id: number;
+  content: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  calendarTitle?: string;
+  createdAt: string;
 }
 
 interface TodoItem {
@@ -32,12 +42,14 @@ function CalendarWidget() {
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
   const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
+  const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
   const [hoverTimers, setHoverTimers] = useState<Record<number, ReturnType<typeof setTimeout>>>({});
   const [addTodoModalOpen, setAddTodoModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editTodoModalOpen, setEditTodoModalOpen] = useState(false);
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null);
+  const [addPeriodModalOpen, setAddPeriodModalOpen] = useState(false);
 
   const loadTodos = useCallback(async () => {
     try {
@@ -54,6 +66,11 @@ function CalendarWidget() {
       const savedCalendarTitles = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
       if (savedCalendarTitles) {
         setCalendarTitles(JSON.parse(savedCalendarTitles) || {});
+      }
+
+      const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
+      if (savedPeriodSchedules) {
+        setPeriodSchedules(JSON.parse(savedPeriodSchedules) || []);
       }
 
       // classified와 allMessages를 가져와서 keptMessages 계산
@@ -147,6 +164,22 @@ function CalendarWidget() {
       }
     });
 
+    // 날짜별로 기간 일정 그룹화
+    const periodSchedulesByDate: Record<string, PeriodSchedule[]> = {};
+    periodSchedules.forEach(schedule => {
+      const start = new Date(schedule.startDate);
+      const end = new Date(schedule.endDate);
+      const current = new Date(start);
+      while (current <= end) {
+        const dateKey = `${current.getFullYear()}-${current.getMonth()}-${current.getDate()}`;
+        if (!periodSchedulesByDate[dateKey]) {
+          periodSchedulesByDate[dateKey] = [];
+        }
+        periodSchedulesByDate[dateKey].push(schedule);
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -155,22 +188,70 @@ function CalendarWidget() {
         {days.map((day, index) => {
           const dateKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
           const dayTodos = todosByDate[dateKey] || [];
+          const dayPeriodSchedules = periodSchedulesByDate[dateKey] || [];
           const isCurrentMonth = day.getMonth() === month;
           const isToday = day.getTime() === today.getTime();
           const isPast = day < today && !isToday;
+          const dayOfWeek = day.getDay();
+          const isSunday = dayOfWeek === 0;
+          const isSaturday = dayOfWeek === 6;
+
+          // 기간 일정이 해당 날짜에서 시작/중간/끝인지 확인
+          const getPeriodPosition = (schedule: PeriodSchedule): 'start' | 'middle' | 'end' | 'start end' => {
+            const scheduleStart = new Date(schedule.startDate);
+            scheduleStart.setHours(0, 0, 0, 0);
+            const scheduleEnd = new Date(schedule.endDate);
+            scheduleEnd.setHours(0, 0, 0, 0);
+            const currentDay = new Date(day);
+            currentDay.setHours(0, 0, 0, 0);
+            
+            const isStart = currentDay.getTime() === scheduleStart.getTime();
+            const isEnd = currentDay.getTime() === scheduleEnd.getTime();
+            
+            if (isStart && isEnd) {
+              return 'start end';
+            } else if (isStart) {
+              return 'start';
+            } else if (isEnd) {
+              return 'end';
+            } else {
+              return 'middle';
+            }
+          };
 
           return (
             <div
               key={index}
-              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''}`}
+              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${isSunday ? 'sunday' : ''} ${isSaturday ? 'saturday' : ''}`}
               onDoubleClick={() => {
                 setSelectedDate(day);
                 setAddTodoModalOpen(true);
               }}
             >
               <div className="calendar-day-number">{day.getDate()}</div>
-              {dayTodos.length > 0 && (
+              {(dayPeriodSchedules.length > 0 || dayTodos.length > 0) && (
                 <div className="calendar-day-todos">
+                  {/* 기간 일정을 먼저 표시 (상단) */}
+                  {dayPeriodSchedules.map(schedule => {
+                    const title = schedule.calendarTitle || (schedule.content.length > 10 ? schedule.content.substring(0, 10) + '...' : schedule.content);
+                    const position = getPeriodPosition(schedule);
+                    const className = position === 'start end' 
+                      ? 'calendar-period-schedule period-start period-end'
+                      : `calendar-period-schedule period-${position}`;
+                    return (
+                      <div
+                        key={`period-${schedule.id}`}
+                        className={className}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // 기간 일정 편집 모달 (추후 구현 가능)
+                        }}
+                      >
+                        {title}
+                      </div>
+                    );
+                  })}
+                  {/* 일반 할 일 표시 */}
                   {dayTodos.slice(0, 2).map(todo => {
                     const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
                     return (
@@ -215,7 +296,7 @@ function CalendarWidget() {
                       </div>
                     );
                   })}
-                  {dayTodos.length > 2 && (
+                  {(dayPeriodSchedules.length === 0 && dayTodos.length > 2) && (
                     <div className="calendar-todo-more">+{dayTodos.length - 2}</div>
                   )}
                 </div>
@@ -310,8 +391,16 @@ function CalendarWidget() {
         <div className="calendar-weekday">토</div>
       </div>
       {renderCalendar()}
+      <div className="calendar-footer-trigger"></div>
       <div className="calendar-widget-footer">
         <button onClick={goToToday} className="calendar-today-btn">오늘</button>
+        <button 
+          onClick={() => setAddPeriodModalOpen(true)} 
+          className="calendar-today-btn"
+          style={{ marginLeft: '10px', background: 'rgba(255, 165, 0, 0.3)', borderColor: 'rgba(255, 165, 0, 0.6)' }}
+        >
+          기간 일정 등록
+        </button>
       </div>
       {addTodoModalOpen && selectedDate && (
         <AddTodoModalWidget
@@ -420,6 +509,47 @@ function CalendarWidget() {
             loadTodos();
           }}
           parseDateFromText={parseDateFromText}
+        />
+      )}
+      {addPeriodModalOpen && (
+        <AddPeriodModalWidget
+          onClose={() => {
+            setAddPeriodModalOpen(false);
+          }}
+          onSave={async (content: string, calendarTitle: string, startDate: string, endDate: string) => {
+            if (!content.trim()) {
+              alert('일정 내용을 입력해주세요.');
+              return;
+            }
+
+            if (!startDate || !endDate) {
+              alert('시작일과 종료일을 모두 입력해주세요.');
+              return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+              alert('시작일이 종료일보다 늦을 수 없습니다.');
+              return;
+            }
+
+            const newId = Date.now();
+            const newSchedule: PeriodSchedule = {
+              id: newId,
+              content: content.trim(),
+              startDate,
+              endDate,
+              createdAt: new Date().toISOString(),
+              calendarTitle: calendarTitle.trim() || undefined,
+            };
+
+            const currentSchedules = [...periodSchedules, newSchedule];
+            await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(currentSchedules));
+            setPeriodSchedules(currentSchedules);
+
+            void emit('calendar-update');
+            setAddPeriodModalOpen(false);
+            loadTodos();
+          }}
         />
       )}
     </div>
@@ -589,6 +719,93 @@ interface AddTodoModalWidgetProps {
   onSave: (content: string, calendarTitle: string, deadlineDate: string, deadlineTime: string) => Promise<void>;
   parseDateFromText: (text: string, baseDate?: Date) => { date: string | null; time: string | null };
 }
+
+interface AddPeriodModalWidgetProps {
+  onClose: () => void;
+  onSave: (content: string, calendarTitle: string, startDate: string, endDate: string) => Promise<void>;
+}
+
+const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, onSave }) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const now = new Date();
+  const defaultStartDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const defaultEndDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+  const [content, setContent] = useState<string>('');
+  const [calendarTitle, setCalendarTitle] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>(defaultStartDate);
+  const [endDate, setEndDate] = useState<string>(defaultEndDate);
+
+  const handleSave = async () => {
+    await onSave(content, calendarTitle, startDate, endDate);
+  };
+
+  return (
+    <div className="schedule-modal-overlay" onClick={onClose}>
+      <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="schedule-inner">
+          <div className="schedule-preview">
+            <div style={{ padding: '16px' }}>
+              <h3 style={{ marginBottom: '12px' }}>기간 일정 내용</h3>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="기간 일정 내용을 입력하세요... (예: 겨울 방학, 프로젝트 기간)"
+                style={{
+                  width: '100%',
+                  minHeight: '200px',
+                  padding: '12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: '15px',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          </div>
+          <div className="schedule-panel">
+            <h3>기간 설정</h3>
+            <label htmlFor="period-calendar-title">달력 제목 (짧게)</label>
+            <input 
+              id="period-calendar-title" 
+              type="text" 
+              value={calendarTitle}
+              onChange={(e) => setCalendarTitle(e.target.value)}
+              placeholder="예: 겨울방학, 프로젝트"
+              maxLength={20}
+              style={{
+                width: '100%',
+                padding: '8px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius)',
+                fontSize: '14px',
+              }}
+            />
+            <label htmlFor="period-start-date">시작일</label>
+            <input 
+              id="period-start-date" 
+              type="date" 
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)} 
+            />
+            <label htmlFor="period-end-date">종료일</label>
+            <input 
+              id="period-end-date" 
+              type="date" 
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)} 
+            />
+            <div className="row">
+              <button onClick={handleSave}>저장</button>
+              <button onClick={onClose}>취소</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, onClose, onSave, parseDateFromText }) => {
   const pad = (n: number) => n.toString().padStart(2, '0');

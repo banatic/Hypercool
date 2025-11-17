@@ -811,7 +811,6 @@ function App() {
           setAddTodoModal={setAddTodoModal}
           setManualTodos={setManualTodos}
           setDeadlines={setDeadlines}
-          calendarTitles={calendarTitles}
           setCalendarTitles={setCalendarTitles}
           saveToRegistry={saveToRegistry}
           parseDateFromText={parseDateFromText}
