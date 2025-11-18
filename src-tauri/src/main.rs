@@ -24,7 +24,7 @@ use tauri::{
 };
 use tauri::{Emitter, Manager, Runtime};
 #[cfg(target_os = "windows")]
-use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE};
+use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_acrylic;
 #[cfg(target_os = "macos")]
@@ -455,6 +455,34 @@ struct WindowBounds {
 }
 
 #[tauri::command]
+async fn set_calendar_widget_pinned(app: tauri::AppHandle, pinned: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("calendar-widget") {
+        // resizable 설정
+        window
+            .set_resizable(pinned)
+            .map_err(|e| format!("윈도우 resizable 설정 실패: {}", e))?;
+        
+        // 레지스트리에 핀 상태 저장
+        let _ = set_registry_value("CalendarWidgetPinned".to_string(), pinned.to_string());
+        
+        Ok(())
+    } else {
+        Err("달력 위젯 윈도우를 찾을 수 없습니다".into())
+    }
+}
+
+#[tauri::command]
+async fn get_calendar_widget_pinned(_app: tauri::AppHandle) -> Result<bool, String> {
+    match get_registry_value("CalendarWidgetPinned".to_string()) {
+        Ok(Some(value)) => {
+            value.parse::<bool>().map_err(|e| format!("핀 상태 파싱 실패: {}", e))
+        }
+        Ok(None) => Ok(false), // 기본값은 false (고정되지 않음)
+        Err(e) => Err(e)
+    }
+}
+
+#[tauri::command]
 async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     // 이미 열려있는지 확인
     if let Some(window) = app.get_webview_window("calendar-widget") {
@@ -483,6 +511,12 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
         _ => None
     };
     
+    // 저장된 핀 상태 확인
+    let is_pinned = match get_registry_value("CalendarWidgetPinned".to_string()) {
+        Ok(Some(value)) => value.parse::<bool>().unwrap_or(false),
+        _ => false, // 기본값은 false (고정되지 않음)
+    };
+    
     let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         "calendar-widget",
@@ -490,7 +524,7 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     )
     .title("달력 위젯")
     .min_inner_size(350.0, 450.0)
-    .resizable(true)
+    .resizable(is_pinned) // 핀 상태에 따라 resizable 설정
     .decorations(false)
     .transparent(true)
     .always_on_top(false)
@@ -532,6 +566,32 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     
     // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
     apply_vibrancy_effect(&window);
+    
+    // Windows에서 윈도우를 데스크톱 뒤로 보내기
+    #[cfg(target_os = "windows")]
+    {
+        let window_title = "달력 위젯";
+        let title_wide: Vec<u16> = OsStr::new(window_title).encode_wide().chain(Some(0)).collect();
+        
+        // 윈도우가 완전히 생성될 때까지 약간 대기
+        std::thread::sleep(Duration::from_millis(200));
+        
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
+            if !hwnd.is_null() {
+                // 윈도우를 Z-order의 맨 아래로 보내기 (데스크톱 뒤로)
+                SetWindowPos(
+                    hwnd,
+                    HWND_BOTTOM,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
     
     // 디바운싱을 위한 타이머
     let save_timer: std::sync::Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = std::sync::Arc::new(Mutex::new(None));
@@ -752,7 +812,9 @@ fn main() {
             get_message_by_id,
             open_calendar_widget,
             open_message_viewer,
-            close_message_viewer
+            close_message_viewer,
+            set_calendar_widget_pinned,
+            get_calendar_widget_pinned
         ])
         .setup(|app| {
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)

@@ -72,14 +72,14 @@ html, body, #root {
   .calendar-weekdays {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 2px;
-    padding: 12px 16px;
+    gap: 1px;
+    padding: 12px 0px;
     background: rgba(30, 30, 40, 0.3);
   }
   
   .calendar-weekday {
     text-align: center;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     color: rgba(255, 255, 255, 0.5);
     padding: 6px 0;
