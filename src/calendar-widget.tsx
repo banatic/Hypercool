@@ -37,14 +37,18 @@ interface TodoItem {
   calendarTitle?: string;
 }
 
-function CalendarWidget() {
+interface CalendarWidgetProps {
+  isPinned?: boolean;
+  onPinnedChange?: (pinned: boolean) => void;
+}
+
+function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
   const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
-  const [hoverTimers, setHoverTimers] = useState<Record<number, ReturnType<typeof setTimeout>>>({});
   const [addTodoModalOpen, setAddTodoModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editTodoModalOpen, setEditTodoModalOpen] = useState(false);
@@ -270,37 +274,6 @@ function CalendarWidget() {
                           setSelectedTodo(todo);
                           setEditTodoModalOpen(true);
                         }}
-                        onMouseEnter={() => {
-                          // 수동 등록 일정이 아닌 경우에만 메시지 뷰어 열기
-                          if (!isManual) {
-                            // 기존 타이머가 있으면 제거
-                            if (hoverTimers[todo.id]) {
-                              clearTimeout(hoverTimers[todo.id]);
-                            }
-                            // 2초 후 메시지 뷰어 열기
-                            const timer = setTimeout(async () => {
-                              try {
-                                await invoke('open_message_viewer', {
-                                  messageId: todo.id
-                                });
-                              } catch (e) {
-                                console.error('메시지 뷰어 열기 실패:', e);
-                              }
-                            }, 2000);
-                            setHoverTimers((prev: Record<number, ReturnType<typeof setTimeout>>) => ({ ...prev, [todo.id]: timer }));
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          // 마우스가 벗어나면 타이머 제거
-                          if (hoverTimers[todo.id]) {
-                            clearTimeout(hoverTimers[todo.id]);
-                            setHoverTimers((prev: Record<number, ReturnType<typeof setTimeout>>) => {
-                              const next = { ...prev };
-                              delete next[todo.id];
-                              return next;
-                            });
-                          }
-                        }}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -448,6 +421,26 @@ function CalendarWidget() {
           style={{ marginLeft: '10px', background: 'rgba(255, 165, 0, 0.3)', borderColor: 'rgba(255, 165, 0, 0.6)' }}
         >
           기간 일정 등록
+        </button>
+        <button 
+          onClick={async () => {
+            const newPinnedState = !isPinned;
+            try {
+              await invoke('set_calendar_widget_pinned', { pinned: newPinnedState });
+              onPinnedChange?.(newPinnedState);
+            } catch (e) {
+              console.error('핀 상태 변경 실패:', e);
+            }
+          }}
+          className="calendar-today-btn calendar-pin-btn"
+          style={{ 
+            marginLeft: '10px', 
+            background: isPinned ? 'rgba(100, 200, 100, 0.3)' : 'rgba(100, 100, 100, 0.3)',
+            borderColor: isPinned ? 'rgba(100, 200, 100, 0.6)' : 'rgba(100, 100, 100, 0.6)'
+          }}
+          title={isPinned ? '고정 해제' : '고정'}
+        >
+          {isPinned ? '📌' : '📍'}
         </button>
       </div>
       {addTodoModalOpen && selectedDate && (
@@ -1010,11 +1003,31 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
 };
 
 function CalendarWidgetApp() {
-  // 윈도우 드래그 가능하게 만들기
+  const [isPinned, setIsPinned] = useState(false);
+
+  // 핀 상태 확인
+  useEffect(() => {
+    const checkPinnedState = async () => {
+      try {
+        const pinned = await invoke<boolean>('get_calendar_widget_pinned');
+        setIsPinned(pinned);
+      } catch (e) {
+        console.error('핀 상태 확인 실패:', e);
+      }
+    };
+    checkPinnedState();
+  }, []);
+
+  // 윈도우 드래그 가능하게 만들기 (핀 상태에 따라)
   useEffect(() => {
     const handleMouseDown = async (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.calendar-widget-header') || target.closest('.calendar-widget-footer')) {
+      // 핀 버튼 자체는 드래그하지 않음
+      if (target.closest('.calendar-pin-btn')) {
+        return;
+      }
+      // 핀이 고정된 상태에서만 드래그 가능
+      if (isPinned && (target.closest('.calendar-widget-header') || target.closest('.calendar-widget-footer'))) {
         const window = getCurrentWindow();
         await window.startDragging();
       }
@@ -1024,9 +1037,9 @@ function CalendarWidgetApp() {
     return () => {
       document.removeEventListener('mousedown', handleMouseDown);
     };
-  }, []);
+  }, [isPinned]);
 
-  return <CalendarWidget />;
+  return <CalendarWidget isPinned={isPinned} onPinnedChange={setIsPinned} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
