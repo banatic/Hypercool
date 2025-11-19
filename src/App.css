@@ -801,7 +801,8 @@
 }
 
 .results-list {
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
   flex: 1;
   min-height: 0;
