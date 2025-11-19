@@ -5,7 +5,7 @@
     "platforms": {
         "windows-x86_64": {
             "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dXdFSStQbkRkZERaQlp6dFlyc2pEaW5KdDcraVNkM0xzQmZhaHU3QStlcXQ4QlQxQzl0eDN5cGs4V3FWdXBTOG5NS1FPVHlCTmM2Z3BXZFFVbzVBdHdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzNTM5MzY3CWZpbGU6SHlwZXJDb29sXzAuMi4xX3g2NF9lbi1VUy5tc2kKMTVPM2d0SGp5R2RIMUIvUi80QlFjU2ZGYjdjc29kS0dCWGFpdy8weEFIeUY2dG5ESy9vT1VDbGRSSlg3bnZLN2NPMGUzNVR5aUo4aXpSZ2d2VDBGREE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/0.2.1/HyperCool_0.2.1_x64_en-US.msi"
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.2.1/HyperCool_0.2.1_x64_en-US.msi"
         }
     }
 }
