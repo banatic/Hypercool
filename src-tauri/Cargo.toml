@@ -1,6 +1,6 @@
 [package]
 name = "hypercool"
-version = "0.1.9"
+version = "0.2.0"
 description = "쿨 메신저 메시지 관리 프로그램"
 authors = ["moominda"]
 license = ""
@@ -31,6 +31,7 @@ image = "0.25"
 chrono = "0.4"
 single-instance = "0.3"
 winapi = { version = "0.3", features = ["winuser"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader"] }
 
 [features]
 # This feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled

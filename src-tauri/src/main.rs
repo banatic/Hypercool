@@ -1,6 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "windows")]
+mod window_blur;
+
 use base64::Engine;
 use chrono::{Local, NaiveTime};
 use flate2::read::ZlibDecoder;
@@ -36,6 +39,21 @@ use window_vibrancy::apply_blur;
 fn apply_vibrancy_effect<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     #[cfg(target_os = "windows")]
     {
+        // 윈도우 타이틀로 핸들 찾기
+        if let Ok(title) = window.title() {
+            let title_wide: Vec<u16> = OsStr::new(&title).encode_wide().chain(Some(0)).collect();
+            unsafe {
+                let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
+                if !hwnd.is_null() {
+                    // winapi::HWND를 windows::Win32::Foundation::HWND로 변환
+                    let hwnd_ptr = hwnd as *mut std::ffi::c_void;
+                    let hwnd_windows = windows::Win32::Foundation::HWND(hwnd_ptr);
+                    window_blur::enable_acrylic(hwnd_windows);
+                    return;
+                }
+            }
+        }
+        // 폴백: 기존 방식 사용
         let _ = apply_acrylic(window, Some((18, 18, 18, 125)));
     }
 
@@ -641,15 +659,9 @@ async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
                 save_bounds(&window_clone);
             }
             tauri::WindowEvent::Focused(false) => {
-                // 포커스를 잃었을 때 효과 재적용 및 위치 저장
-                std::thread::sleep(Duration::from_millis(50));
-                apply_vibrancy_effect(&window_clone);
+                // 포커스를 잃었을 때 위치 저장
+                // 새로운 아크릴 효과는 포커스가 없어도 유지되므로 재적용 불필요
                 save_bounds(&window_clone);
-            }
-            tauri::WindowEvent::Focused(true) => {
-                // 포커스를 얻었을 때도 효과 재적용
-                std::thread::sleep(Duration::from_millis(50));
-                apply_vibrancy_effect(&window_clone);
             }
             _ => {}
         }
@@ -820,24 +832,7 @@ fn main() {
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
             if let Some(win) = app.get_webview_window("main") {
                 apply_vibrancy_effect(&win);
-                
-                // 포커스를 잃었을 때 효과를 다시 적용하기 위한 이벤트 리스너
-                let win_clone = win.clone();
-                win.on_window_event(move |event| {
-                    match event {
-                        tauri::WindowEvent::Focused(false) => {
-                            // 포커스를 잃었을 때 효과 재적용
-                            std::thread::sleep(Duration::from_millis(50));
-                            apply_vibrancy_effect(&win_clone);
-                        }
-                        tauri::WindowEvent::Focused(true) => {
-                            // 포커스를 얻었을 때도 효과 재적용
-                            std::thread::sleep(Duration::from_millis(50));
-                            apply_vibrancy_effect(&win_clone);
-                        }
-                        _ => {}
-                    }
-                });
+                // 새로운 아크릴 효과는 포커스가 없어도 유지되므로 이벤트 리스너 불필요
             }
 
             // Build system tray
