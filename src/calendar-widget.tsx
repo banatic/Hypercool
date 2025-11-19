@@ -10,6 +10,7 @@ const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_DEADLINES = 'TodoDeadlineMap';
 const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
 const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
+const REG_KEY_COMPLETED_TODOS = 'CompletedTodos';
 
 interface ManualTodo {
   id: number;
@@ -35,6 +36,7 @@ interface TodoItem {
   sender?: string;
   isManual?: boolean;
   calendarTitle?: string;
+  isCompleted?: boolean;
 }
 
 interface CalendarWidgetProps {
@@ -48,6 +50,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
   const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
+  const [completedTodos, setCompletedTodos] = useState<Set<number>>(new Set());
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
   const [addTodoModalOpen, setAddTodoModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -76,6 +79,12 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
       if (savedPeriodSchedules) {
         setPeriodSchedules(JSON.parse(savedPeriodSchedules) || []);
+      }
+
+      const savedCompletedTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_COMPLETED_TODOS });
+      if (savedCompletedTodos) {
+        const completedIds = JSON.parse(savedCompletedTodos) || [];
+        setCompletedTodos(new Set(completedIds));
       }
 
       // classified와 allMessages를 가져와서 keptMessages 계산
@@ -145,14 +154,16 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
         deadline: deadlines[m.id] || null, 
         sender: m.sender, 
         isManual: false,
-        calendarTitle: calendarTitles[m.id] || undefined
+        calendarTitle: calendarTitles[m.id] || undefined,
+        isCompleted: completedTodos.has(m.id)
       })),
       ...manualTodos.map(t => ({ 
         id: t.id, 
         content: t.content, 
         deadline: t.deadline, 
         isManual: true,
-        calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined
+        calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
+        isCompleted: completedTodos.has(t.id)
       }))
     ];
 
@@ -261,29 +272,56 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                       </div>
                     );
                   })}
-                  {/* 일반 할 일 표시 */}
-                  {dayTodos.map(todo => {
-                    const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
-                    const isManual = todo.isManual ?? false;
-                    return (
-                      <div
-                        key={todo.id}
-                        className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedTodo(todo);
-                          setEditTodoModalOpen(true);
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setContextMenu({ x: e.clientX, y: e.clientY, todo });
-                        }}
-                      >
-                        {title}
-                      </div>
-                    );
-                  })}
+                  {/* 일반 할 일 표시 - 완료되지 않은 항목 먼저, 완료된 항목은 최하단 */}
+                  {dayTodos
+                    .filter(todo => !todo.isCompleted)
+                    .map(todo => {
+                      const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
+                      const isManual = todo.isManual ?? false;
+                      return (
+                        <div
+                          key={todo.id}
+                          className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTodo(todo);
+                            setEditTodoModalOpen(true);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenu({ x: e.clientX, y: e.clientY, todo });
+                          }}
+                        >
+                          {title}
+                        </div>
+                      );
+                    })}
+                  {/* 완료된 항목은 최하단에 표시 */}
+                  {dayTodos
+                    .filter(todo => todo.isCompleted)
+                    .map(todo => {
+                      const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
+                      const isManual = todo.isManual ?? false;
+                      return (
+                        <div
+                          key={todo.id}
+                          className={`calendar-todo-item calendar-todo-completed ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTodo(todo);
+                            setEditTodoModalOpen(true);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenu({ x: e.clientX, y: e.clientY, todo });
+                          }}
+                        >
+                          {title}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -388,6 +426,25 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     const updatedSchedules = periodSchedules.filter(s => s.id !== schedule.id);
     await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
     setPeriodSchedules(updatedSchedules);
+    void emit('calendar-update');
+    setContextMenu(null);
+    loadTodos();
+  };
+
+  const toggleTodoCompletion = async (todo: TodoItem) => {
+    const todoId = todo.id;
+    const newCompletedSet = new Set(completedTodos);
+    
+    if (completedTodos.has(todoId)) {
+      // 완료 취소
+      newCompletedSet.delete(todoId);
+    } else {
+      // 완료 처리
+      newCompletedSet.add(todoId);
+    }
+    
+    await saveToRegistry(REG_KEY_COMPLETED_TODOS, JSON.stringify(Array.from(newCompletedSet)));
+    setCompletedTodos(newCompletedSet);
     void emit('calendar-update');
     setContextMenu(null);
     loadTodos();
@@ -614,16 +671,26 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             onClick={(e) => e.stopPropagation()}
           >
             {contextMenu.todo && (
-              <div 
-                className="calendar-context-menu-item"
-                onClick={() => {
-                  if (confirm('이 일정을 삭제하시겠습니까?')) {
-                    deleteTodo(contextMenu.todo!);
-                  }
-                }}
-              >
-                삭제
-              </div>
+              <>
+                <div 
+                  className="calendar-context-menu-item"
+                  onClick={() => {
+                    toggleTodoCompletion(contextMenu.todo!);
+                  }}
+                >
+                  {contextMenu.todo.isCompleted ? '완료 취소' : '완료'}
+                </div>
+                <div 
+                  className="calendar-context-menu-item"
+                  onClick={() => {
+                    if (confirm('이 일정을 삭제하시겠습니까?')) {
+                      deleteTodo(contextMenu.todo!);
+                    }
+                  }}
+                >
+                  삭제
+                </div>
+              </>
             )}
             {contextMenu.schedule && (
               <div 
