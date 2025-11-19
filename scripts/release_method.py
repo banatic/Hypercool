@@ -25,6 +25,8 @@ class ReleaseConfig:
     bundle_dir: Path = Path("src-tauri/target/release/bundle/msi")
     latest_path: Path = Path("latest.json")
     repo_download_url: Optional[str] = None
+    skip_github_release: bool = False
+    skip_git_push: bool = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +79,16 @@ def parse_args() -> argparse.Namespace:
             "Example: https://github.com/banatic/Hypercool/releases/download"
         ),
     )
+    parser.add_argument(
+        "--skip-github-release",
+        action="store_true",
+        help="Skip GitHub release creation (tag + upload)",
+    )
+    parser.add_argument(
+        "--skip-git-push",
+        action="store_true",
+        help="Skip git add/commit/push for latest.json",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +103,8 @@ def config_from_args(args: argparse.Namespace) -> ReleaseConfig:
         bundle_dir=args.bundle_dir,
         latest_path=args.latest_path,
         repo_download_url=args.repo_download_url,
+        skip_github_release=args.skip_github_release,
+        skip_git_push=args.skip_git_push,
     )
 
 
@@ -243,14 +257,161 @@ def build_download_url(
     artifact_name: str,
     repo_download_url: Optional[str],
 ) -> str:
+    # GitHub release 태그 형식에 맞춰 v를 붙임
+    tag_version = f"v{version}"
+    
     if repo_download_url:
         base = repo_download_url.rstrip("/")
-        return f"{base}/{version}/{artifact_name}"
+        return f"{base}/{tag_version}/{artifact_name}"
 
     if current_url and previous_version:
+        # previous_version도 v가 붙어있을 수 있으므로 처리
+        prev_tag = f"v{previous_version}" if not previous_version.startswith("v") else previous_version
+        if prev_tag in current_url:
+            return current_url.replace(prev_tag, tag_version)
+        # v 없이도 시도
         if previous_version in current_url:
-            return current_url.replace(previous_version, version)
+            return current_url.replace(previous_version, tag_version)
     return current_url or artifact_name
+
+
+def get_git_remote_url(root: Path) -> Optional[str]:
+    """Get the GitHub repository URL from git remote."""
+    git_exec = shutil.which("git") or shutil.which("git.exe")
+    if not git_exec:
+        return None
+    
+    try:
+        result = subprocess.run(
+            [git_exec, "remote", "get-url", "origin"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        url = result.stdout.strip()
+        # Convert SSH URL to HTTPS if needed
+        if url.startswith("git@github.com:"):
+            url = url.replace("git@github.com:", "https://github.com/").replace(".git", "")
+        elif url.endswith(".git"):
+            url = url[:-4]
+        return url
+    except subprocess.CalledProcessError:
+        return None
+
+
+def check_gh_cli() -> bool:
+    """Check if GitHub CLI is installed and authenticated."""
+    gh_exec = shutil.which("gh") or shutil.which("gh.exe")
+    if not gh_exec:
+        return False
+    
+    try:
+        # Check if authenticated
+        subprocess.run(
+            [gh_exec, "auth", "status"],
+            capture_output=True,
+            check=True,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def create_github_release(
+    root: Path,
+    version: str,
+    notes: str,
+    msi_path: Path,
+    sig_path: Optional[Path] = None,
+) -> None:
+    """Create a GitHub release with tag and upload MSI file."""
+    gh_exec = shutil.which("gh") or shutil.which("gh.exe")
+    if not gh_exec:
+        raise SystemExit("[error] GitHub CLI (gh) not found. Install it from https://cli.github.com/")
+    
+    if not check_gh_cli():
+        raise SystemExit("[error] GitHub CLI not authenticated. Run `gh auth login` first.")
+    
+    tag = f"v{version}"
+    title = f"Release {tag}"
+    
+    print(f"[info] Creating GitHub release {tag}...")
+    
+    # Prepare files to upload
+    files_to_upload = [str(msi_path)]
+    if sig_path and sig_path.exists():
+        files_to_upload.append(str(sig_path))
+    
+    # Create release with files
+    cmd = [
+        gh_exec,
+        "release",
+        "create",
+        tag,
+        "--title", title,
+        "--notes", notes,
+    ] + files_to_upload
+    
+    try:
+        subprocess.run(cmd, cwd=root, check=True)
+        print(f"[info] GitHub release {tag} created successfully.")
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"[error] Failed to create GitHub release: {exc}")
+
+
+def git_add_commit_push(root: Path, version: str, latest_path: Path) -> None:
+    """Add latest.json, commit, and push to git."""
+    git_exec = shutil.which("git") or shutil.which("git.exe")
+    if not git_exec:
+        raise SystemExit("[error] Git not found. Ensure Git is installed and on PATH.")
+    
+    # Check if there are changes
+    try:
+        status_result = subprocess.run(
+            [git_exec, "status", "--porcelain", str(latest_path)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if not status_result.stdout.strip():
+            print("[info] No changes to latest.json, skipping git operations.")
+            return
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"[error] Failed to check git status: {exc}")
+    
+    print("[info] Staging latest.json...")
+    try:
+        subprocess.run(
+            [git_exec, "add", str(latest_path)],
+            cwd=root,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"[error] Failed to git add latest.json: {exc}")
+    
+    print("[info] Committing changes...")
+    commit_message = f"Update latest.json for version {version}"
+    try:
+        subprocess.run(
+            [git_exec, "commit", "-m", commit_message],
+            cwd=root,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"[error] Failed to git commit: {exc}")
+    
+    print("[info] Pushing to remote...")
+    try:
+        subprocess.run(
+            [git_exec, "push"],
+            cwd=root,
+            check=True,
+        )
+        print("[info] Successfully pushed latest.json to remote.")
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"[error] Failed to git push: {exc}")
 
 
 def run_release(config: ReleaseConfig) -> int:
@@ -296,10 +457,33 @@ def run_release(config: ReleaseConfig) -> int:
         repo_download_url=config.repo_download_url,
     )
 
+    # Create GitHub release with tag and upload MSI
+    if not config.skip_github_release:
+        sig_path = msi_path.parent / f"{msi_path.name}.sig"
+        create_github_release(
+            root=root,
+            version=version,
+            notes=notes,
+            msi_path=msi_path,
+            sig_path=sig_path if sig_path.exists() else None,
+        )
+    else:
+        print("[info] Skipping GitHub release creation as requested.")
+
+    # Git add, commit, and push latest.json
+    if not config.skip_git_push:
+        git_add_commit_push(root=root, version=version, latest_path=latest_path)
+    else:
+        print("[info] Skipping git push as requested.")
+
     print("\nAll done ✅")
     print(f"- MSI: {msi_path}")
-    print("- Upload the MSI (and .sig if needed) when creating the GitHub release.")
-    print(f"- latest.json updated with signature and download URL for version {version}.")
+    if not config.skip_github_release:
+        print(f"- GitHub release v{version} created with MSI uploaded.")
+    if not config.skip_git_push:
+        print(f"- latest.json committed and pushed to remote.")
+    else:
+        print(f"- latest.json updated (not pushed).")
     return 0
 
 
@@ -321,7 +505,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.2.0",
+        version="0.2.1",
         notes="달력 위젯 개선",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
@@ -329,6 +513,8 @@ if __name__ == "__main__":
         bundle_dir=Path("src-tauri/target/release/bundle/msi"),
         latest_path=Path("latest.json"),
         repo_download_url=None,
+        skip_github_release=False,  # GitHub release 자동 생성
+        skip_git_push=False,  # git push 자동 실행
     )
 
     raise SystemExit(run_release(CONFIG))

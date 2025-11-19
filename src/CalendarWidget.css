@@ -205,6 +205,15 @@ html, body, #root {
     max-width: 100%;
     overflow: hidden;
   }
+
+  /* 완료된 항목을 최하단에 배치하기 위한 flexbox 설정 */
+  .calendar-day-todos .calendar-todo-item:not(.calendar-todo-completed) {
+    order: 0;
+  }
+
+  .calendar-day-todos .calendar-todo-item.calendar-todo-completed {
+    order: 999;
+  }
   
   .calendar-todo-item {
     font-size: 11px;
@@ -238,6 +247,29 @@ html, body, #root {
   
   .calendar-todo-item.calendar-todo-manual:hover {
     background: rgba(50, 200, 100, 0.5);
+  }
+
+  /* 완료된 항목 스타일 */
+  .calendar-todo-item.calendar-todo-completed {
+    opacity: 0.4;
+    text-decoration: line-through;
+    order: 999; /* 최하단에 배치 */
+  }
+
+  .calendar-todo-item.calendar-todo-completed.calendar-todo-message {
+    background: rgba(0, 150, 255, 0.15);
+  }
+
+  .calendar-todo-item.calendar-todo-completed.calendar-todo-message:hover {
+    background: rgba(0, 150, 255, 0.25);
+  }
+
+  .calendar-todo-item.calendar-todo-completed.calendar-todo-manual {
+    background: rgba(50, 200, 100, 0.15);
+  }
+
+  .calendar-todo-item.calendar-todo-completed.calendar-todo-manual:hover {
+    background: rgba(50, 200, 100, 0.25);
   }
 
   .calendar-period-schedule {
