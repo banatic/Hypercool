@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { PageHeader } from './PageHeader';
+import { invoke } from '@tauri-apps/api/core';
 
 interface SettingsPageProps {
   udbPath: string;
@@ -18,6 +19,10 @@ interface SettingsPageProps {
 const REG_KEY_UDB = 'UdbPath';
 const REG_KEY_CLASS_TIMES = 'ClassTimes';
 const REG_KEY_UI_SCALE = 'UIScale';
+const REG_KEY_AUTO_START = 'AutoStart';
+const REG_KEY_AUTO_START_HIDE_MAIN = 'AutoStartHideMain';
+const REG_KEY_AUTO_START_CALENDAR = 'AutoStartCalendar';
+const REG_KEY_AUTO_START_SCHOOL = 'AutoStartSchool';
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   udbPath,
@@ -34,6 +39,35 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [updateInfo, setUpdateInfo] = useState<{ version: string; date: string; body: string } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number } | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+  const [isLatestVersion, setIsLatestVersion] = useState(false);
+  
+  // 자동 실행 설정 상태
+  const [autoStart, setAutoStart] = useState(false);
+  const [autoStartHideMain, setAutoStartHideMain] = useState(false);
+  const [autoStartCalendar, setAutoStartCalendar] = useState(false);
+  const [autoStartSchool, setAutoStartSchool] = useState(false);
+  
+  // 설정 불러오기
+  useEffect(() => {
+    const loadAutoStartSettings = async () => {
+      try {
+        const autoStartValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START });
+        setAutoStart(autoStartValue === 'true');
+        
+        const hideMainValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_HIDE_MAIN });
+        setAutoStartHideMain(hideMainValue === 'true');
+        
+        const calendarValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_CALENDAR });
+        setAutoStartCalendar(calendarValue === 'true');
+        
+        const schoolValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_SCHOOL });
+        setAutoStartSchool(schoolValue === 'true');
+      } catch (error) {
+        console.error('자동 실행 설정 불러오기 실패:', error);
+      }
+    };
+    loadAutoStartSettings();
+  }, []);
 
   const addClassTime = () => {
     const newTime = '0900-0950';
@@ -67,6 +101,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setIsCheckingUpdate(true);
     setUpdateInfo(null);
     setUpdateProgress(null);
+    setIsLatestVersion(false);
     try {
       const update = await check();
       if (update) {
@@ -78,13 +113,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           date: update.date || '',
           body: update.body || '',
         });
+        setIsLatestVersion(false);
       } else {
         setUpdateInfo(null);
-        alert('최신 버전입니다.');
+        setIsLatestVersion(true);
       }
     } catch (error) {
       console.error('업데이트 확인 중 오류:', error);
-      alert('업데이트 확인 중 오류가 발생했습니다.');
+      setUpdateInfo(null);
+      setIsLatestVersion(false);
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -147,6 +184,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <button onClick={() => saveToRegistry(REG_KEY_UDB, udbPath)}>저장</button>
         </div>
       </div>
+
       <div className="field">
         <label>수업 시간</label>
         <div className="class-times-list">
@@ -164,7 +202,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           ))}
         </div>
-        <div className="row" style={{ marginTop: '10px' }}>
+        <div className="row">
           <button onClick={addClassTime}>수업 시간 추가</button>
           <button onClick={saveClassTimes}>저장</button>
         </div>
@@ -172,7 +210,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           수업 시간 동안에는 새로운 메시지가 와도 창이 자동으로 표시되지 않습니다. 형식: HHMM-HHMM (예: 0830-0920)
         </div>
       </div>
-      <br /> <br />
+
       <div className="field">
         <label htmlFor="uiScaleInput">UI 배율</label>
         <div className="row">
@@ -190,13 +228,84 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             }}
             style={{ flex: 1 }}
           />
-          <span style={{ minWidth: '60px', textAlign: 'right' }}>{(uiScale * 100).toFixed(0)}%</span>
+          <span className="ui-scale-value">{(uiScale * 100).toFixed(0)}%</span>
         </div>
         <div className="field-description">
           전체 UI의 크기를 조정합니다. (50% ~ 200%)
         </div>
       </div>
-      <br /> <br />
+
+      <div className="field">
+        <label>자동 실행 설정</label>
+        <div className="setting-item">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={autoStart}
+              onChange={async (e) => {
+                const value = e.target.checked;
+                setAutoStart(value);
+                await invoke('set_auto_start', { enabled: value });
+                await saveToRegistry(REG_KEY_AUTO_START, value.toString());
+              }}
+            />
+            <span>윈도우 시작 시 자동 실행</span>
+          </label>
+          <div className="field-description">
+            Windows 시작 시 프로그램이 자동으로 실행됩니다.
+          </div>
+        </div>
+        {autoStart && (
+          <div className="setting-sub-items">
+            <div className="setting-item">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={autoStartHideMain}
+                  onChange={async (e) => {
+                    const value = e.target.checked;
+                    setAutoStartHideMain(value);
+                    await saveToRegistry(REG_KEY_AUTO_START_HIDE_MAIN, value.toString());
+                  }}
+                />
+                <span>자동 실행 시 메인 윈도우 숨기기</span>
+              </label>
+              <div className="field-description">
+                자동 실행 시 메인 윈도우를 트레이로 숨깁니다.
+              </div>
+            </div>
+            <div className="setting-item">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={autoStartCalendar}
+                  onChange={async (e) => {
+                    const value = e.target.checked;
+                    setAutoStartCalendar(value);
+                    await saveToRegistry(REG_KEY_AUTO_START_CALENDAR, value.toString());
+                  }}
+                />
+                <span>프로그램 실행 시 달력 위젯 자동 실행</span>
+              </label>
+            </div>
+            <div className="setting-item">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={autoStartSchool}
+                  onChange={async (e) => {
+                    const value = e.target.checked;
+                    setAutoStartSchool(value);
+                    await saveToRegistry(REG_KEY_AUTO_START_SCHOOL, value.toString());
+                  }}
+                />
+                <span>프로그램 실행 시 학교 위젯 자동 실행</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="field">
         <label>업데이트</label>
         <div className="row">
@@ -207,58 +316,61 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
           </button>
         </div>
-        <br />
+        {isLatestVersion && (
+          <div className="update-status-message update-latest">
+            최신 버전입니다.
+          </div>
+        )}
         {updateInfo && (
-          <div style={{ marginTop: '15px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
-            <div style={{ marginBottom: '10px' }}>
+          <div className="update-info-box">
+            <div className="update-info-header">
               <strong>새 버전 발견:</strong> {updateInfo.version}
             </div>
-            <div style={{ marginBottom: '10px', fontSize: '0.9em', color: '#666' }}>
-              <strong>날짜:</strong> {updateInfo.date}
-            </div>
+            {updateInfo.date && (
+              <div className="update-info-date">
+                <strong>날짜:</strong> {updateInfo.date}
+              </div>
+            )}
             {updateInfo.body && (
-              <div style={{ marginBottom: '10px', fontSize: '0.9em', color: '#666', whiteSpace: 'pre-wrap' }}>
-                <strong>변경 사항:</strong><br />
-                {updateInfo.body}
+              <div className="update-info-body">
+                <strong>변경 사항:</strong>
+                <pre>{updateInfo.body}</pre>
               </div>
             )}
             {updateProgress && (
-              <div style={{ marginBottom: '10px' }}>
-                <div style={{ marginBottom: '5px', fontSize: '0.9em' }}>
+              <div className="update-progress">
+                <div className="update-progress-text">
                   다운로드 중: {Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%
                 </div>
-                <div style={{ width: '100%', height: '20px', backgroundColor: '#e0e0e0', borderRadius: '10px', overflow: 'hidden' }}>
+                <div className="update-progress-bar">
                   <div 
+                    className="update-progress-fill"
                     style={{ 
-                      width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`, 
-                      height: '100%', 
-                      backgroundColor: '#4CAF50',
-                      transition: 'width 0.3s ease'
+                      width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`
                     }} 
                   />
                 </div>
-                <div style={{ fontSize: '0.8em', color: '#666', marginTop: '5px' }}>
+                <div className="update-progress-size">
                   {Math.round(updateProgress.downloaded / 1024 / 1024 * 100) / 100} MB / {Math.round(updateProgress.total / 1024 / 1024 * 100) / 100} MB
                 </div>
               </div>
             )}
             {!isInstalling && (
               <button 
+                className="update-install-btn"
                 onClick={downloadAndInstallUpdate}
                 disabled={isCheckingUpdate}
-                style={{ marginTop: '10px' }}
               >
                 업데이트 다운로드 및 설치
               </button>
             )}
             {isInstalling && (
-              <div style={{ marginTop: '10px', color: '#666' }}>
+              <div className="update-installing">
                 업데이트 설치 중... 설치가 완료되면 앱이 자동으로 재시작됩니다.
               </div>
             )}
           </div>
         )}
-        <br /><br />
       </div>
     </div>
   );

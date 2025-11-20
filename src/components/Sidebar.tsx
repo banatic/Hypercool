@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon } from './icons';
+import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon } from './icons';
 import { Page } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -42,6 +42,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapse
           title="달력 위젯 열기"
         >
           <span className="icon"><CalendarIcon /></span><span className="label">달력 위젯</span>
+        </button>
+        <button 
+          onClick={async () => {
+            try {
+              await invoke('open_school_widget');
+            } catch (e) {
+              console.error('학교 위젯 열기 실패:', e);
+            }
+          }}
+          title="학교 위젯 열기"
+        >
+          <span className="icon"><SchoolIcon /></span><span className="label">학교 위젯</span>
         </button>
         <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
           <span className="icon"><SettingsIcon /></span><span className="label">설정</span>

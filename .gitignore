@@ -31,3 +31,9 @@ src-tauri/target/*
 
 # Python 프로토타이핑 테스트용
 python_test/*
+
+# 위젯
+AIOWidget/*
+AIOWidget
+바탕화면 위젯/*
+바탕화면 위젯
