@@ -522,7 +522,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.2.2",
+        version="0.2.3",
         notes="학교 위젯 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
