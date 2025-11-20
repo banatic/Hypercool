@@ -1,10 +1,10 @@
 {
-    "version": "0.2.5",
+    "version": "0.2.6",
     "notes": "학교 위젯 추가",
-    "pub_date": "2025-11-20T05:08:32.477Z",
+    "pub_date": "2025-11-20T05:16:24.747Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTA4a2JZVFEvVGNuMW9YeTA5L0U2VzZMTlRUS3kyOGhPMWdiWi8zeFJrUTd1Z1RxSEFDVUhrTVdwRjI0N3ZLc3FINDFrQ1A4TExJcktzUURPekRqT3dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzNjE1MzkxCWZpbGU6SHlwZXJDb29sXzAuMi41X3g2NF9lbi1VUy5tc2kKYythcmtTYVBBaHh1dGN5YVRDOHlLU0swYnoreis1NkcwaGhESDh1cUt4UEhyaE92NjBPQjJzMTNBWUFBZFZ0a1BJNWRlWkRoYjJDZHpDS1U3ZDlxQ2c9PQo=",
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dXhmU0Z4QVNCY0ZzaVp3VHlYQ1F2LzNtSjJ1YVFVWjFmUlRBREczclpQREg1YTlYcmNrMTJjVmRTWVQ3Mi8xRXVrazZZRlMycFRyRXArRHNSVkFDMGdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzNjE1ODg0CWZpbGU6SHlwZXJDb29sXzAuMi42X3g2NF9lbi1VUy5tc2kKZGVwalNqb2FMbUdpVTBPekZtRFc3MkFINlg4U3A4VlEveTB0NjJvSmtoTTUvaWhlTWVEL1lnWjNLMytidTdxSFNhMXZTUFArNzZlRGVJeklvTGdHQlE9PQo=",
             "url": "https://github.com/banatic/Hypercool/releases/download/v0.2.2/HyperCool_0.2.2_x64_en-US.msi"
         }
     }
