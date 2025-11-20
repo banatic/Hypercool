@@ -40,6 +40,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number } | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [isLatestVersion, setIsLatestVersion] = useState(false);
+  const [updateLogs, setUpdateLogs] = useState<Array<{ time: string; message: string; type: 'info' | 'error' | 'success' }>>([]);
   
   // 자동 실행 설정 상태
   const [autoStart, setAutoStart] = useState(false);
@@ -97,17 +98,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     return timeStr;
   };
 
+  const addUpdateLog = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+    setUpdateLogs(prev => {
+      const newLogs = [...prev, { time: timeStr, message, type }];
+      // 최대 100개까지만 유지
+      return newLogs.slice(-100);
+    });
+    console.log(`[${timeStr}] ${message}`);
+  };
+
   const checkForUpdates = async () => {
     setIsCheckingUpdate(true);
     setUpdateInfo(null);
     setUpdateProgress(null);
     setIsLatestVersion(false);
+    setUpdateLogs([]);
+    addUpdateLog('업데이트 확인 중...', 'info');
     try {
       const update = await check();
       if (update) {
-        console.log(
-          `found update ${update.version} from ${update.date} with notes ${update.body}`
-        );
+        addUpdateLog(`업데이트 발견: 버전 ${update.version}`, 'success');
+        addUpdateLog(`발행 날짜: ${update.date || '알 수 없음'}`, 'info');
+        if (update.body) {
+          addUpdateLog(`변경 사항: ${update.body.substring(0, 100)}${update.body.length > 100 ? '...' : ''}`, 'info');
+        }
         setUpdateInfo({
           version: update.version,
           date: update.date || '',
@@ -115,13 +131,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         });
         setIsLatestVersion(false);
       } else {
+        addUpdateLog('최신 버전입니다.', 'success');
         setUpdateInfo(null);
         setIsLatestVersion(true);
+        alert('최신 버전입니다.');
       }
-    } catch (error) {
+    } catch (error: any) {
+      const errorMessage = error?.message || error?.toString() || '알 수 없는 오류';
+      addUpdateLog(`업데이트 확인 중 오류: ${errorMessage}`, 'error');
       console.error('업데이트 확인 중 오류:', error);
       setUpdateInfo(null);
       setIsLatestVersion(false);
+      alert('업데이트 확인 중 오류가 발생했습니다.');
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -132,61 +153,55 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     
     setIsInstalling(true);
     setUpdateProgress({ downloaded: 0, total: 0 });
+    addUpdateLog('업데이트 다운로드 시작...', 'info');
     
     try {
       const update = await check();
       if (!update) {
+        addUpdateLog('업데이트를 찾을 수 없습니다.', 'error');
         alert('업데이트를 찾을 수 없습니다.');
         setIsInstalling(false);
         setUpdateProgress(null);
         return;
       }
 
-      console.log('업데이트 정보:', {
-        version: update.version,
-        date: update.date,
-        body: update.body,
-        available: update.available,
-      });
-
       let downloaded = 0;
       let contentLength = 0;
 
-      try {
-        await update.downloadAndInstall((event) => {
-          console.log('업데이트 이벤트:', event);
-          switch (event.event) {
-            case 'Started':
-              contentLength = event.data.contentLength ?? 0;
-              setUpdateProgress({ downloaded: 0, total: contentLength });
-              console.log(`다운로드 시작: ${event.data.contentLength ?? 0} bytes`);
-              break;
-            case 'Progress':
-              downloaded += event.data.chunkLength ?? 0;
-              setUpdateProgress({ downloaded, total: contentLength });
-              console.log(`다운로드 진행: ${downloaded} / ${contentLength} bytes`);
-              break;
-            case 'Finished':
-              console.log('다운로드 완료');
-              break;
-            default:
-              console.log('알 수 없는 이벤트:', event);
-          }
-        });
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case 'Started':
+            contentLength = event.data.contentLength ?? 0;
+            setUpdateProgress({ downloaded: 0, total: contentLength });
+            const sizeMB = (contentLength / 1024 / 1024).toFixed(2);
+            addUpdateLog(`다운로드 시작: ${sizeMB} MB`, 'info');
+            console.log(`started downloading ${event.data.contentLength ?? 0} bytes`);
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength ?? 0;
+            setUpdateProgress({ downloaded, total: contentLength });
+            const progressPercent = Math.round((downloaded / contentLength) * 100);
+            if (progressPercent % 10 === 0 || downloaded === contentLength) {
+              addUpdateLog(`다운로드 진행: ${progressPercent}% (${(downloaded / 1024 / 1024).toFixed(2)} MB / ${(contentLength / 1024 / 1024).toFixed(2)} MB)`, 'info');
+            }
+            console.log(`downloaded ${downloaded} from ${contentLength}`);
+            break;
+          case 'Finished':
+            addUpdateLog('다운로드 완료', 'success');
+            addUpdateLog('설치 시작...', 'info');
+            console.log('download finished');
+            break;
+        }
+      });
 
-        console.log('업데이트 설치 완료');
-        await relaunch();
-      } catch (downloadError: any) {
-        console.error('다운로드/설치 중 오류:', downloadError);
-        const errorMessage = downloadError?.message || downloadError?.toString() || '알 수 없는 오류';
-        alert(`업데이트 다운로드/설치 중 오류가 발생했습니다:\n${errorMessage}`);
-        setIsInstalling(false);
-        setUpdateProgress(null);
-      }
+      addUpdateLog('설치 완료. 앱을 재시작합니다...', 'success');
+      console.log('update installed');
+      await relaunch();
     } catch (error: any) {
-      console.error('업데이트 확인 중 오류:', error);
       const errorMessage = error?.message || error?.toString() || '알 수 없는 오류';
-      alert(`업데이트 확인 중 오류가 발생했습니다:\n${errorMessage}`);
+      addUpdateLog(`업데이트 설치 중 오류: ${errorMessage}`, 'error');
+      console.error('업데이트 설치 중 오류:', error);
+      alert('업데이트 설치 중 오류가 발생했습니다.');
       setIsInstalling(false);
       setUpdateProgress(null);
     }
@@ -389,6 +404,28 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 업데이트 설치 중... 설치가 완료되면 앱이 자동으로 재시작됩니다.
               </div>
             )}
+          </div>
+        )}
+        {updateLogs.length > 0 && (
+          <div className="update-logs">
+            <div className="update-logs-header">
+              <strong>업데이트 로그</strong>
+              <button 
+                className="update-logs-clear"
+                onClick={() => setUpdateLogs([])}
+                title="로그 지우기"
+              >
+                지우기
+              </button>
+            </div>
+            <div className="update-logs-content">
+              {updateLogs.map((log, index) => (
+                <div key={index} className={`update-log-item update-log-${log.type}`}>
+                  <span className="update-log-time">[{log.time}]</span>
+                  <span className="update-log-message">{log.message}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

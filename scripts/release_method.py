@@ -260,36 +260,24 @@ def build_download_url(
     # GitHub release 태그 형식에 맞춰 v를 붙임
     tag_version = f"v{version}"
     
+    # repo_download_url이 명시적으로 제공되면 사용
     if repo_download_url:
         base = repo_download_url.rstrip("/")
         return f"{base}/{tag_version}/{artifact_name}"
 
-    if current_url and previous_version:
-        # URL의 태그 버전 교체
-        prev_tag = f"v{previous_version}" if not previous_version.startswith("v") else previous_version
-        updated_url = current_url
-        
-        # 태그 버전 교체
-        if prev_tag in updated_url:
-            updated_url = updated_url.replace(prev_tag, tag_version)
-        elif previous_version in updated_url:
-            updated_url = updated_url.replace(previous_version, tag_version)
-        
-        # 파일 이름의 버전도 교체
-        # 파일 이름에서 이전 버전을 찾아 새 버전으로 교체
-        # 예: hypercool_0.2.1_x64-setup.exe -> hypercool_0.2.2_x64-setup.exe
-        if previous_version in updated_url:
-            # 파일 이름 부분만 교체 (마지막 슬래시 이후)
-            url_parts = updated_url.rsplit("/", 1)
-            if len(url_parts) == 2:
-                base_url, filename = url_parts
-                # 파일 이름에서 버전 교체
-                updated_filename = filename.replace(previous_version, version)
-                updated_url = f"{base_url}/{updated_filename}"
-        
-        return updated_url
+    # current_url에서 GitHub releases URL 패턴 추출
+    # 예: https://github.com/banatic/Hypercool/releases/download/v0.2.2/HyperCool_0.2.2_x64_en-US.msi
+    if current_url and "github.com" in current_url and "/releases/download/" in current_url:
+        # GitHub releases URL 패턴에서 base URL 추출
+        # https://github.com/banatic/Hypercool/releases/download 까지 추출
+        parts = current_url.split("/releases/download/")
+        if len(parts) == 2:
+            base_url = parts[0] + "/releases/download"
+            # 새 버전과 artifact_name으로 완전히 새 URL 구성
+            return f"{base_url}/{tag_version}/{artifact_name}"
     
-    return current_url or artifact_name
+    # 기본값: GitHub releases URL 구성 (banatic/Hypercool 기준)
+    return f"https://github.com/banatic/Hypercool/releases/download/{tag_version}/{artifact_name}"
 
 
 def get_git_remote_url(root: Path) -> Optional[str]:
@@ -522,7 +510,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.2.3",
+        version="0.2.7",
         notes="학교 위젯 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
