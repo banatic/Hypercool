@@ -265,13 +265,30 @@ def build_download_url(
         return f"{base}/{tag_version}/{artifact_name}"
 
     if current_url and previous_version:
-        # previous_version도 v가 붙어있을 수 있으므로 처리
+        # URL의 태그 버전 교체
         prev_tag = f"v{previous_version}" if not previous_version.startswith("v") else previous_version
-        if prev_tag in current_url:
-            return current_url.replace(prev_tag, tag_version)
-        # v 없이도 시도
-        if previous_version in current_url:
-            return current_url.replace(previous_version, tag_version)
+        updated_url = current_url
+        
+        # 태그 버전 교체
+        if prev_tag in updated_url:
+            updated_url = updated_url.replace(prev_tag, tag_version)
+        elif previous_version in updated_url:
+            updated_url = updated_url.replace(previous_version, tag_version)
+        
+        # 파일 이름의 버전도 교체
+        # 파일 이름에서 이전 버전을 찾아 새 버전으로 교체
+        # 예: hypercool_0.2.1_x64-setup.exe -> hypercool_0.2.2_x64-setup.exe
+        if previous_version in updated_url:
+            # 파일 이름 부분만 교체 (마지막 슬래시 이후)
+            url_parts = updated_url.rsplit("/", 1)
+            if len(url_parts) == 2:
+                base_url, filename = url_parts
+                # 파일 이름에서 버전 교체
+                updated_filename = filename.replace(previous_version, version)
+                updated_url = f"{base_url}/{updated_filename}"
+        
+        return updated_url
+    
     return current_url or artifact_name
 
 
@@ -505,8 +522,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.2.1",
-        notes="달력 위젯 개선",
+        version="0.2.2",
+        notes="학교 위젯 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,
