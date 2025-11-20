@@ -27,7 +27,7 @@ use tauri::{
 };
 use tauri::{Emitter, Manager, Runtime};
 #[cfg(target_os = "windows")]
-use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SW_HIDE, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_acrylic;
 #[cfg(target_os = "macos")]
@@ -410,7 +410,32 @@ fn notify_hidden() {
 #[tauri::command]
 fn hide_main_window(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
+        // 윈도우가 보이는 상태인지 확인
+        if let Ok(is_visible) = w.is_visible() {
+            if is_visible {
+                #[cfg(target_os = "windows")]
+                {
+                    // Windows에서 포커스가 있는 상태에서 hide가 제대로 동작하지 않을 수 있음
+                    // 윈도우 핸들을 가져와서 직접 숨기기
+                    if let Ok(hwnd) = w.hwnd() {
+                        unsafe {
+                            // windows::Win32::Foundation::HWND를 winapi HWND로 변환
+                            // hwnd.0은 *mut std::ffi::c_void 타입이므로 usize로 변환 후 다시 포인터로 변환
+                            let hwnd_ptr: *mut std::ffi::c_void = hwnd.0;
+                            let hwnd_addr = hwnd_ptr as usize;
+                            let winapi_hwnd = hwnd_addr as *mut winapi::ctypes::c_void;
+                            ShowWindow(winapi_hwnd as _, SW_HIDE);
+                        }
+                        return;
+                    }
+                }
+                // Windows가 아니거나 hwnd를 가져올 수 없는 경우 일반 hide 사용
+                let _ = w.hide();
+            }
+        } else {
+            // is_visible() 실패 시에도 hide 시도
+            let _ = w.hide();
+        }
     }
 }
 
