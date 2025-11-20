@@ -1,6 +1,6 @@
 [package]
 name = "hypercool"
-version = "0.2.1"
+version = "0.2.2"
 description = "쿨 메신저 메시지 관리 프로그램"
 authors = ["moominda"]
 license = ""
