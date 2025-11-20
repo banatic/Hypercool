@@ -138,35 +138,55 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       if (!update) {
         alert('업데이트를 찾을 수 없습니다.');
         setIsInstalling(false);
+        setUpdateProgress(null);
         return;
       }
+
+      console.log('업데이트 정보:', {
+        version: update.version,
+        date: update.date,
+        body: update.body,
+        available: update.available,
+      });
 
       let downloaded = 0;
       let contentLength = 0;
 
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case 'Started':
-            contentLength = event.data.contentLength ?? 0;
-            setUpdateProgress({ downloaded: 0, total: contentLength });
-            console.log(`started downloading ${event.data.contentLength ?? 0} bytes`);
-            break;
-          case 'Progress':
-            downloaded += event.data.chunkLength ?? 0;
-            setUpdateProgress({ downloaded, total: contentLength });
-            console.log(`downloaded ${downloaded} from ${contentLength}`);
-            break;
-          case 'Finished':
-            console.log('download finished');
-            break;
-        }
-      });
+      try {
+        await update.downloadAndInstall((event) => {
+          console.log('업데이트 이벤트:', event);
+          switch (event.event) {
+            case 'Started':
+              contentLength = event.data.contentLength ?? 0;
+              setUpdateProgress({ downloaded: 0, total: contentLength });
+              console.log(`다운로드 시작: ${event.data.contentLength ?? 0} bytes`);
+              break;
+            case 'Progress':
+              downloaded += event.data.chunkLength ?? 0;
+              setUpdateProgress({ downloaded, total: contentLength });
+              console.log(`다운로드 진행: ${downloaded} / ${contentLength} bytes`);
+              break;
+            case 'Finished':
+              console.log('다운로드 완료');
+              break;
+            default:
+              console.log('알 수 없는 이벤트:', event);
+          }
+        });
 
-      console.log('update installed');
-      await relaunch();
-    } catch (error) {
-      console.error('업데이트 설치 중 오류:', error);
-      alert('업데이트 설치 중 오류가 발생했습니다.');
+        console.log('업데이트 설치 완료');
+        await relaunch();
+      } catch (downloadError: any) {
+        console.error('다운로드/설치 중 오류:', downloadError);
+        const errorMessage = downloadError?.message || downloadError?.toString() || '알 수 없는 오류';
+        alert(`업데이트 다운로드/설치 중 오류가 발생했습니다:\n${errorMessage}`);
+        setIsInstalling(false);
+        setUpdateProgress(null);
+      }
+    } catch (error: any) {
+      console.error('업데이트 확인 중 오류:', error);
+      const errorMessage = error?.message || error?.toString() || '알 수 없는 오류';
+      alert(`업데이트 확인 중 오류가 발생했습니다:\n${errorMessage}`);
       setIsInstalling(false);
       setUpdateProgress(null);
     }
