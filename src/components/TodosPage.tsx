@@ -84,26 +84,6 @@ export const TodosPage: React.FC<TodosPageProps> = ({
     return { text: `${days}일 남음`, color: 'var(--text-secondary)' };
   };
 
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const endOfWeek = new Date(today);
-  endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
-  const endOfNextWeek = new Date(endOfWeek);
-  endOfNextWeek.setDate(endOfWeek.getDate() + 7);
-
-  const getColorForDeadline = (deadline: string | null) => {
-    if (!deadline) return 'var(--text-secondary)';
-    const deadlineDate = new Date(deadline);
-    if (deadlineDate < today) return 'var(--danger)';
-    if (deadlineDate >= today && deadlineDate < tomorrow) return 'var(--danger)';
-    if (deadlineDate >= tomorrow && deadlineDate < new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)) return 'var(--warning)';
-    if (deadlineDate >= tomorrow && deadlineDate <= endOfWeek) return 'var(--primary)';
-    if (deadlineDate > endOfWeek && deadlineDate <= endOfNextWeek) return 'var(--primary-light)';
-    return 'var(--text-secondary)';
-  };
-
   // 메시지 기반 할 일과 직접 추가한 할 일을 합침
   const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null }> = [
     ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false, receive_date: m.receive_date })),
@@ -132,19 +112,6 @@ export const TodosPage: React.FC<TodosPageProps> = ({
     return a.id - b.id;
   });
 
-  const tasksWithDeadlines = allTodos
-    .filter(t => t.deadline)
-    .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime());
-
-  const groupedTasks = tasksWithDeadlines.reduce((acc, t) => {
-    const date = formatDate(t.deadline!);
-    if (!acc[date]) {
-      acc[date] = [];
-    }
-    acc[date].push(t);
-    return acc;
-  }, {} as Record<string, typeof allTodos>);
-
   const groupedTodos = allTodos.reduce((acc, t) => {
     const date = t.deadline ? formatDate(t.deadline) : '마감 없음';
     if (!acc[date]) {
@@ -167,34 +134,6 @@ export const TodosPage: React.FC<TodosPageProps> = ({
   return (
     <div className="timeline page-content">
       <PageHeader title={`타임라인 (${allTodos.length})`}>
-        <div className="todo-summary simple">
-          <div className="spark-line">
-            {Object.entries(groupedTasks).map(([date, tasks]) => {
-              const firstTaskDeadline = tasks.length > 0 ? tasks[0].deadline : null;
-              const remainingTime = getRemainingTimeInfo(firstTaskDeadline);
-              return (
-                <div key={date} className="spark-line-group">
-                  {remainingTime.text && (
-                    <span className="spark-line-remaining" style={{ color: remainingTime.color }}>
-                      {remainingTime.text}
-                    </span>
-                  )}
-                  <span className="spark-line-date">{date}</span>
-                  <div className="spark-line-items">
-                    {tasks.map(task => (
-                      <div
-                        key={task.id}
-                        className="spark-line-item"
-                        style={{ backgroundColor: getColorForDeadline(task.deadline) }}
-                        title={task.deadline ? `마감: ${new Date(task.deadline).toLocaleString()}` : '마감 없음'}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
         <button onClick={() => setAddTodoModal(true)} className="add-todo-btn">
           할 일 추가
         </button>

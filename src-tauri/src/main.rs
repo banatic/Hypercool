@@ -501,6 +501,69 @@ async fn get_calendar_widget_pinned(_app: tauri::AppHandle) -> Result<bool, Stri
 }
 
 #[tauri::command]
+async fn set_school_widget_pinned(app: tauri::AppHandle, pinned: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("school-widget") {
+        // resizable 설정
+        window
+            .set_resizable(pinned)
+            .map_err(|e| format!("윈도우 resizable 설정 실패: {}", e))?;
+        
+        // 레지스트리에 핀 상태 저장
+        let _ = set_registry_value("SchoolWidgetPinned".to_string(), pinned.to_string());
+        
+        Ok(())
+    } else {
+        Err("학교 위젯 윈도우를 찾을 수 없습니다".into())
+    }
+}
+
+#[tauri::command]
+async fn get_school_widget_pinned(_app: tauri::AppHandle) -> Result<bool, String> {
+    match get_registry_value("SchoolWidgetPinned".to_string()) {
+        Ok(Some(value)) => {
+            value.parse::<bool>().map_err(|e| format!("핀 상태 파싱 실패: {}", e))
+        }
+        Ok(None) => Ok(true), // 기본값은 true (resizable)
+        Err(e) => Err(e)
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_auto_start(enabled: bool) -> Result<(), String> {
+    use std::env;
+    use winreg::enums::*;
+    
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let run_key = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    
+    let (key, _) = hkcu
+        .create_subkey(run_key)
+        .map_err(|e| format!("레지스트리 키 생성 실패: {}", e))?;
+    
+    let app_name = "HyperCool";
+    let exe_path = env::current_exe()
+        .map_err(|e| format!("실행 파일 경로 가져오기 실패: {}", e))?
+        .to_string_lossy()
+        .to_string();
+    
+    if enabled {
+        key.set_value(app_name, &exe_path)
+            .map_err(|e| format!("자동 실행 설정 실패: {}", e))?;
+    } else {
+        let _ = key.delete_value(app_name);
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn set_auto_start(_enabled: bool) -> Result<(), String> {
+    Err("자동 실행 기능은 Windows에서만 지원됩니다.".to_string())
+}
+
+#[tauri::command]
 async fn open_calendar_widget(app: tauri::AppHandle) -> Result<(), String> {
     // 이미 열려있는지 확인
     if let Some(window) = app.get_webview_window("calendar-widget") {
@@ -780,6 +843,163 @@ fn show_existing_window() {
     }
 }
 
+mod timetable_parser;
+mod school_data;
+
+#[derive(serde::Serialize)]
+struct AttendanceResponse {
+    data: Vec<school_data::LatecomerData>,
+    debug_html: String,
+}
+
+#[derive(serde::Serialize)]
+struct PointsResponse {
+    data: Vec<school_data::PointsData>,
+    debug_html: String,
+}
+
+#[tauri::command]
+async fn get_timetable_data() -> Result<timetable_parser::TimetableData, String> {
+    tokio::task::spawn_blocking(|| {
+        timetable_parser::parse_timetable()
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_meal_data(date: String) -> Result<school_data::MealData, String> {
+    tokio::task::spawn_blocking(move || {
+        school_data::fetch_meal_data(&date)
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_attendance_data(grade: String, class: String) -> Result<AttendanceResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        let (data, debug_html) = school_data::fetch_attendance_data(&grade, &class)?;
+        Ok(AttendanceResponse { data, debug_html })
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_points_data(grade: String, class: String) -> Result<PointsResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        let (data, debug_html) = school_data::fetch_points_data(&grade, &class)?;
+        Ok(PointsResponse { data, debug_html })
+    }).await.map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn open_school_widget(app: tauri::AppHandle) -> Result<(), String> {
+    // 이미 열려있는지 확인
+    if let Some(window) = app.get_webview_window("school-widget") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    
+    let url = if cfg!(dev) {
+        tauri::WebviewUrl::External(
+            std::str::FromStr::from_str("http://localhost:1420/school-widget.html")
+                .map_err(|e| format!("URL 파싱 실패: {}", e))?
+        )
+    } else {
+        tauri::WebviewUrl::App("school-widget.html".into())
+    };
+    
+    // 저장된 위치와 크기 불러오기
+    let saved_bounds: Option<WindowBounds> = match get_registry_value("SchoolWidgetBounds".to_string()) {
+        Ok(Some(json_str)) => {
+            serde_json::from_str(&json_str).ok()
+        }
+        _ => None
+    };
+    
+    // 저장된 핀 상태 확인
+    let is_pinned = match get_registry_value("SchoolWidgetPinned".to_string()) {
+        Ok(Some(value)) => value.parse::<bool>().unwrap_or(true), // 기본값은 true (resizable)
+        _ => true, // 기본값은 true (resizable)
+    };
+    
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "school-widget",
+        url,
+    )
+    .title("학교 위젯")
+    .resizable(is_pinned) // 핀 상태에 따라 resizable 설정
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(false)
+    .skip_taskbar(true);
+    
+    // 기본 크기 설정 (저장된 값이 있으면 나중에 덮어씀)
+    if saved_bounds.is_none() {
+        builder = builder.inner_size(900.0, 700.0);
+    }
+    
+    let window = builder
+        .build()
+        .map_err(|e| format!("학교 위젯 윈도우 생성 실패: {}", e))?;
+    
+    // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
+    if let Some(bounds) = saved_bounds {
+        std::thread::sleep(Duration::from_millis(100));
+        
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+            x: bounds.x as i32,
+            y: bounds.y as i32,
+        }));
+        
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: bounds.width as u32,
+            height: bounds.height as u32,
+        }));
+    }
+    
+    // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
+    apply_vibrancy_effect(&window);
+    
+    // 디바운싱을 위한 타이머
+    let save_timer: std::sync::Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = std::sync::Arc::new(Mutex::new(None));
+    
+    // 윈도우 위치와 크기를 저장하는 헬퍼 함수
+    let save_bounds = |window: &tauri::WebviewWindow<_>| {
+        if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
+            let x = position.x as f64;
+            let y = position.y as f64;
+            let width = size.width as f64;
+            let height = size.height as f64;
+            
+            let bounds = WindowBounds { x, y, width, height };
+            if let Ok(json) = serde_json::to_string(&bounds) {
+                let _ = set_registry_value("SchoolWidgetBounds".to_string(), json);
+            }
+        }
+    };
+    
+    // 윈도우 위치와 크기 저장을 위한 이벤트 리스너
+    let window_clone = window.clone();
+    let save_timer_clone = save_timer.clone();
+    window.on_window_event(move |event| {
+        match event {
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                let mut timer_guard = save_timer_clone.lock().unwrap();
+                let _ = timer_guard.take();
+                
+                let window_clone_inner = window_clone.clone();
+                let handle = std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(500));
+                    save_bounds(&window_clone_inner);
+                });
+                *timer_guard = Some(handle);
+            }
+            _ => {}
+        }
+    });
+    
+    Ok(())
+}
+
 fn main() {
     // 단일 인스턴스 체크 - 이미 실행 중이면 기존 윈도우를 Show하고 종료
     // instance 변수를 유지하여 mutex가 해제되지 않도록 함
@@ -826,7 +1046,15 @@ fn main() {
             open_message_viewer,
             close_message_viewer,
             set_calendar_widget_pinned,
-            get_calendar_widget_pinned
+            get_calendar_widget_pinned,
+            set_school_widget_pinned,
+            get_school_widget_pinned,
+            set_auto_start,
+            get_timetable_data,
+            get_meal_data,
+            get_attendance_data,
+            get_points_data,
+            open_school_widget
         ])
         .setup(|app| {
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
@@ -1050,6 +1278,46 @@ fn main() {
                     eprintln!("트레이 아이콘 표시 설정 성공");
                 }
             }
+
+            // 자동 실행 설정 확인 및 실행
+            let app_handle_for_auto_start = app.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1000)).await; // 앱 초기화 대기
+                
+                // 자동 실행 시 메인 윈도우 숨기기 확인
+                let hide_main = match get_registry_value("AutoStartHideMain".to_string()) {
+                    Ok(Some(value)) => value == "true",
+                    _ => false,
+                };
+                
+                if hide_main {
+                    if let Some(window) = app_handle_for_auto_start.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+                
+                // 달력 위젯 자동 실행 확인
+                let auto_start_calendar = match get_registry_value("AutoStartCalendar".to_string()) {
+                    Ok(Some(value)) => value == "true",
+                    _ => false,
+                };
+                
+                if auto_start_calendar {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let _ = open_calendar_widget(app_handle_for_auto_start.clone()).await;
+                }
+                
+                // 학교 위젯 자동 실행 확인
+                let auto_start_school = match get_registry_value("AutoStartSchool".to_string()) {
+                    Ok(Some(value)) => value == "true",
+                    _ => false,
+                };
+                
+                if auto_start_school {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let _ = open_school_widget(app_handle_for_auto_start.clone()).await;
+                }
+            });
 
             // Watchdog for UDB file: read from registry and watch (spawn dedicated thread)
             if let Ok(subkey) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(REG_BASE) {
