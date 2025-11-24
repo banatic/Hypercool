@@ -1,11 +1,11 @@
 {
-    "version": "0.2.9",
-    "notes": "급식 호출 시각 KST 적용",
-    "pub_date": "2025-11-20T23:47:36.142Z",
+    "version": "0.3.0",
+    "notes": "Chore",
+    "pub_date": "2025-11-24T01:30:48.076Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTVTdVlkdGdLcWlxMzUwODA3MUdhTFU1YnVwT2pzZlFla2lpYm9kSTIxU1RYa1hySWRBTDExVE1ZNHJlMmZSWXV0YWRMVE1xQTN3Q01iL3NDYkhTRVFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzNjgyOTkyCWZpbGU6SHlwZXJDb29sXzAuMi45X3g2NF9lbi1VUy5tc2kKSnAzcldTOTRpanh3dXpNZGx5NUtCVmpTRGJ6R0JHZ21uNlo3Q2pEN0NIMmxrUXlON1gxV0wyWmxGd1h6OVJBc2hyQWl3RDZGUGx1cmxxQUdWQnk2Qnc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.2.9/HyperCool_0.2.9_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dStlZURQTWl2WkMwTmtGNzJSSWVHbXI3T3BFcDJLMXJKWmpIUGdmdmdFdUZxWVlaM2wyR1oyUGV0TGU0S0w0bE40RzFJWFo4b0ZuNjh3RHlFMFRIaXcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzOTQ3OTQyCWZpbGU6SHlwZXJDb29sXzAuMy4wX3g2NF9lbi1VUy5tc2kKeTNOUUpESkJsM2w5bzI1RElSdkg0NUVKOG04WmI2djJzUzhPbW5pRVlTeG1yTFN5MndIa2hhbWlVM3hDYTcxT1dYL0tFN3RYOUhucThvQ0J3MU9hQUE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.0/HyperCool_0.3.0_x64_en-US.msi"
         }
     }
 }
