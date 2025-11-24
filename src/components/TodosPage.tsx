@@ -138,7 +138,6 @@ export const TodosPage: React.FC<TodosPageProps> = ({
           할 일 추가
         </button>
       </PageHeader>
-      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       {allTodos.length === 0 ? (
         <p>할 일이 없습니다. 할 일을 추가해보세요.</p>
       ) : (

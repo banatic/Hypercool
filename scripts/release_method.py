@@ -510,8 +510,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.2.8",
-        notes="학교 위젯 추가",
+        version="0.2.9",
+        notes="급식 호출 시각 KST 적용",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

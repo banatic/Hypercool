@@ -210,7 +210,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   return (
     <div className="settings page-content">
       <PageHeader title="설정" />
-      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="field">
         <label htmlFor="udbPathInput">UDB 경로</label>
         <div className="row">

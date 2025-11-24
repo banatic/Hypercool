@@ -186,6 +186,32 @@
   overflow-y: auto;
 }
 
+.app-title-x {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  z-index: 1000;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.app-title-x:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .content:has(.settings) {
   -webkit-app-region: no-drag;
 }

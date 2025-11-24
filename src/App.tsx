@@ -717,6 +717,7 @@ function App() {
     <div className="app with-sidebar">
       <Sidebar page={page} setPage={setPage} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
       <main className="content">
+        <button className="app-title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
         {page === 'classify' && (
           <ClassifierPage
             isLoading={isLoading}

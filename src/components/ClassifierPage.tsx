@@ -40,7 +40,6 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
         <span className="status">{statusText}</span>
         <button className="complete-all-btn" onClick={completeAllPending} disabled={unclassifiedCount === 0}>전부 완료 처리</button>
       </PageHeader>
-      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="classifier-stage">
         {visibleMessages.length === 0 && <div className="empty">분류할 메시지가 없습니다.</div>}
         {visibleMessages.map((msg, idx) => (
