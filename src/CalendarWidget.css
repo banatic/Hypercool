@@ -228,7 +228,23 @@ html, body, #root {
     text-align: center;
     line-height: 1.3;
     font-weight: 500;
-    cursor: pointer;
+    cursor: grab;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+
+  .calendar-todo-item:active {
+    cursor: grabbing;
+  }
+
+  .calendar-todo-item.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
+
+  .calendar-day-todos.drag-over {
+    background: rgba(0, 150, 255, 0.1);
+    border-radius: 4px;
+    border: 1px dashed rgba(0, 150, 255, 0.5);
   }
   
   /* 메시지 기반 일정: 파란색 (기본) */

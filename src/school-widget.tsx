@@ -140,7 +140,15 @@ export default function SchoolWidget() {
     if (dataLoaded.meal) return; // Already loaded
     setLoadingStates(prev => ({ ...prev, meal: true }));
     try {
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      // 한국 시간대(KST, UTC+9) 기준으로 오늘 날짜 가져오기
+      const now = new Date();
+      const kstOffset = 9 * 60; // KST는 UTC+9시간
+      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const kstDate = new Date(utc + (kstOffset * 60000));
+      const year = kstDate.getFullYear();
+      const month = String(kstDate.getMonth() + 1).padStart(2, '0');
+      const day = String(kstDate.getDate()).padStart(2, '0');
+      const date = `${year}${month}${day}`;
       const data = await invoke<MealInfo>('get_meal_data', { date });
       setMealInfo(data);
       setDataLoaded(prev => ({ ...prev, meal: true }));

@@ -213,7 +213,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           </button>
         </div>
       </PageHeader>
-      <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
       <div className="history-stage" onWheel={handleHistoryWheel}>
         {allMessages.length === 0 ? (
           <p className="empty">메시지가 없습니다.</p>
@@ -292,7 +291,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             />
           </div>
         </PageHeader>
-        <button className="title-x" onClick={onHideToTray} title="트레이로 숨기기">×</button>
         <div className="history-search-layout">
           <div className="history-main-pane">
             {isLoadingActiveSearch && <div className="empty">로딩 중...</div>}
