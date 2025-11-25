@@ -1,11 +1,11 @@
 {
-    "version": "0.3.0",
-    "notes": "Chore",
-    "pub_date": "2025-11-24T01:30:48.076Z",
+    "version": "0.3.1",
+    "notes": "첨부파일 확인 기능 추가",
+    "pub_date": "2025-11-25T02:43:53.022Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dStlZURQTWl2WkMwTmtGNzJSSWVHbXI3T3BFcDJLMXJKWmpIUGdmdmdFdUZxWVlaM2wyR1oyUGV0TGU0S0w0bE40RzFJWFo4b0ZuNjh3RHlFMFRIaXcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYzOTQ3OTQyCWZpbGU6SHlwZXJDb29sXzAuMy4wX3g2NF9lbi1VUy5tc2kKeTNOUUpESkJsM2w5bzI1RElSdkg0NUVKOG04WmI2djJzUzhPbW5pRVlTeG1yTFN5MndIa2hhbWlVM3hDYTcxT1dYL0tFN3RYOUhucThvQ0J3MU9hQUE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.0/HyperCool_0.3.0_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTFkd0MxSHhzeE8zcytTSGNSSEdmNXJKRGlnMWkvdnNkL0ZCUnUxY1FhNndmUkduOFVPUFNsZ3ljSDZwQi9rMElpcE4xdzI2RkV0bmVzcWFuSHJTc1FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0MDM5MDA3CWZpbGU6SHlwZXJDb29sXzAuMy4xX3g2NF9lbi1VUy5tc2kKV0hLSStkUmRXMkF3MGpFcFJkcHZFdm5wU3hjdDEyVyt6b09Gc3lqNzZJUVVXcy9aS2QyZGw3bk11clNaT2JzT25BRXcwNkxyeDlYWTJ5TEVGYXBZQmc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.1/HyperCool_0.3.1_x64_en-US.msi"
         }
     }
 }

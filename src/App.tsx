@@ -729,7 +729,6 @@ function App() {
             loadUdbFile={loadUdbFile}
             udbPath={udbPath}
             completeAllPending={completeAllPending}
-            onHideToTray={onHideToTray}
             decodeEntities={decodeEntities}
             formatReceiveDate={formatReceiveDate}
           />
@@ -739,7 +738,6 @@ function App() {
             keptMessages={keptMessages}
             manualTodos={manualTodos}
             deadlines={deadlines}
-            onHideToTray={onHideToTray}
             setAddTodoModal={setAddTodoModal}
             classify={classify}
             setScheduleModal={setScheduleModal}
@@ -761,7 +759,6 @@ function App() {
             loadUdbFile={loadUdbFile}
             udbPath={udbPath}
             isLoading={isLoading}
-            onHideToTray={onHideToTray}
             classified={classified}
             deadlines={deadlines}
             setScheduleModal={setScheduleModal}
@@ -786,7 +783,6 @@ function App() {
             setClassTimes={setClassTimes}
             uiScale={uiScale}
             setUiScale={setUiScale}
-            onHideToTray={onHideToTray}
           />
         )}
         <ScheduleModal

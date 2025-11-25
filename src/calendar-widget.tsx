@@ -314,7 +314,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                   {/* 일반 할 일 표시 - 완료되지 않은 항목 먼저, 완료된 항목은 최하단 */}
                   {dayTodos
                     .filter(todo => !todo.isCompleted)
-                    .map((todo, todoIndex) => {
+                    .map((todo) => {
                       const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
                       const isManual = todo.isManual ?? false;
                       const isDragging = draggedTodoId === todo.id;

@@ -12,7 +12,6 @@ interface HistoryPageProps {
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
   isLoading: boolean;
-  onHideToTray: () => void;
   classified: Record<number, 'left' | 'right'>;
   deadlines: Record<number, string | null>;
   setScheduleModal: (modal: { open: boolean; id?: number }) => void;
@@ -39,7 +38,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   loadUdbFile,
   udbPath,
   isLoading,
-  onHideToTray,
   classified,
   deadlines,
   setScheduleModal,

@@ -12,7 +12,6 @@ interface ClassifierPageProps {
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
   completeAllPending: () => void;
-  onHideToTray: () => void;
   decodeEntities: (html: string) => string;
   formatReceiveDate: (receiveDate: string | null | undefined) => string | null;
 }
@@ -27,7 +26,6 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
   loadUdbFile,
   udbPath,
   completeAllPending,
-  onHideToTray,
   decodeEntities,
   formatReceiveDate,
 }) => {

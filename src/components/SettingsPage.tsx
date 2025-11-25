@@ -13,7 +13,6 @@ interface SettingsPageProps {
   setClassTimes: (times: string[]) => void;
   uiScale: number;
   setUiScale: (scale: number) => void;
-  onHideToTray: () => void;
 }
 
 const REG_KEY_UDB = 'UdbPath';
@@ -33,7 +32,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   setClassTimes,
   uiScale,
   setUiScale,
-  onHideToTray,
 }) => {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; date: string; body: string } | null>(null);
