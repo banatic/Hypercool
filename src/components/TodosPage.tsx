@@ -6,7 +6,6 @@ interface TodosPageProps {
   keptMessages: Message[];
   manualTodos: ManualTodo[];
   deadlines: Record<number, string | null>;
-  onHideToTray: () => void;
   setAddTodoModal: (open: boolean) => void;
   classify: (id: number, direction: 'left' | 'right') => void;
   setScheduleModal: (modal: { open: boolean; id?: number }) => void;
@@ -24,7 +23,6 @@ export const TodosPage: React.FC<TodosPageProps> = ({
   keptMessages,
   manualTodos,
   deadlines,
-  onHideToTray,
   setAddTodoModal,
   classify,
   setScheduleModal,
