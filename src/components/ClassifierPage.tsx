@@ -1,6 +1,7 @@
 import React from 'react';
 import { Message } from '../types';
 import { PageHeader } from './PageHeader';
+import { AttachmentList } from './AttachmentList';
 
 interface ClassifierPageProps {
   isLoading: boolean;
@@ -52,6 +53,9 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
                 )}
               </div>
               <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
+              {msg.file_paths && msg.file_paths.length > 0 && (
+                <AttachmentList filePaths={msg.file_paths} />
+              )}
               <div className="card-actions">
                 <button className="left" onClick={() => classify(msg.id, 'left')}>◀ 완료된 일</button>
                 <button className="right" onClick={() => classify(msg.id, 'right')}>해야할 일 ▶</button>

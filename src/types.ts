@@ -3,6 +3,7 @@ export interface Message {
   sender: string;
   content: string;
   receive_date?: string | null;
+  file_paths?: string[];
 }
 
 export interface SearchResultItem {

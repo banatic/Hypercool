@@ -1,6 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import { Message, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
+import { AttachmentList } from './AttachmentList';
 
 interface HistoryPageProps {
   totalMessageCount: number;
@@ -265,6 +266,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                         </button>
                       </div>
                       <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
+                      {msg.file_paths && msg.file_paths.length > 0 && (
+                        <AttachmentList filePaths={msg.file_paths} />
+                      )}
                     </div>
                   </div>
                 );
@@ -306,6 +310,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                     </button>
                   </div>
                   <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
+                  {activeSearchMessage.file_paths && activeSearchMessage.file_paths.length > 0 && (
+                    <AttachmentList filePaths={activeSearchMessage.file_paths} />
+                  )}
                 </div>
               </div>
             )}

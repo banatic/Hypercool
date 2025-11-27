@@ -1,8 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, emit } from '@tauri-apps/api/event';
+import { AttachmentList } from './components/AttachmentList';
 import './styles.css';
 import './CalendarWidget.css';
 
@@ -38,6 +40,7 @@ interface TodoItem {
   isManual?: boolean;
   calendarTitle?: string;
   isCompleted?: boolean;
+  file_paths?: string[];
 }
 
 interface CalendarWidgetProps {
@@ -55,13 +58,48 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
   const [todoOrder, setTodoOrder] = useState<Record<string, number[]>>({}); // 날짜별 할일 ID 순서
   const [draggedTodoId, setDraggedTodoId] = useState<number | null>(null);
+  const draggedTodoIdRef = useRef<number | null>(null); // 동기적으로 접근하기 위한 ref
+  // const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 }); // Performance: Removed state
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const startPosRef = useRef({ x: 0, y: 0 }); // 드래그 시작 위치 (클릭 판별용)
+  const isDraggingRef = useRef(false);
+  const ignoreClickRef = useRef(false); // 드래그 후 클릭 이벤트 무시용
+  const ghostRef = useRef<HTMLDivElement>(null); // 고스트 엘리먼트 직접 제어용
+
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
+  const [dragOverTodoId, setDragOverTodoId] = useState<number | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below' | null>(null);
   const [addTodoModalOpen, setAddTodoModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editTodoModalOpen, setEditTodoModalOpen] = useState(false);
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null);
   const [addPeriodModalOpen, setAddPeriodModalOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; todo?: TodoItem; schedule?: PeriodSchedule } | null>(null);
+
+  // 모든 할일 목록 (메모이제이션)
+  const allTodos = useMemo(() => {
+    return [
+      ...keptMessages.map(m => ({ 
+        id: m.id, 
+        content: m.content, 
+        deadline: deadlines[m.id] || null, 
+        sender: m.sender, 
+        isManual: false,
+        calendarTitle: calendarTitles[m.id] || undefined,
+        isCompleted: completedTodos.has(m.id),
+        file_paths: m.file_paths
+      })),
+      ...manualTodos.map(t => ({ 
+        id: t.id, 
+        content: t.content, 
+        deadline: t.deadline, 
+        isManual: true,
+        calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
+        isCompleted: completedTodos.has(t.id)
+      }))
+    ];
+  }, [keptMessages, manualTodos, deadlines, calendarTitles, completedTodos]);
 
   const loadTodos = useCallback(async () => {
     try {
@@ -156,7 +194,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     }
 
     // 모든 할 일을 합침
-    const allTodos: TodoItem[] = [
+    const allTodosForRender: TodoItem[] = [
       ...keptMessages.map(m => ({ 
         id: m.id, 
         content: m.content, 
@@ -164,7 +202,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
         sender: m.sender, 
         isManual: false,
         calendarTitle: calendarTitles[m.id] || undefined,
-        isCompleted: completedTodos.has(m.id)
+        isCompleted: completedTodos.has(m.id),
+        file_paths: m.file_paths
       })),
       ...manualTodos.map(t => ({ 
         id: t.id, 
@@ -178,7 +217,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
     // 날짜별로 할 일 그룹화
     const todosByDate: Record<string, TodoItem[]> = {};
-    allTodos.forEach(todo => {
+    allTodosForRender.forEach(todo => {
       if (todo.deadline) {
         const date = new Date(todo.deadline);
         const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -273,18 +312,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           return (
             <div
               key={index}
-              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${isSunday ? 'sunday' : ''} ${isSaturday ? 'saturday' : ''}`}
+              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${isSunday ? 'sunday' : ''} ${isSaturday ? 'saturday' : ''} ${dragOverDateKey === dateKey ? 'drag-over-day' : ''}`}
               onDoubleClick={() => {
                 setSelectedDate(day);
                 setAddTodoModalOpen(true);
               }}
+              data-date={dateKey} // 마우스 드래그를 위해 data-date 추가
             >
               <div className="calendar-day-number">{day.getDate()}</div>
               {(dayPeriodSchedules.length > 0 || dayTodos.length > 0) && (
                 <div 
                   className={`calendar-day-todos ${dragOverDateKey === dateKey ? 'drag-over' : ''}`}
-                  onDragOver={(e) => handleDragOver(e, dateKey)}
-                  onDrop={(e) => handleDrop(e, dateKey)}
                 >
                   {/* 기간 일정을 먼저 표시 (상단) */}
                   {dayPeriodSchedules.map(schedule => {
@@ -317,36 +355,29 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                     .map((todo) => {
                       const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
                       const isManual = todo.isManual ?? false;
-                      const isDragging = draggedTodoId === todo.id;
+                      const isDragOver = dragOverTodoId === todo.id;
                       return (
-                        <div
-                          key={todo.id}
-                          draggable
-                          className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'} ${isDragging ? 'dragging' : ''}`}
-                          onDragStart={(e) => handleDragStart(e, todo.id)}
-                          onDragEnd={handleDragEnd}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDrop(e, dateKey, todo.id);
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTodo(todo);
-                            setEditTodoModalOpen(true);
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setContextMenu({ x: e.clientX, y: e.clientY, todo });
-                          }}
-                        >
-                          {title}
-                        </div>
+                        <React.Fragment key={todo.id}>
+                          {isDragOver && dragOverPosition === 'above' && (
+                            <div className="calendar-todo-drop-indicator" />
+                          )}
+                          <div
+                            className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'} ${draggedTodoId === todo.id ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                            onMouseDown={(e) => handleMouseDown(e, todo)}
+                            // onClick 제거: handleGlobalMouseUp에서 처리함
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setContextMenu({ x: e.clientX, y: e.clientY, todo });
+                            }}
+                            data-todo-id={todo.id} // 마우스 드래그를 위해 data-todo-id 추가
+                          >
+                            {title}
+                          </div>
+                          {isDragOver && dragOverPosition === 'below' && (
+                            <div className="calendar-todo-drop-indicator" />
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   {/* 완료된 항목은 최하단에 표시 */}
@@ -447,85 +478,195 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     await invoke('set_registry_value', { key, value });
   };
 
-  // 할일 순서 업데이트 및 저장
-  const updateTodoOrder = async (dateKey: string, todoIds: number[]) => {
-    const newOrder = { ...todoOrder, [dateKey]: todoIds };
-    setTodoOrder(newOrder);
-    await saveToRegistry(REG_KEY_TODO_ORDER, JSON.stringify(newOrder));
+
+
+  // 마우스 드래그 핸들러
+  const handleMouseDown = (e: React.MouseEvent, todo: TodoItem) => {
+    if (e.button !== 0) return; // 좌클릭만 허용
+    e.stopPropagation();
+    
+    // 클릭 시작 시 ignoreClickRef 초기화
+    ignoreClickRef.current = false;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    
+    // setDragPosition({ x: rect.left, y: rect.top }); // State 제거
+    // setDraggedTodoId(todo.id); // 드래그 시작 시점(MouseMove)으로 이동하여 단순 클릭 시 리렌더링 방지
+    draggedTodoIdRef.current = todo.id;
+    
+    isDraggingRef.current = false; // 아직 드래그 시작 안함 (클릭과 구분)
+    
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
   };
 
-  // 드래그 시작
-  const handleDragStart = (e: React.DragEvent, todoId: number) => {
-    setDraggedTodoId(todoId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', todoId.toString());
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '0.5';
+  const handleGlobalMouseMove = (e: MouseEvent) => {
+    if (!draggedTodoIdRef.current) return;
+    
+    if (!isDraggingRef.current) {
+      // 일정 거리 이상 움직였을 때만 드래그 시작 (클릭 미스 방지)
+      const dx = e.clientX - startPosRef.current.x;
+      const dy = e.clientY - startPosRef.current.y;
+      if (Math.hypot(dx, dy) > 5) {
+        isDraggingRef.current = true;
+        setIsDragging(true);
+        setDraggedTodoId(draggedTodoIdRef.current); // 드래그가 확실시될 때 상태 업데이트
+      } else {
+        return; // 임계값 넘지 않으면 무시
+      }
+    }
+
+    // Performance: Direct DOM manipulation instead of state update
+    if (ghostRef.current) {
+      ghostRef.current.style.left = `${e.clientX - dragOffsetRef.current.x}px`;
+      ghostRef.current.style.top = `${e.clientY - dragOffsetRef.current.y}px`;
+    }
+    
+    // 드롭 타겟 감지
+    // Performance: Use requestAnimationFrame or throttle if needed, but simple check is usually fine
+    const element = document.elementFromPoint(e.clientX, e.clientY);
+    if (!element) return;
+    
+    const dayElement = element.closest('.calendar-day');
+    if (dayElement) {
+      const dateKey = dayElement.getAttribute('data-date');
+      if (dateKey) {
+        setDragOverDateKey(dateKey);
+        
+        const todoElement = element.closest('.calendar-todo-item');
+        if (todoElement) {
+          const todoId = Number(todoElement.getAttribute('data-todo-id'));
+          if (todoId && todoId !== draggedTodoIdRef.current) {
+            setDragOverTodoId(todoId);
+            const rect = todoElement.getBoundingClientRect();
+            const centerY = rect.top + rect.height / 2;
+            setDragOverPosition(e.clientY < centerY ? 'above' : 'below');
+          } else {
+            setDragOverTodoId(null);
+            setDragOverPosition(null);
+          }
+        } else {
+          setDragOverTodoId(null);
+          setDragOverPosition(null);
+        }
+      }
+    } else {
+      setDragOverDateKey(null);
+      setDragOverTodoId(null);
+      setDragOverPosition(null);
     }
   };
 
-  // 드래그 종료
-  const handleDragEnd = (e: React.DragEvent) => {
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '';
+  const handleGlobalMouseUp = (e: MouseEvent) => {
+    window.removeEventListener('mousemove', handleGlobalMouseMove);
+    window.removeEventListener('mouseup', handleGlobalMouseUp);
+    
+    if (isDraggingRef.current && draggedTodoIdRef.current) {
+      // 드래그가 발생했으므로 클릭 이벤트 무시 플래그 설정
+      ignoreClickRef.current = true;
+      // 약간의 지연 후 초기화 (onClick이 실행될 시간 확보 후 차단 해제는 불필요하지만 안전장치)
+      setTimeout(() => {
+        ignoreClickRef.current = false;
+      }, 100);
+
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      if (element) {
+        const dayElement = element.closest('.calendar-day');
+        if (dayElement) {
+          const dateKey = dayElement.getAttribute('data-date');
+          if (dateKey) {
+            let targetTodoId: number | undefined;
+            let position: 'above' | 'below' | undefined;
+            
+            const todoElement = element.closest('.calendar-todo-item');
+            if (todoElement) {
+              const id = Number(todoElement.getAttribute('data-todo-id'));
+              if (id && id !== draggedTodoIdRef.current) {
+                targetTodoId = id;
+                const rect = todoElement.getBoundingClientRect();
+                const centerY = rect.top + rect.height / 2;
+                position = e.clientY < centerY ? 'above' : 'below';
+              }
+            }
+            
+            handleDrop(dateKey, targetTodoId, position);
+          }
+        }
+      }
+    } else {
+      // 드래그가 발생하지 않음 (순수 클릭)
+      // onClick 대신 여기서 처리하여 드래그/클릭 간섭 원천 차단
+      if (draggedTodoIdRef.current) {
+        const todo = allTodos.find(t => t.id === draggedTodoIdRef.current);
+        if (todo) {
+          setSelectedTodo(todo);
+          setEditTodoModalOpen(true);
+        }
+      }
     }
+    
+    setIsDragging(false);
+    isDraggingRef.current = false;
     setDraggedTodoId(null);
+    draggedTodoIdRef.current = null;
     setDragOverDateKey(null);
-  };
-
-  // 드래그 오버 (같은 날짜 내에서)
-  const handleDragOver = (e: React.DragEvent, dateKey: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverDateKey(dateKey);
+    setDragOverTodoId(null);
+    setDragOverPosition(null);
   };
 
   // 드롭
-  const handleDrop = async (e: React.DragEvent, targetDateKey: string, targetTodoId?: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!draggedTodoId) return;
+  const handleDrop = async (targetDateKey: string, targetTodoId?: number, position?: 'above' | 'below') => {
+    const draggedId = draggedTodoIdRef.current;
+    if (!draggedId) return;
 
-    const draggedId = draggedTodoId;
-    setDraggedTodoId(null);
-    setDragOverDateKey(null);
-
-    // 드래그된 할일의 원래 날짜 찾기
     let sourceDateKey: string | null = null;
-    const allTodos: TodoItem[] = [
-      ...keptMessages.map(m => ({ 
-        id: m.id, 
-        content: m.content, 
-        deadline: deadlines[m.id] || null, 
-        sender: m.sender, 
-        isManual: false,
-        calendarTitle: calendarTitles[m.id] || undefined,
-        isCompleted: completedTodos.has(m.id)
-      })),
-      ...manualTodos.map(t => ({ 
-        id: t.id, 
-        content: t.content, 
-        deadline: t.deadline, 
-        isManual: true,
-        calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
-        isCompleted: completedTodos.has(t.id)
-      }))
-    ];
-
     const draggedTodo = allTodos.find(t => t.id === draggedId);
-    if (draggedTodo && draggedTodo.deadline) {
+    if (!draggedTodo) return;
+    
+    if (draggedTodo.deadline) {
       const date = new Date(draggedTodo.deadline);
       sourceDateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     }
 
-    if (!sourceDateKey || sourceDateKey !== targetDateKey) {
-      // 같은 날짜 내에서만 드래그 가능
-      return;
+    if (!sourceDateKey) return;
+
+    if (sourceDateKey !== targetDateKey) {
+      const targetDateParts = targetDateKey.split('-');
+      const newDate = new Date(
+        parseInt(targetDateParts[0]), 
+        parseInt(targetDateParts[1]), 
+        parseInt(targetDateParts[2])
+      );
+      if (draggedTodo.deadline) {
+        const oldDate = new Date(draggedTodo.deadline);
+        newDate.setHours(oldDate.getHours(), oldDate.getMinutes(), oldDate.getSeconds());
+      } else {
+        newDate.setHours(12, 0, 0);
+      }
+      const newDeadline = newDate.toISOString();
+
+      if (draggedTodo.isManual) {
+        const updatedTodos = manualTodos.map(t => 
+          t.id === draggedId ? { ...t, deadline: newDeadline } : t
+        );
+        await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
+        setManualTodos(updatedTodos);
+      } 
+      const updatedDeadlines = { ...deadlines, [draggedId]: newDeadline };
+      await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
+      setDeadlines(updatedDeadlines);
     }
 
-    // 현재 날짜의 할일 목록 가져오기
-    const currentOrder = todoOrder[targetDateKey] || [];
+    const newTodoOrderMap = { ...todoOrder };
+
+    if (sourceDateKey !== targetDateKey && newTodoOrderMap[sourceDateKey]) {
+      newTodoOrderMap[sourceDateKey] = newTodoOrderMap[sourceDateKey].filter(id => id !== draggedId);
+    }
+
+    const currentOrder = newTodoOrderMap[targetDateKey] || [];
+    
     const dayTodos = allTodos.filter(todo => {
       if (!todo.deadline) return false;
       const date = new Date(todo.deadline);
@@ -533,38 +674,43 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       return dateKey === targetDateKey;
     });
 
-    // 완료되지 않은 할일만 순서에 포함
     const incompleteTodos = dayTodos.filter(t => !t.isCompleted);
     const incompleteIds = new Set(incompleteTodos.map(t => t.id));
-
-    // 현재 순서에서 완료되지 않은 할일만 필터링
+    
     let newOrder = currentOrder.filter(id => incompleteIds.has(id));
     
-    // 순서에 없는 새로운 할일들을 뒤에 추가
     incompleteIds.forEach(id => {
       if (!newOrder.includes(id)) {
         newOrder.push(id);
       }
     });
 
-    // 드래그된 항목을 순서에서 제거
     newOrder = newOrder.filter(id => id !== draggedId);
 
-    // 타겟 위치에 삽입
-    if (targetTodoId !== undefined && incompleteIds.has(targetTodoId)) {
+    if (targetTodoId !== undefined) {
       const targetIndex = newOrder.indexOf(targetTodoId);
       if (targetIndex !== -1) {
-        newOrder.splice(targetIndex, 0, draggedId);
+        if (position === 'above') {
+          newOrder.splice(targetIndex, 0, draggedId);
+        } else if (position === 'below') {
+          newOrder.splice(targetIndex + 1, 0, draggedId);
+        } else {
+          newOrder.splice(targetIndex, 0, draggedId);
+        }
       } else {
-        // 타겟을 찾을 수 없으면 맨 끝에 추가
         newOrder.push(draggedId);
       }
     } else {
-      // 타겟이 없거나 완료된 항목이면 맨 끝에 추가
       newOrder.push(draggedId);
     }
 
-    await updateTodoOrder(targetDateKey, newOrder);
+    newTodoOrderMap[targetDateKey] = newOrder;
+
+    setTodoOrder(newTodoOrderMap);
+    await saveToRegistry(REG_KEY_TODO_ORDER, JSON.stringify(newTodoOrderMap));
+    
+    void emit('calendar-update');
+    loadTodos();
   };
 
   const deleteTodo = async (todo: TodoItem) => {
@@ -680,10 +826,12 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             setSelectedDate(null);
           }}
           onSave={async (content: string, calendarTitle: string, deadlineDate: string, deadlineTime: string) => {
-            if (!content.trim()) {
-              alert('할 일 내용을 입력해주세요.');
+            if (!calendarTitle.trim()) {
+              alert('달력 제목을 입력해주세요.');
               return;
             }
+
+            const finalContent = content.trim() || calendarTitle.trim();
 
             const newId = Date.now();
             const deadline = deadlineDate && deadlineTime 
@@ -692,7 +840,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
             const newTodo: ManualTodo = {
               id: newId,
-              content: content.trim(),
+              content: finalContent,
               deadline,
               createdAt: new Date().toISOString(),
               calendarTitle: calendarTitle.trim() || undefined,
@@ -879,6 +1027,38 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           </div>
         </>
       )}
+      {isDragging && draggedTodoId && (
+        createPortal(
+          <div 
+            ref={ghostRef}
+            style={{
+              position: 'fixed',
+              // 초기 위치는 마우스 이벤트에서 설정됨
+              left: '0px',
+              top: '0px',
+              width: '150px',
+              pointerEvents: 'none',
+              zIndex: 9999,
+              opacity: 0.9,
+              transform: 'scale(1.05)',
+              boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
+              backgroundColor: 'rgba(60, 60, 70, 0.95)',
+              color: 'white',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              backdropFilter: 'blur(5px)'
+            }}
+          >
+            {allTodos.find(t => t.id === draggedTodoId)?.content.replace(/<[^>]*>/g, '') || 'Dragging...'}
+          </div>,
+          document.body
+        )
+      )}
     </div>
   );
 }
@@ -993,11 +1173,14 @@ const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualT
                   📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
                 </div>
               )}
+              {todo.file_paths && todo.file_paths.length > 0 && (
+                <AttachmentList filePaths={todo.file_paths} />
+              )}
             </div>
           </div>
           <div className="schedule-panel">
             <h3>마감 시간 설정</h3>
-            <label htmlFor="calendar-edit-todo-calendar-title">달력 제목 (짧게)</label>
+            <label htmlFor="calendar-edit-todo-calendar-title">달력 제목</label>
             <input 
               id="calendar-edit-todo-calendar-title" 
               type="text" 
@@ -1093,7 +1276,7 @@ const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, on
           </div>
           <div className="schedule-panel">
             <h3>기간 설정</h3>
-            <label htmlFor="period-calendar-title">달력 제목 (짧게)</label>
+            <label htmlFor="period-calendar-title">달력 제목</label>
             <input 
               id="period-calendar-title" 
               type="text" 
@@ -1200,7 +1383,7 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
           </div>
           <div className="schedule-panel">
             <h3>마감 시간 설정</h3>
-            <label htmlFor="calendar-add-todo-calendar-title">달력 제목 (짧게)</label>
+            <label htmlFor="calendar-add-todo-calendar-title">달력 제목</label>
             <input 
               id="calendar-add-todo-calendar-title" 
               type="text" 

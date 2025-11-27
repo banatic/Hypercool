@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon } from './icons';
 import { Page } from '../types';
 import { invoke } from '@tauri-apps/api/core';
@@ -11,8 +11,14 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapsed, setSidebarCollapsed }) => {
+  const [isHovered, setIsHovered] = useState(false);
+
   return (
-    <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+    <aside 
+      className={`sidebar ${sidebarCollapsed && !isHovered ? 'collapsed' : ''}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="sidebar-top">
         <h1><span className='icon'></span><span className="label">HyperCool</span></h1>
         <button className="collapse" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? '펼치기' : '접기'}>
