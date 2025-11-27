@@ -510,8 +510,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.3.0",
-        notes="Chore",
+        version="0.3.2",
+        notes="할일 드래그 기능 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

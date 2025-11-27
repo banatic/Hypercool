@@ -1,6 +1,7 @@
 import React from 'react';
 import { Message, ManualTodo } from '../types';
 import { PageHeader } from './PageHeader';
+import { AttachmentList } from './AttachmentList';
 
 interface TodosPageProps {
   keptMessages: Message[];
@@ -83,8 +84,8 @@ export const TodosPage: React.FC<TodosPageProps> = ({
   };
 
   // 메시지 기반 할 일과 직접 추가한 할 일을 합침
-  const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null }> = [
-    ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false, receive_date: m.receive_date })),
+  const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null; file_paths?: string[] }> = [
+    ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false, receive_date: m.receive_date, file_paths: m.file_paths })),
     ...manualTodos.map(t => ({ id: t.id, content: t.content, deadline: t.deadline, isManual: true }))
   ];
 
@@ -213,6 +214,9 @@ export const TodosPage: React.FC<TodosPageProps> = ({
                           </div>
                         )}
                         <div className="todo-content" dangerouslySetInnerHTML={{ __html: decodeEntities(todo.content) }} />
+                        {todo.file_paths && todo.file_paths.length > 0 && (
+                          <AttachmentList filePaths={todo.file_paths} />
+                        )}
                       </div>
                     );
                   })}

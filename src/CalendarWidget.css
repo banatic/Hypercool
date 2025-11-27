@@ -1,636 +1,662 @@
-html, body, #root {
-    height: 100%;
-    background: transparent;
-    margin: 0;
-    padding: 0;
-  }
-  
-  .calendar-widget {
-    width: 100%;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background: rgba(25, 25, 30, 0.35);
-    backdrop-filter: blur(30px);
-    color: #ffffff;
-    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    border-radius: 8px;
-    overflow: hidden;
-    user-select: none;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-  }
-  
-  .calendar-widget-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: rgba(40, 40, 50, 0.2);
-    backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    cursor: move;
-    -webkit-app-region: drag;
-  }
-  
-  .calendar-nav-btn {
-    background: rgba(70, 70, 80, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #ffffff;
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    -webkit-app-region: no-drag;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  }
-  
-  .calendar-nav-btn:hover {
-    background: rgba(90, 90, 100, 0.5);
-    border-color: rgba(255, 255, 255, 0.2);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-  
-  .calendar-nav-btn:active {
-    transform: translateY(0);
-  }
-  
-  .calendar-month-year {
-    font-size: 16px;
-    font-weight: 700;
-    flex: 1;
-    text-align: center;
-    letter-spacing: -0.5px;
-    color: #ffffff;
-  }
-  
-  .calendar-weekdays {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 1px;
-    padding: 12px 0px;
-    background: rgba(30, 30, 40, 0.3);
-  }
-  
-  .calendar-weekday {
-    text-align: center;
-    font-size: 13px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.5);
-    padding: 6px 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  
-  .calendar-weekday:first-child {
-    color: rgba(255, 100, 100, 0.7);
-  }
-  
-  .calendar-weekday:last-child {
-    color: rgba(100, 150, 255, 0.7);
-  }
-  
-  .calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 100%));
-    gap: 2px;
-    padding: 2px;
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  
-  .calendar-day {
-    min-height: 0;
-    min-width: 0;
-    max-width: 100%;
-    max-height: 100%;
-    padding: 5px 2px;
-    border-radius: 14px;
-    background: rgba(45, 45, 55, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-    box-sizing: border-box;
-  }
-  
-  .calendar-day:hover {
-    background: rgba(60, 60, 75, 0.5);
-    border-color: rgba(255, 255, 255, 0.15);
-    transform: scale(1.02);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-    z-index: 1;
-  }
-  
-  .calendar-day.other-month {
-    opacity: 0.25;
-    background: rgba(35, 35, 45, 0.3);
-  }
+html,
+body,
+#root {
+  height: 100%;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
 
-  .calendar-day.sunday {
-    background: rgba(255, 100, 100, 0.15);
-  }
+.calendar-widget {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(25, 25, 30, 0.35);
+  backdrop-filter: blur(30px);
+  color: #ffffff;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  -webkit-app-region: no-drag;
+}
 
-  .calendar-day.sunday.current-month {
-    background: rgba(255, 100, 100, 0.2);
-  }
+.calendar-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(40, 40, 50, 0.2);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: move;
+  -webkit-app-region: drag;
+}
 
-  .calendar-day.saturday {
-    background: rgba(100, 150, 255, 0.15);
-  }
+.calendar-nav-btn {
+  background: rgba(70, 70, 80, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-app-region: no-drag;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
 
-  .calendar-day.saturday.current-month {
-    background: rgba(100, 150, 255, 0.2);
-  }
-  
-  .calendar-day.current-month {
-    border: 1px solid rgba(255, 255, 255, 0.15);
-  }
-  
-  .calendar-day.today {
-    background: rgba(0, 122, 255, 0.25);
-    border: 2px solid rgba(0, 122, 255, 0.7);
-    box-sizing: border-box;
-    box-shadow: 0 0 20px rgba(0, 122, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
-  
-  .calendar-day.today:hover {
-    background: rgba(0, 122, 255, 0.35);
-    border-color: rgba(0, 122, 255, 0.9);
-  }
-  
-  .calendar-day.past {
-    opacity: 0.4;
-  }
-  
-  .calendar-day-number {
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1;
-    flex-shrink: 0;
-    margin-bottom: 2px;
-    color: rgba(255, 255, 255, 0.9);
-    white-space: nowrap;
-  }
-  
-  .calendar-day.today .calendar-day-number {
-    color: #ffffff;
-    font-weight: 700;
-  }
-  
-  .calendar-day-todos {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    justify-content: flex-start;
-    align-items: center;
-    width: 100%;
-    flex-shrink: 0;
-    min-height: 10px;
-    padding-top: 2px;
-    max-width: 100%;
-    overflow: hidden;
-  }
+.calendar-nav-btn:hover {
+  background: rgba(90, 90, 100, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
 
-  /* 완료된 항목을 최하단에 배치하기 위한 flexbox 설정 */
-  .calendar-day-todos .calendar-todo-item:not(.calendar-todo-completed) {
-    order: 0;
-  }
+.calendar-nav-btn:active {
+  transform: translateY(0);
+}
 
-  .calendar-day-todos .calendar-todo-item.calendar-todo-completed {
-    order: 999;
-  }
-  
-  .calendar-todo-item {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 3px 2px;
-    border-radius: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-    width: 100%;
-    text-align: center;
-    line-height: 1.3;
-    font-weight: 500;
-    cursor: grab;
-    transition: opacity 0.2s, transform 0.2s;
-  }
+.calendar-month-year {
+  font-size: 16px;
+  font-weight: 700;
+  flex: 1;
+  text-align: center;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+}
 
-  .calendar-todo-item:active {
-    cursor: grabbing;
-  }
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  padding: 12px 0px;
+  background: rgba(30, 30, 40, 0.3);
+}
 
-  .calendar-todo-item.dragging {
-    opacity: 0.5;
-    transform: scale(0.95);
-  }
+.calendar-weekday {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 6px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 
-  .calendar-day-todos.drag-over {
-    background: rgba(0, 150, 255, 0.1);
-    border-radius: 4px;
-    border: 1px dashed rgba(0, 150, 255, 0.5);
-  }
-  
-  /* 메시지 기반 일정: 파란색 (기본) */
-  .calendar-todo-item.calendar-todo-message {
-    background: rgba(0, 150, 255, 0.3);
-  }
-  
-  .calendar-todo-item.calendar-todo-message:hover {
-    background: rgba(0, 150, 255, 0.5);
-  }
-  
-  /* 수동 등록 일정: 초록색 */
-  .calendar-todo-item.calendar-todo-manual {
-    background: rgba(50, 200, 100, 0.3);
-  }
-  
-  .calendar-todo-item.calendar-todo-manual:hover {
-    background: rgba(50, 200, 100, 0.5);
-  }
+.calendar-weekday:first-child {
+  color: rgba(255, 100, 100, 0.7);
+}
 
-  /* 완료된 항목 스타일 */
-  .calendar-todo-item.calendar-todo-completed {
-    opacity: 0.4;
-    text-decoration: line-through;
-    order: 999; /* 최하단에 배치 */
-  }
+.calendar-weekday:last-child {
+  color: rgba(100, 150, 255, 0.7);
+}
 
-  .calendar-todo-item.calendar-todo-completed.calendar-todo-message {
-    background: rgba(0, 150, 255, 0.15);
-  }
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 100%));
+  gap: 2px;
+  padding: 2px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
 
-  .calendar-todo-item.calendar-todo-completed.calendar-todo-message:hover {
-    background: rgba(0, 150, 255, 0.25);
-  }
+.calendar-day {
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 5px 2px;
+  border-radius: 14px;
+  background: rgba(45, 45, 55, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+}
 
-  .calendar-todo-item.calendar-todo-completed.calendar-todo-manual {
-    background: rgba(50, 200, 100, 0.15);
-  }
+.calendar-day:hover {
+  background: rgba(60, 60, 75, 0.5);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 1;
+}
 
-  .calendar-todo-item.calendar-todo-completed.calendar-todo-manual:hover {
-    background: rgba(50, 200, 100, 0.25);
-  }
+.calendar-day.other-month {
+  opacity: 0.25;
+  background: rgba(35, 35, 45, 0.3);
+}
 
-  .calendar-period-schedule {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.95);
-    background: rgba(255, 165, 0, 0.4);
-    padding: 3px 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-    width: calc(100% + 4px);
-    margin-left: -2px;
-    margin-right: -2px;
-    text-align: center;
-    line-height: 1.3;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid rgba(255, 165, 0, 0.6);
-    border-top: none;
-    border-bottom: none;
-    position: relative;
-    z-index: 2;
-  }
+.calendar-day.sunday {
+  background: rgba(255, 100, 100, 0.15);
+}
 
-  .calendar-period-schedule:hover {
-    background: rgba(255, 165, 0, 0.6);
-    z-index: 3;
-  }
+.calendar-day.sunday.current-month {
+  background: rgba(255, 100, 100, 0.2);
+}
 
-  .calendar-period-schedule.period-start {
-    border-top-left-radius: 4px;
-    border-bottom-left-radius: 4px;
-    border-left: 1px solid rgba(255, 165, 0, 0.6);
-    margin-left: 0;
-  }
+.calendar-day.saturday {
+  background: rgba(100, 150, 255, 0.15);
+}
 
-  .calendar-period-schedule.period-end {
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
-    border-right: 1px solid rgba(255, 165, 0, 0.6);
-    margin-right: 0;
-  }
+.calendar-day.saturday.current-month {
+  background: rgba(100, 150, 255, 0.2);
+}
 
-  .calendar-period-schedule.period-middle {
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-  }
+.calendar-day.current-month {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
 
-  .calendar-period-schedule.period-start.period-end {
-    border-radius: 4px;
-    border: 1px solid rgba(255, 165, 0, 0.6);
-    margin-left: 0;
-    margin-right: 0;
-    width: 100%;
-  }
-  
-  .calendar-todo-more {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.6);
-    line-height: 1;
-    flex-shrink: 0;
-    font-weight: 600;
-  }
-  
-  .calendar-footer-trigger {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 15px;
-    z-index: 99;
-    cursor: move;
-    -webkit-app-region: drag;
-  }
+.calendar-day.today {
+  background: rgba(0, 122, 255, 0.25);
+  border: 2px solid rgba(0, 122, 255, 0.7);
+  box-sizing: border-box;
+  box-shadow: 0 0 20px rgba(0, 122, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+}
 
-  .calendar-footer-trigger:hover + .calendar-widget-footer,
-  .calendar-widget-footer:hover {
-    transform: translateY(0);
-  }
+.calendar-day.today:hover {
+  background: rgba(0, 122, 255, 0.35);
+  border-color: rgba(0, 122, 255, 0.9);
+}
 
-  .calendar-widget-footer {
-    padding: 10px;
-    background: rgba(40, 40, 50, 0.2);
-    backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 100;
-    cursor: move;
-    -webkit-app-region: drag;
-  }
+.calendar-day.past {
+  opacity: 0.4;
+}
 
-  .calendar-widget-footer button {
-    -webkit-app-region: no-drag;
-  }
-  
-  /* 달력 위젯 내부 모달 스타일 */
-  
-  .calendar-widget .schedule-modal-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    z-index: 10000;
-    padding-top: 20px;
-  }
-  
-  .calendar-widget .schedule-modal {
-    background: rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(20px);
-    border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    width: min(90vw, 800px);
-    max-height: 80vh;
-    padding: 24px;
-    -webkit-app-region: no-drag;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-  }
-  
-  .calendar-widget .schedule-inner {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 20px;
-    height: calc(80vh - 48px);
-    max-height: calc(80vh - 48px);
-    overflow: hidden;
-  }
-  
-  .calendar-widget .schedule-preview {
-    background: #f8f9fa;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 12px;
-    padding: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    height: 100%;
-  }
-  
-  .calendar-widget .schedule-preview > div {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: 16px;
-    min-height: 0;
-    max-height: 100%;
-  }
-  
-  .calendar-widget .schedule-preview > div::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  .calendar-widget .schedule-preview > div::-webkit-scrollbar-track {
-    background: #f0f0f0;
-    border-radius: 4px;
-  }
-  
-  .calendar-widget .schedule-preview > div::-webkit-scrollbar-thumb {
-    background: #d0d0d0;
-    border-radius: 4px;
-  }
-  
-  .calendar-widget .schedule-preview > div::-webkit-scrollbar-thumb:hover {
-    background: #b0b0b0;
-  }
-  
-  .calendar-widget .schedule-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    overflow-y: auto;
-    min-height: 0;
-    max-height: 100%;
-  }
-  
-  .calendar-widget .schedule-panel h3 {
-    margin: 0 0 8px 0;
-    font-size: 18px;
-    color: #1a1a1a;
-  }
-  
-  .calendar-widget .schedule-panel label {
-    font-size: 13px;
-    font-weight: 500;
-    color: #666666;
-  }
-  
-  .calendar-widget .schedule-panel input[type="text"],
-  .calendar-widget .schedule-panel input[type="date"],
-  .calendar-widget .schedule-panel input[type="time"] {
-    border: 1px solid rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    padding: 10px 12px;
-    background: #ffffff;
-    color: #1a1a1a;
-    font-size: 14px;
-  }
-  
-  .calendar-widget .schedule-panel input[type="text"]::placeholder {
-    color: rgba(0, 0, 0, 0.4);
-  }
-  
-  .calendar-widget .schedule-panel textarea {
-    color: #1a1a1a;
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.15);
-  }
-  
-  .calendar-widget .schedule-panel .row {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-  }
-  
-  .calendar-widget .schedule-panel .row button {
-    flex: 1;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .calendar-widget .schedule-panel .row button:first-child {
-    background: rgba(0, 122, 255, 0.8);
-    color: white;
-    border-color: rgba(0, 122, 255, 0.8);
-  }
-  
-  .calendar-widget .schedule-panel .row button:first-child:hover {
-    background: rgba(0, 122, 255, 1);
-  }
-  
-  .calendar-widget .schedule-panel .row button:last-child {
-    background: #f0f0f0;
-    color: #1a1a1a;
-  }
-  
-  .calendar-widget .schedule-panel .row button:last-child:hover {
-    background: #e0e0e0;
-  }
-  
-  .calendar-widget .schedule-preview h3 {
-    color: #1a1a1a;
-    margin-top: 0;
-  }
-  
-  .calendar-widget .schedule-preview div[style*="backgroundColor"] {
-    background-color: #e8f4fd !important;
-    color: #0066cc !important;
-  }
-  
-  .calendar-today-btn {
-    background: rgba(0, 122, 255, 0.3);
-    border: 1px solid rgba(0, 122, 255, 0.6);
-    color: #ffffff;
-    padding: 8px 20px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    -webkit-app-region: no-drag;
-    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
-  }
-  
-  .calendar-today-btn:hover {
-    background: rgba(0, 122, 255, 0.5);
-    border-color: rgba(0, 122, 255, 0.8);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.4);
-  }
-  
-  .calendar-today-btn:active {
-    transform: translateY(0);
-  }
-  
-  /* 스크롤바 스타일링 */
-  .calendar-grid::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  .calendar-grid::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
-    margin: 4px 0;
-  }
-  
-  .calendar-grid::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    transition: background 0.3s;
-  }
-  
-  .calendar-grid::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
-  }
-  
-  /* 컨텍스트 메뉴 스타일 */
-  .calendar-context-menu-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: transparent;
-  }
-  
-  .calendar-context-menu {
-    background: rgba(40, 40, 50, 0.95);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    padding: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    min-width: 120px;
-  }
-  
-  .calendar-context-menu-item {
-    padding: 8px 16px;
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 13px;
-    cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.2s;
-    user-select: none;
-  }
-  
-  .calendar-context-menu-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
-  
-  .calendar-context-menu-item:active {
-    background: rgba(255, 255, 255, 0.15);
-  }
+.calendar-day.drag-over-day {
+  background: rgba(0, 150, 255, 0.1);
+  border: 1px dashed rgba(0, 150, 255, 0.5);
+}
+
+.calendar-day-number {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-bottom: 2px;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.calendar-day.today .calendar-day-number {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.calendar-day-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: flex-start;
+  align-items: center;
+  width: 100%;
+  flex-shrink: 0;
+  min-height: 10px;
+  padding-top: 2px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* 완료된 항목을 최하단에 배치하기 위한 flexbox 설정 */
+.calendar-day-todos .calendar-todo-item:not(.calendar-todo-completed) {
+  order: 0;
+}
+
+.calendar-day-todos .calendar-todo-item.calendar-todo-completed {
+  order: 999;
+}
+
+.calendar-todo-item {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 3px 2px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  width: 100%;
+  text-align: center;
+  line-height: 1.3;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+  -webkit-app-region: no-drag;
+}
+
+.calendar-todo-item:active {
+  cursor: grabbing;
+}
+
+.calendar-todo-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.calendar-day-todos.drag-over {
+  background: rgba(0, 150, 255, 0.1);
+  border-radius: 4px;
+  border: 1px dashed rgba(0, 150, 255, 0.5);
+}
+
+.calendar-todo-item.drag-over {
+  background: rgba(0, 150, 255, 0.2) !important;
+  border: 1px solid rgba(0, 150, 255, 0.6);
+}
+
+.calendar-todo-drop-indicator {
+  height: 2px;
+  background: rgba(0, 150, 255, 0.8);
+  margin: 1px 0;
+  border-radius: 1px;
+  width: 100%;
+}
+
+/* 메시지 기반 일정: 파란색 (기본) */
+.calendar-todo-item.calendar-todo-message {
+  background: rgba(0, 150, 255, 0.3);
+}
+
+.calendar-todo-item.calendar-todo-message:hover {
+  background: rgba(0, 150, 255, 0.5);
+}
+
+/* 수동 등록 일정: 초록색 */
+.calendar-todo-item.calendar-todo-manual {
+  background: rgba(50, 200, 100, 0.3);
+}
+
+.calendar-todo-item.calendar-todo-manual:hover {
+  background: rgba(50, 200, 100, 0.5);
+}
+
+/* 완료된 항목 스타일 */
+.calendar-todo-item.calendar-todo-completed {
+  opacity: 0.4;
+  text-decoration: line-through;
+  order: 999;
+  /* 최하단에 배치 */
+}
+
+.calendar-todo-item.calendar-todo-completed.calendar-todo-message {
+  background: rgba(0, 150, 255, 0.15);
+}
+
+.calendar-todo-item.calendar-todo-completed.calendar-todo-message:hover {
+  background: rgba(0, 150, 255, 0.25);
+}
+
+.calendar-todo-item.calendar-todo-completed.calendar-todo-manual {
+  background: rgba(50, 200, 100, 0.15);
+}
+
+.calendar-todo-item.calendar-todo-completed.calendar-todo-manual:hover {
+  background: rgba(50, 200, 100, 0.25);
+}
+
+.calendar-period-schedule {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 165, 0, 0.4);
+  padding: 3px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  width: calc(100% + 4px);
+  margin-left: -2px;
+  margin-right: -2px;
+  text-align: center;
+  line-height: 1.3;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 165, 0, 0.6);
+  border-top: none;
+  border-bottom: none;
+  position: relative;
+  z-index: 2;
+}
+
+.calendar-period-schedule:hover {
+  background: rgba(255, 165, 0, 0.6);
+  z-index: 3;
+}
+
+.calendar-period-schedule.period-start {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  border-left: 1px solid rgba(255, 165, 0, 0.6);
+  margin-left: 0;
+}
+
+.calendar-period-schedule.period-end {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  border-right: 1px solid rgba(255, 165, 0, 0.6);
+  margin-right: 0;
+}
+
+.calendar-period-schedule.period-middle {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
+
+.calendar-period-schedule.period-start.period-end {
+  border-radius: 4px;
+  border: 1px solid rgba(255, 165, 0, 0.6);
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
+}
+
+.calendar-todo-more {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.calendar-footer-trigger {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 15px;
+  z-index: 99;
+  cursor: move;
+  -webkit-app-region: drag;
+}
+
+.calendar-footer-trigger:hover+.calendar-widget-footer,
+.calendar-widget-footer:hover {
+  transform: translateY(0);
+}
+
+.calendar-widget-footer {
+  padding: 10px;
+  background: rgba(40, 40, 50, 0.2);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 100;
+  cursor: move;
+  -webkit-app-region: drag;
+}
+
+.calendar-widget-footer button {
+  -webkit-app-region: no-drag;
+}
+
+/* 달력 위젯 내부 모달 스타일 */
+
+.calendar-widget .schedule-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 10000;
+  padding-top: 20px;
+}
+
+.calendar-widget .schedule-modal {
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: min(90vw, 800px);
+  max-height: 80vh;
+  padding: 24px;
+  -webkit-app-region: no-drag;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.calendar-widget .schedule-inner {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  height: calc(80vh - 48px);
+  max-height: calc(80vh - 48px);
+  overflow: hidden;
+}
+
+.calendar-widget .schedule-preview {
+  background: #f8f9fa;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.calendar-widget .schedule-preview>div {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.calendar-widget .schedule-preview>div::-webkit-scrollbar {
+  width: 8px;
+}
+
+.calendar-widget .schedule-preview>div::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.calendar-widget .schedule-preview>div::-webkit-scrollbar-thumb {
+  background: #d0d0d0;
+  border-radius: 4px;
+}
+
+.calendar-widget .schedule-preview>div::-webkit-scrollbar-thumb:hover {
+  background: #b0b0b0;
+}
+
+.calendar-widget .schedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.calendar-widget .schedule-panel h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #1a1a1a;
+}
+
+.calendar-widget .schedule-panel label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666666;
+}
+
+.calendar-widget .schedule-panel input[type="text"],
+.calendar-widget .schedule-panel input[type="date"],
+.calendar-widget .schedule-panel input[type="time"] {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #1a1a1a;
+  font-size: 14px;
+}
+
+.calendar-widget .schedule-panel input[type="text"]::placeholder {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.calendar-widget .schedule-panel textarea {
+  color: #1a1a1a;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.calendar-widget .schedule-panel .row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.calendar-widget .schedule-panel .row button {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.calendar-widget .schedule-panel .row button:first-child {
+  background: rgba(0, 122, 255, 0.8);
+  color: white;
+  border-color: rgba(0, 122, 255, 0.8);
+}
+
+.calendar-widget .schedule-panel .row button:first-child:hover {
+  background: rgba(0, 122, 255, 1);
+}
+
+.calendar-widget .schedule-panel .row button:last-child {
+  background: #f0f0f0;
+  color: #1a1a1a;
+}
+
+.calendar-widget .schedule-panel .row button:last-child:hover {
+  background: #e0e0e0;
+}
+
+.calendar-widget .schedule-preview h3 {
+  color: #1a1a1a;
+  margin-top: 0;
+}
+
+.calendar-widget .schedule-preview div[style*="backgroundColor"] {
+  background-color: #e8f4fd !important;
+  color: #0066cc !important;
+}
+
+.calendar-today-btn {
+  background: rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(0, 122, 255, 0.6);
+  color: #ffffff;
+  padding: 8px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-app-region: no-drag;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
+}
+
+.calendar-today-btn:hover {
+  background: rgba(0, 122, 255, 0.5);
+  border-color: rgba(0, 122, 255, 0.8);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.4);
+}
+
+.calendar-today-btn:active {
+  transform: translateY(0);
+}
+
+/* 스크롤바 스타일링 */
+.calendar-grid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.calendar-grid::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.calendar-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  transition: background 0.3s;
+}
+
+.calendar-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 컨텍스트 메뉴 스타일 */
+.calendar-context-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: transparent;
+}
+
+.calendar-context-menu {
+  background: rgba(40, 40, 50, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 120px;
+}
+
+.calendar-context-menu-item {
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.calendar-context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.calendar-context-menu-item:active {
+  background: rgba(255, 255, 255, 0.15);
+}

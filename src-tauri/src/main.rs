@@ -76,6 +76,7 @@ struct Message {
     sender: String,
     content: String,
     receive_date: Option<String>,
+    file_paths: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -174,7 +175,7 @@ fn search_messages(
 fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
     let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
     conn.query_row(
-        "SELECT MessageKey, Sender, MessageText, MessageBody, ReceiveDate FROM tbl_recv WHERE MessageKey = ?1",
+        "SELECT MessageKey, Sender, MessageText, MessageBody, ReceiveDate, FilePath FROM tbl_recv WHERE MessageKey = ?1",
         [id],
         |row| {
             // read_from_recv_only에 있는 변환 로직과 유사하게 구현
@@ -183,6 +184,7 @@ fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
             let text_ref = row.get_ref(2)?;
             let body_ref = row.get_ref(3)?;
             let receive_date: Option<String> = row.get(4)?;
+            let file_path: Option<String> = row.get(5)?;
 
             let text_value = match text_ref {
                 ValueRef::Text(t) => Some(String::from_utf8_lossy(t).to_string()),
@@ -210,7 +212,8 @@ fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
                 if !t.is_empty() { t } else { body_value }
             } else { body_value };
 
-            Ok(Message { id, sender, content, receive_date })
+            let file_paths = parse_file_paths(&file_path.unwrap_or_default());
+            Ok(Message { id, sender, content, receive_date, file_paths })
         }
     ).map_err(|e| format!("ID로 메시지 조회 실패: {}", e))
 }
@@ -254,7 +257,7 @@ fn read_from_recv_only(
     params.push(Box::new(offset.unwrap_or(0)));
 
     let query_sql = format!(
-        "SELECT MessageKey as id, Sender, MessageText, MessageBody, ReceiveDate FROM tbl_recv {} ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT ? OFFSET ?",
+        "SELECT MessageKey as id, Sender, MessageText, MessageBody, ReceiveDate, FilePath FROM tbl_recv {} ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT ? OFFSET ?",
         where_clause
     );
 
@@ -273,6 +276,7 @@ fn read_from_recv_only(
                 let text_ref = row.get_ref(2)?;
                 let body_ref = row.get_ref(3)?;
                 let receive_date: Option<String> = row.get(4)?;
+                let file_path: Option<String> = row.get(5)?;
 
                 // MessageText 처리
                 let text_value = match text_ref {
@@ -316,11 +320,15 @@ fn read_from_recv_only(
                     body_value
                 };
 
+                // FilePath 파싱: |로 split하고 5+3n번째 인덱스에서 파일명 추출
+                let file_paths = parse_file_paths(&file_path.unwrap_or_default());
+
                 Ok(Message {
                     id,
                     sender,
                     content,
                     receive_date,
+                    file_paths,
                 })
             },
         )
@@ -362,6 +370,89 @@ fn set_registry_value(key: String, value: String) -> Result<(), String> {
     subkey
         .set_value(key, &value)
         .map_err(|e| format!("레지스트리 쓰기 실패: {}", e))
+}
+
+/// FilePath 값을 파싱하여 파일명 목록을 추출
+/// |로 split하고 5+3n번째 인덱스(5, 8, 11, ...)에서 파일명 추출
+fn parse_file_paths(file_path: &str) -> Vec<String> {
+    if file_path.is_empty() {
+        return Vec::new();
+    }
+    
+    let parts: Vec<&str> = file_path.split('|').collect();
+    let mut file_names = Vec::new();
+    
+    // 5+3n번째 인덱스: 5, 8, 11, 14, ...
+    let mut index = 4;
+    while index < parts.len() {
+        let file_name = parts[index].trim();
+        if !file_name.is_empty() {
+            file_names.push(file_name.to_string());
+        }
+        index += 3;
+    }
+    
+    file_names
+}
+
+/// 메신저의 기본 다운로드 경로를 레지스트리에서 읽어옴
+#[tauri::command]
+fn get_download_path() -> Result<Option<String>, String> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    match hkcu.open_subkey(r"Software\Jiransoft\CoolMsg50\Option\GetFile") {
+        Ok(subkey) => match subkey.get_value::<String, _>("DownPath") {
+            Ok(v) => Ok(Some(v)),
+            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("레지스트리 읽기 실패: {}", e)),
+        },
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("레지스트리 키 열기 실패: {}", e)),
+    }
+}
+
+/// 파일이 존재하는지 확인
+#[tauri::command]
+fn check_file_exists(file_path: String) -> Result<bool, String> {
+    Ok(fs::metadata(&file_path).is_ok())
+}
+
+/// 파일을 시스템 기본 프로그램으로 열기
+#[tauri::command]
+fn open_file(file_path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        Command::new("cmd")
+            .args(["/C", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("파일 열기 실패: {}", e))?;
+        Ok(())
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("파일 열기 실패: {}", e))?;
+        Ok(())
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("파일 열기 실패: {}", e))?;
+        Ok(())
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err("지원되지 않는 운영체제입니다".into())
+    }
 }
 
 /// Brotli로 압축된 데이터를 압축 해제
@@ -1079,7 +1170,10 @@ fn main() {
             get_meal_data,
             get_attendance_data,
             get_points_data,
-            open_school_widget
+            open_school_widget,
+            get_download_path,
+            check_file_exists,
+            open_file
         ])
         .setup(|app| {
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
