@@ -46,6 +46,11 @@
       "windows": {
         "installMode": "passive"
       }
+    },
+    "deep-link": {
+      "schemes": [
+        "hypercool"
+      ]
     }
   }
 }

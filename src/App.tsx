@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
-import { Message, SearchResultItem, ManualTodo, Page } from './types';
+import { Message, SearchResultItem, ManualTodo, Page, PeriodSchedule } from './types';
+import { SyncService } from './sync/SyncService';
 import { Sidebar } from './components/Sidebar';
 import { ClassifierPage } from './components/ClassifierPage';
 import { TodosPage } from './components/TodosPage';
@@ -12,6 +13,7 @@ import { HistoryPage } from './components/HistoryPage';
 import { SettingsPage } from './components/SettingsPage';
 import { ScheduleModal } from './components/ScheduleModal';
 import { AddTodoModal } from './components/AddTodoModal';
+import { AuthService } from './auth/AuthService';
 
 import './App.css';
 
@@ -22,6 +24,8 @@ const REG_KEY_CLASS_TIMES = 'ClassTimes';
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
 const REG_KEY_UI_SCALE = 'UIScale';
 const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
+const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
+const REG_KEY_LAST_SYNC = 'LastSyncTime';
 const DRAG_THRESHOLD = 160;
 
 // 기본 수업 시간 (HHMM-HHMM 형식)
@@ -44,10 +48,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [classified, setClassified] = useState<Record<number, 'left' | 'right'>>({});
-  const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
-  const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
-  const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number }>({ open: false });
+  const [deadlines, setDeadlines] = useState<Record<string, string | null>>({});
+  const [calendarTitles, setCalendarTitles] = useState<Record<string, string>>({});
+  const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number | string }>({ open: false });
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
+  const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [addTodoModal, setAddTodoModal] = useState<boolean>(false);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [totalMessageCount, setTotalMessageCount] = useState(0);
@@ -112,6 +118,12 @@ function App() {
 
       const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
       if (savedManualTodos) setManualTodos(JSON.parse(savedManualTodos) || []);
+
+      const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
+      if (savedPeriodSchedules) setPeriodSchedules(JSON.parse(savedPeriodSchedules) || []);
+
+      const savedLastSync = await invoke<string | null>('get_registry_value', { key: REG_KEY_LAST_SYNC });
+      if (savedLastSync) setLastSyncTime(savedLastSync);
 
       const savedClassTimes = await invoke<string | null>('get_registry_value', { key: REG_KEY_CLASS_TIMES });
       if (savedClassTimes) {
@@ -189,6 +201,10 @@ function App() {
       window.removeEventListener('resize', handleResize);
     };
   }, [uiScale]);
+
+  useEffect(() => {
+    AuthService.init();
+  }, []);
 
   useEffect(() => {
     loadFromRegistry();
@@ -343,7 +359,32 @@ function App() {
     }
   }, [saveToRegistry]);
 
-  const classify = useCallback((id: number, direction: 'left' | 'right') => {
+  const handleSync = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await SyncService.syncData(manualTodos, periodSchedules, lastSyncTime);
+      
+      setManualTodos(result.mergedTodos);
+      setPeriodSchedules(result.mergedSchedules);
+      setLastSyncTime(result.newSyncTime);
+      
+      await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(result.mergedTodos));
+      await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(result.mergedSchedules));
+      await saveToRegistry(REG_KEY_LAST_SYNC, result.newSyncTime);
+      
+      // Notify calendar widget
+      await emit('calendar-update', {});
+      
+      alert('동기화 완료!');
+    } catch (e) {
+      console.error('Sync failed:', e);
+      alert('동기화 실패: ' + e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [manualTodos, periodSchedules, lastSyncTime, saveToRegistry]);
+
+  const classify = useCallback((id: number | string, direction: 'left' | 'right') => {
     setClassified(prev => {
       const next = { ...prev, [id]: direction };
       void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
@@ -404,8 +445,8 @@ function App() {
     return allMessages
       .filter(m => rightIds.has(m.id))
       .sort((a, b) => {
-        const da = deadlines[a.id] || '';
-        const db = deadlines[b.id] || '';
+        const da = deadlines[a.id.toString()] || '';
+        const db = deadlines[b.id.toString()] || '';
         if (!da && !db) return 0;
         if (!da) return 1;
         if (!db) return -1;
@@ -783,6 +824,8 @@ function App() {
             setClassTimes={setClassTimes}
             uiScale={uiScale}
             setUiScale={setUiScale}
+            onSync={handleSync}
+            lastSyncTime={lastSyncTime}
           />
         )}
         <ScheduleModal

@@ -11,7 +11,7 @@ use lru::LruCache;
 use notify::{recommended_watcher, EventKind, RecursiveMode, Watcher};
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
-use single_instance::SingleInstance;
+
 #[cfg(target_os = "windows")]
 use std::ffi::OsStr;
 use std::fs;
@@ -941,23 +941,7 @@ struct CacheState {
     search_cache: Mutex<LruCache<String, Vec<SearchResultItem>>>,
 }
 
-#[cfg(target_os = "windows")]
-fn show_existing_window() {
-    unsafe {
-        // Tauri 윈도우의 클래스 이름을 찾기 위해 타이틀을 사용
-        let title_wide: Vec<u16> = OsStr::new("HyperCool").encode_wide().chain(Some(0)).collect();
-        
-        // FindWindowW로 윈도우 핸들 찾기 (클래스 이름이 NULL이면 타이틀로만 검색)
-        let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
-        
-        if !hwnd.is_null() {
-            // 윈도우가 최소화되어 있으면 복원
-            ShowWindow(hwnd, SW_RESTORE);
-            // 윈도우를 포그라운드로 가져오기
-            SetForegroundWindow(hwnd);
-        }
-    }
-}
+
 
 mod timetable_parser;
 mod school_data;
@@ -1117,29 +1101,6 @@ async fn open_school_widget(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn main() {
-    // 단일 인스턴스 체크 - 이미 실행 중이면 기존 윈도우를 Show하고 종료
-    // instance 변수를 유지하여 mutex가 해제되지 않도록 함
-    eprintln!("단일 인스턴스 체크 시작...");
-    let _instance = match SingleInstance::new("hypercool-app") {
-        Ok(instance) => {
-            eprintln!("SingleInstance 생성 성공");
-            if !instance.is_single() {
-                eprintln!("이미 실행 중인 인스턴스 발견");
-                #[cfg(target_os = "windows")]
-                show_existing_window();
-                #[cfg(not(target_os = "windows"))]
-                eprintln!("이미 실행 중입니다.");
-                std::process::exit(1);
-            }
-            instance
-        },
-        Err(e) => {
-            eprintln!("SingleInstance 생성 실패: {:?}", e);
-            panic!("SingleInstance 생성 실패: {:?}", e);
-        }
-    };
-    eprintln!("단일 인스턴스 체크 완료");
-
     let cache_size = NonZeroUsize::new(50).unwrap();
     let cache_state = CacheState {
         search_cache: Mutex::new(LruCache::new(cache_size)),
@@ -1150,6 +1111,19 @@ fn main() {
         .manage(cache_state)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let _ = app.get_webview_window("main")
+                .expect("no main window")
+                .set_focus();
+            
+            // Windows: Deep link is passed as an argument to the second instance
+            for arg in args {
+                if arg.starts_with("hypercool://") {
+                    let _ = app.emit("deep-link-url", arg);
+                }
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             read_udb_messages,
             get_registry_value,
