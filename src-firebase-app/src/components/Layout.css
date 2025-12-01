@@ -1,0 +1,12 @@
+.layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: 250px;
+    /* Sidebar width */
+    padding: var(--spacing-xl);
+    background-color: var(--background);
+}
