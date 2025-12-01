@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { PageHeader } from './PageHeader';
+import { AuthLanding } from './AuthLanding';
 import { invoke } from '@tauri-apps/api/core';
 
 interface SettingsPageProps {
@@ -13,6 +14,8 @@ interface SettingsPageProps {
   setClassTimes: (times: string[]) => void;
   uiScale: number;
   setUiScale: (scale: number) => void;
+  onSync: () => Promise<void>;
+  lastSyncTime: string | null;
 }
 
 const REG_KEY_UDB = 'UdbPath';
@@ -32,6 +35,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   setClassTimes,
   uiScale,
   setUiScale,
+  onSync,
+  lastSyncTime,
 }) => {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; date: string; body: string } | null>(null);
@@ -208,6 +213,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   return (
     <div className="settings page-content">
       <PageHeader title="설정" />
+      
+      <div className="field">
+        <label>계정 및 동기화</label>
+        <div className="setting-item">
+          <AuthLanding onSync={onSync} lastSyncTime={lastSyncTime} />
+        </div>
+      </div>
+
       <div className="field">
         <label htmlFor="udbPathInput">UDB 경로</label>
         <div className="row">

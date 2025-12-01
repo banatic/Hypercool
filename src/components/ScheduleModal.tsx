@@ -4,12 +4,12 @@ import { emit } from '@tauri-apps/api/event';
 import { Message, ManualTodo } from '../types';
 
 interface ScheduleModalProps {
-  scheduleModal: { open: boolean; id?: number };
-  setScheduleModal: (modal: { open: boolean; id?: number }) => void;
-  deadlines: Record<number, string | null>;
-  setDeadlines: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  calendarTitles: Record<number, string>;
-  setCalendarTitles: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  scheduleModal: { open: boolean; id?: number | string };
+  setScheduleModal: (modal: { open: boolean; id?: number | string }) => void;
+  deadlines: Record<string, string | null>;
+  setDeadlines: React.Dispatch<React.SetStateAction<Record<string, string | null>>>;
+  calendarTitles: Record<string, string>;
+  setCalendarTitles: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   manualTodos: ManualTodo[];
   setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
   allMessages: Message[];
@@ -69,13 +69,13 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
       if (manualTodo?.calendarTitle) {
         setCalendarTitle(manualTodo.calendarTitle);
       } else {
-        setCalendarTitle(calendarTitles[id] || '');
+        setCalendarTitle(calendarTitles[id.toString()] || '');
       }
     } else {
-      setCalendarTitle(calendarTitles[id] || '');
+      setCalendarTitle(calendarTitles[id.toString()] || '');
     }
     
-    const current = deadlines[id] || '';
+    const current = deadlines[id.toString()] || '';
     
     // 이미 deadline이 있으면 그것을 사용
     if (current) {
@@ -176,8 +176,8 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     
     // calendarTitle 저장
     if (calendarTitle.trim()) {
-      setCalendarTitles((prev: Record<number, string>) => {
-        const next = { ...prev, [id]: calendarTitle.trim() };
+      setCalendarTitles((prev: Record<string, string>) => {
+        const next = { ...prev, [id.toString()]: calendarTitle.trim() };
         void saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(next));
         return next;
       });
@@ -192,17 +192,17 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
       });
       // deadlines에도 저장 (일관성 유지)
       setDeadlines(prev => {
-        const next = { ...prev, [id]: iso };
+        const next = { ...prev, [id.toString()]: iso };
         void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
         return next;
       });
     } else {
       setDeadlines(prev => {
-        const next = { ...prev, [id]: iso };
+        const next = { ...prev, [id.toString()]: iso };
         void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
         return next;
       });
-      if (classified[id] !== 'right') {
+      if (typeof id === 'number' && classified[id] !== 'right') {
         setClassified(prev => {
           const next = { ...prev, [id]: 'right' as const };
           void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
@@ -223,13 +223,13 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
         return next;
       });
       setDeadlines(prev => {
-        const next = { ...prev, [id]: null };
+        const next = { ...prev, [id.toString()]: null };
         void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
         return next;
       });
     } else {
       setDeadlines(prev => {
-        const next = { ...prev, [id]: null };
+        const next = { ...prev, [id.toString()]: null };
         void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
         return next;
       });

@@ -6,15 +6,15 @@ import { AttachmentList } from './AttachmentList';
 interface TodosPageProps {
   keptMessages: Message[];
   manualTodos: ManualTodo[];
-  deadlines: Record<number, string | null>;
+  deadlines: Record<string, string | null>;
   setAddTodoModal: (open: boolean) => void;
-  classify: (id: number, direction: 'left' | 'right') => void;
-  setScheduleModal: (modal: { open: boolean; id?: number }) => void;
+  classify: (id: number | string, direction: 'left' | 'right') => void;
+  setScheduleModal: (modal: { open: boolean; id?: number | string }) => void;
   decodeEntities: (html: string) => string;
   formatReceiveDate: (receiveDate: string | null | undefined) => string | null;
   saveToRegistry: (key: string, value: string) => Promise<void>;
   setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
-  setDeadlines: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  setDeadlines: React.Dispatch<React.SetStateAction<Record<string, string | null>>>;
 }
 
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
@@ -84,8 +84,8 @@ export const TodosPage: React.FC<TodosPageProps> = ({
   };
 
   // 메시지 기반 할 일과 직접 추가한 할 일을 합침
-  const allTodos: Array<{ id: number; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null; file_paths?: string[] }> = [
-    ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id] || null, sender: m.sender, isManual: false, receive_date: m.receive_date, file_paths: m.file_paths })),
+  const allTodos: Array<{ id: number | string; content: string; deadline: string | null; sender?: string; isManual?: boolean; receive_date?: string | null; file_paths?: string[] }> = [
+    ...keptMessages.map(m => ({ id: m.id, content: m.content, deadline: deadlines[m.id.toString()] || null, sender: m.sender, isManual: false, receive_date: m.receive_date, file_paths: m.file_paths })),
     ...manualTodos.map(t => ({ id: t.id, content: t.content, deadline: t.deadline, isManual: true }))
   ];
 
@@ -99,7 +99,7 @@ export const TodosPage: React.FC<TodosPageProps> = ({
       if (a.isManual !== b.isManual) {
         return a.isManual ? 1 : -1;
       }
-      return a.id - b.id;
+      return String(a.id).localeCompare(String(b.id));
     }
     // 마감일이 있는 항목이 먼저
     if (a.deadline && !b.deadline) return -1;
@@ -108,7 +108,7 @@ export const TodosPage: React.FC<TodosPageProps> = ({
     if (a.isManual !== b.isManual) {
       return a.isManual ? 1 : -1;
     }
-    return a.id - b.id;
+    return String(a.id).localeCompare(String(b.id));
   });
 
   const groupedTodos = allTodos.reduce((acc, t) => {
@@ -181,7 +181,7 @@ export const TodosPage: React.FC<TodosPageProps> = ({
                         // deadlines에서도 제거
                         setDeadlines(prev => {
                           const next = { ...prev };
-                          delete next[todo.id];
+                          delete next[todo.id.toString()];
                           void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
                           return next;
                         });

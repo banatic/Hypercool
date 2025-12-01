@@ -13,20 +13,24 @@ export interface SearchResultItem {
 }
 
 export interface ManualTodo {
-  id: number;
+  id: string;
   content: string;
   deadline: string | null;
   createdAt: string;
+  updatedAt: string;
   calendarTitle?: string; // 달력에 표시될 짧은 제목
+  isDeleted?: boolean;
 }
 
 export interface PeriodSchedule {
-  id: number;
+  id: string;
   content: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   calendarTitle?: string; // 달력에 표시될 짧은 제목
   createdAt: string;
+  updatedAt: string;
+  isDeleted?: boolean;
 }
 
 export type Page = 'classify' | 'todos' | 'history' | 'settings';

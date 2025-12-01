@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, emit } from '@tauri-apps/api/event';
 import { AttachmentList } from './components/AttachmentList';
+import { ManualTodo, PeriodSchedule } from './types';
 import './styles.css';
 import './CalendarWidget.css';
 
@@ -15,25 +16,10 @@ const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
 const REG_KEY_COMPLETED_TODOS = 'CompletedTodos';
 const REG_KEY_TODO_ORDER = 'TodoOrderMap';
 
-interface ManualTodo {
-  id: number;
-  content: string;
-  deadline: string | null;
-  createdAt: string;
-  calendarTitle?: string;
-}
 
-interface PeriodSchedule {
-  id: number;
-  content: string;
-  startDate: string; // YYYY-MM-DD
-  endDate: string; // YYYY-MM-DD
-  calendarTitle?: string;
-  createdAt: string;
-}
 
 interface TodoItem {
-  id: number;
+  id: string;
   content: string;
   deadline: string | null;
   sender?: string;
@@ -41,6 +27,8 @@ interface TodoItem {
   calendarTitle?: string;
   isCompleted?: boolean;
   file_paths?: string[];
+  updatedAt?: string;
+  isDeleted?: boolean;
 }
 
 interface CalendarWidgetProps {
@@ -51,14 +39,14 @@ interface CalendarWidgetProps {
 function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
-  const [deadlines, setDeadlines] = useState<Record<number, string | null>>({});
-  const [calendarTitles, setCalendarTitles] = useState<Record<number, string>>({});
+  const [deadlines, setDeadlines] = useState<Record<string, string | null>>({});
+  const [calendarTitles, setCalendarTitles] = useState<Record<string, string>>({});
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
-  const [completedTodos, setCompletedTodos] = useState<Set<number>>(new Set());
+  const [completedTodos, setCompletedTodos] = useState<Set<string>>(new Set());
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
-  const [todoOrder, setTodoOrder] = useState<Record<string, number[]>>({}); // 날짜별 할일 ID 순서
-  const [draggedTodoId, setDraggedTodoId] = useState<number | null>(null);
-  const draggedTodoIdRef = useRef<number | null>(null); // 동기적으로 접근하기 위한 ref
+  const [todoOrder, setTodoOrder] = useState<Record<string, string[]>>({}); // 날짜별 할일 ID 순서
+  const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null);
+  const draggedTodoIdRef = useRef<string | null>(null); // 동기적으로 접근하기 위한 ref
   // const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 }); // Performance: Removed state
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
@@ -68,7 +56,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const ghostRef = useRef<HTMLDivElement>(null); // 고스트 엘리먼트 직접 제어용
 
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
-  const [dragOverTodoId, setDragOverTodoId] = useState<number | null>(null);
+  const [dragOverTodoId, setDragOverTodoId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below' | null>(null);
   const [addTodoModalOpen, setAddTodoModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -80,29 +68,122 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   // 모든 할일 목록 (메모이제이션)
   const allTodos = useMemo(() => {
     return [
-      ...keptMessages.map(m => ({ 
-        id: m.id, 
-        content: m.content, 
-        deadline: deadlines[m.id] || null, 
-        sender: m.sender, 
-        isManual: false,
-        calendarTitle: calendarTitles[m.id] || undefined,
-        isCompleted: completedTodos.has(m.id),
-        file_paths: m.file_paths
-      })),
+      ...keptMessages.map(m => {
+        const id = m.id.toString();
+        return { 
+          id, 
+          content: m.content, 
+          deadline: deadlines[id] || null, 
+          sender: m.sender, 
+          isManual: false,
+          calendarTitle: calendarTitles[id] || undefined,
+          isCompleted: completedTodos.has(id),
+          file_paths: m.file_paths,
+          isDeleted: false
+        };
+      }),
       ...manualTodos.map(t => ({ 
         id: t.id, 
         content: t.content, 
         deadline: t.deadline, 
         isManual: true,
         calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
-        isCompleted: completedTodos.has(t.id)
+        isCompleted: completedTodos.has(t.id),
+        updatedAt: t.updatedAt,
+        isDeleted: t.isDeleted
       }))
-    ];
+    ].filter(t => !t.isDeleted);
   }, [keptMessages, manualTodos, deadlines, calendarTitles, completedTodos]);
+
+  // 데이터 마이그레이션 (Number ID -> UUID String)
+  const migrateData = async () => {
+    try {
+      const savedManualTodosStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
+      const savedPeriodSchedulesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
+      
+      let needsMigration = false;
+      const manualTodos = savedManualTodosStr ? JSON.parse(savedManualTodosStr) : [];
+      const periodSchedules = savedPeriodSchedulesStr ? JSON.parse(savedPeriodSchedulesStr) : [];
+
+      // Check if migration is needed
+      if (manualTodos.some((t: any) => typeof t.id === 'number') || periodSchedules.some((s: any) => typeof s.id === 'number')) {
+        needsMigration = true;
+      }
+
+      if (!needsMigration) return;
+
+      console.log('Starting data migration to UUIDs...');
+      const idMap: Record<string, string> = {}; // oldId (stringified) -> newUUID
+
+      // Migrate ManualTodos
+      const newManualTodos = manualTodos.map((t: any) => {
+        if (typeof t.id === 'number') {
+          const newId = crypto.randomUUID();
+          idMap[t.id.toString()] = newId;
+          return { ...t, id: newId, updatedAt: t.createdAt || new Date().toISOString(), isDeleted: false };
+        }
+        return t;
+      });
+
+      // Migrate PeriodSchedules
+      const newPeriodSchedules = periodSchedules.map((s: any) => {
+        if (typeof s.id === 'number') {
+          const newId = crypto.randomUUID();
+          idMap[s.id.toString()] = newId;
+          return { ...s, id: newId, updatedAt: s.createdAt || new Date().toISOString(), isDeleted: false };
+        }
+        return s;
+      });
+
+      // Migrate Deadlines
+      const savedDeadlinesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
+      const deadlines = savedDeadlinesStr ? JSON.parse(savedDeadlinesStr) : {};
+      const newDeadlines: Record<string, string | null> = {};
+      Object.entries(deadlines).forEach(([key, value]) => {
+        const newKey = idMap[key] || key; // Use new UUID if mapped, else keep original (likely message ID)
+        newDeadlines[newKey] = value as string | null;
+      });
+
+      // Migrate CalendarTitles
+      const savedTitlesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
+      const titles = savedTitlesStr ? JSON.parse(savedTitlesStr) : {};
+      const newTitles: Record<string, string> = {};
+      Object.entries(titles).forEach(([key, value]) => {
+        const newKey = idMap[key] || key;
+        newTitles[newKey] = value as string;
+      });
+
+      // Migrate CompletedTodos
+      const savedCompletedStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_COMPLETED_TODOS });
+      const completed = savedCompletedStr ? JSON.parse(savedCompletedStr) : [];
+      const newCompleted = completed.map((id: number | string) => idMap[id.toString()] || id.toString());
+
+      // Migrate TodoOrder
+      const savedOrderStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_TODO_ORDER });
+      const order = savedOrderStr ? JSON.parse(savedOrderStr) : {};
+      const newOrder: Record<string, string[]> = {};
+      Object.entries(order).forEach(([dateKey, ids]) => {
+        newOrder[dateKey] = (ids as (number | string)[]).map(id => idMap[id.toString()] || id.toString());
+      });
+
+      // Save all migrated data
+      await invoke('set_registry_value', { key: REG_KEY_MANUAL_TODOS, value: JSON.stringify(newManualTodos) });
+      await invoke('set_registry_value', { key: REG_KEY_PERIOD_SCHEDULES, value: JSON.stringify(newPeriodSchedules) });
+      await invoke('set_registry_value', { key: REG_KEY_DEADLINES, value: JSON.stringify(newDeadlines) });
+      await invoke('set_registry_value', { key: REG_KEY_CALENDAR_TITLES, value: JSON.stringify(newTitles) });
+      await invoke('set_registry_value', { key: REG_KEY_COMPLETED_TODOS, value: JSON.stringify(newCompleted) });
+      await invoke('set_registry_value', { key: REG_KEY_TODO_ORDER, value: JSON.stringify(newOrder) });
+
+      console.log('Data migration completed successfully.');
+    } catch (e) {
+      console.error('Data migration failed:', e);
+    }
+  };
 
   const loadTodos = useCallback(async () => {
     try {
+      await migrateData();
+
       const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
       if (savedManualTodos) {
         setManualTodos(JSON.parse(savedManualTodos) || []);
@@ -193,27 +274,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       current.setDate(current.getDate() + 1);
     }
 
-    // 모든 할 일을 합침
-    const allTodosForRender: TodoItem[] = [
-      ...keptMessages.map(m => ({ 
-        id: m.id, 
-        content: m.content, 
-        deadline: deadlines[m.id] || null, 
-        sender: m.sender, 
-        isManual: false,
-        calendarTitle: calendarTitles[m.id] || undefined,
-        isCompleted: completedTodos.has(m.id),
-        file_paths: m.file_paths
-      })),
-      ...manualTodos.map(t => ({ 
-        id: t.id, 
-        content: t.content, 
-        deadline: t.deadline, 
-        isManual: true,
-        calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
-        isCompleted: completedTodos.has(t.id)
-      }))
-    ];
+    // 모든 할 일을 합침 (메모이제이션된 값 사용)
+    const allTodosForRender = allTodos;
 
     // 날짜별로 할 일 그룹화
     const todosByDate: Record<string, TodoItem[]> = {};
@@ -256,7 +318,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
     // 날짜별로 기간 일정 그룹화
     const periodSchedulesByDate: Record<string, PeriodSchedule[]> = {};
-    periodSchedules.forEach(schedule => {
+    periodSchedules.filter(s => !s.isDeleted).forEach(schedule => {
       const start = new Date(schedule.startDate);
       const end = new Date(schedule.endDate);
       const current = new Date(start);
@@ -537,7 +599,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
         
         const todoElement = element.closest('.calendar-todo-item');
         if (todoElement) {
-          const todoId = Number(todoElement.getAttribute('data-todo-id'));
+          const todoId = todoElement.getAttribute('data-todo-id');
           if (todoId && todoId !== draggedTodoIdRef.current) {
             setDragOverTodoId(todoId);
             const rect = todoElement.getBoundingClientRect();
@@ -577,12 +639,12 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
         if (dayElement) {
           const dateKey = dayElement.getAttribute('data-date');
           if (dateKey) {
-            let targetTodoId: number | undefined;
+            let targetTodoId: string | undefined;
             let position: 'above' | 'below' | undefined;
             
             const todoElement = element.closest('.calendar-todo-item');
             if (todoElement) {
-              const id = Number(todoElement.getAttribute('data-todo-id'));
+              const id = todoElement.getAttribute('data-todo-id');
               if (id && id !== draggedTodoIdRef.current) {
                 targetTodoId = id;
                 const rect = todoElement.getBoundingClientRect();
@@ -617,7 +679,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   };
 
   // 드롭
-  const handleDrop = async (targetDateKey: string, targetTodoId?: number, position?: 'above' | 'below') => {
+  const handleDrop = async (targetDateKey: string, targetTodoId?: string, position?: 'above' | 'below') => {
     const draggedId = draggedTodoIdRef.current;
     if (!draggedId) return;
 
@@ -649,7 +711,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
       if (draggedTodo.isManual) {
         const updatedTodos = manualTodos.map(t => 
-          t.id === draggedId ? { ...t, deadline: newDeadline } : t
+          t.id === draggedId ? { ...t, deadline: newDeadline, updatedAt: new Date().toISOString() } : t
         );
         await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
         setManualTodos(updatedTodos);
@@ -718,7 +780,10 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     
     // ManualTodo인 경우
     if (todo.isManual) {
-      const updatedTodos = manualTodos.filter(t => t.id !== todoId);
+      // Soft delete
+      const updatedTodos = manualTodos.map(t => 
+        t.id === todoId ? { ...t, isDeleted: true, updatedAt: new Date().toISOString() } : t
+      );
       await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
       setManualTodos(updatedTodos);
     }
@@ -741,7 +806,10 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   };
 
   const deletePeriodSchedule = async (schedule: PeriodSchedule) => {
-    const updatedSchedules = periodSchedules.filter(s => s.id !== schedule.id);
+    // Soft delete
+    const updatedSchedules = periodSchedules.map(s => 
+      s.id === schedule.id ? { ...s, isDeleted: true, updatedAt: new Date().toISOString() } : s
+    );
     await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
     setPeriodSchedules(updatedSchedules);
     void emit('calendar-update');
@@ -833,16 +901,19 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
             const finalContent = content.trim() || calendarTitle.trim();
 
-            const newId = Date.now();
+            const newId = crypto.randomUUID();
             const deadline = deadlineDate && deadlineTime 
               ? new Date(`${deadlineDate}T${deadlineTime}:00`).toISOString()
               : null;
 
+            const now = new Date().toISOString();
             const newTodo: ManualTodo = {
               id: newId,
               content: finalContent,
               deadline,
-              createdAt: new Date().toISOString(),
+              createdAt: now,
+              updatedAt: now,
+              isDeleted: false,
               calendarTitle: calendarTitle.trim() || undefined,
             };
 
@@ -890,7 +961,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             if (selectedTodo.isManual) {
               const updatedTodos = manualTodos.map(t => 
                 t.id === todoId 
-                  ? { ...t, content: content.trim(), deadline, calendarTitle: calendarTitle.trim() || undefined }
+                  ? { ...t, content: content.trim(), deadline, calendarTitle: calendarTitle.trim() || undefined, updatedAt: new Date().toISOString() }
                   : t
               );
               await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
@@ -950,13 +1021,16 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               return;
             }
 
-            const newId = Date.now();
+            const newId = crypto.randomUUID();
+            const now = new Date().toISOString();
             const newSchedule: PeriodSchedule = {
               id: newId,
               content: content.trim(),
               startDate,
               endDate,
-              createdAt: new Date().toISOString(),
+              createdAt: now,
+              updatedAt: now,
+              isDeleted: false,
               calendarTitle: calendarTitle.trim() || undefined,
             };
 
@@ -1066,8 +1140,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 interface EditTodoModalWidgetProps {
   todo: TodoItem;
   manualTodos: ManualTodo[];
-  deadlines: Record<number, string | null>;
-  calendarTitles: Record<number, string>;
+  deadlines: Record<string, string | null>;
+  calendarTitles: Record<string, string>;
   onClose: () => void;
   onSave: (content: string, calendarTitle: string, deadlineDate: string, deadlineTime: string) => Promise<void>;
   parseDateFromText: (text: string, baseDate?: Date) => { date: string | null; time: string | null };
