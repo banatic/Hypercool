@@ -75,3 +75,40 @@
     background-color: rgba(255, 255, 255, 0.02);
     border-radius: var(--radius-md);
 }
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .dashboard {
+        gap: var(--spacing-md);
+    }
+
+    .dashboard-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .dashboard-header p {
+        font-size: 0.875rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+
+    .stat-card .card-content {
+        gap: var(--spacing-md);
+    }
+
+    .stat-value {
+        font-size: 1.25rem;
+    }
+
+    .dashboard-content {
+        gap: var(--spacing-md);
+    }
+
+    .placeholder-text {
+        padding: var(--spacing-md);
+        font-size: 0.875rem;
+    }
+}

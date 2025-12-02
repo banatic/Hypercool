@@ -67,10 +67,11 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       : null;
 
     const newTodo: ManualTodo = {
-      id: newId,
+      id: newId.toString(),
       content: content.trim(),
       deadline,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       calendarTitle: calendarTitle.trim() || undefined,
     };
 

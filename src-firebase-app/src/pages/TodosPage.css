@@ -70,3 +70,34 @@
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
 
+/* Mobile styles */
+@media (max-width: 768px) {
+  .todos-container {
+    max-width: 100%;
+  }
+
+  .todo-item {
+    padding: var(--spacing-md);
+  }
+
+  .todo-item-icon {
+    margin-right: var(--spacing-sm);
+  }
+
+  .todo-item-title {
+    font-size: 0.875rem;
+  }
+
+  .todo-item-deadline {
+    font-size: 0.75rem;
+  }
+
+  .loading-state,
+  .empty-state {
+    padding: var(--spacing-lg);
+    font-size: 0.875rem;
+  }
+}
+
+
+

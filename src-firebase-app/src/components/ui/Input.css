@@ -18,6 +18,8 @@
     color: var(--text);
     font-size: 1rem;
     transition: border-color var(--transition-fast);
+    min-height: 44px;
+    width: 100%;
 }
 
 .input-field:focus {
@@ -33,4 +35,21 @@
 .input-error-message {
     font-size: 0.75rem;
     color: var(--error);
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .input-field {
+        font-size: 16px; /* Prevent zoom on iOS */
+        min-height: 48px;
+        padding: 0.625rem 0.875rem;
+    }
+
+    .input-label {
+        font-size: 0.8125rem;
+    }
+
+    .input-error-message {
+        font-size: 0.6875rem;
+    }
 }

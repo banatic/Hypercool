@@ -19,3 +19,34 @@
 .card-content {
     padding: var(--spacing-lg);
 }
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .card {
+        border-radius: var(--radius-md);
+    }
+
+    .card-header {
+        padding: var(--spacing-md);
+    }
+
+    .card-header h3 {
+        font-size: 1rem;
+    }
+
+    .card-content {
+        padding: var(--spacing-md);
+    }
+
+    /* Calendar card specific - no padding on mobile */
+    .card:has(.calendar-container) {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        margin: 0;
+    }
+
+    .card:has(.calendar-container) .card-content {
+        padding: 0;
+    }
+}

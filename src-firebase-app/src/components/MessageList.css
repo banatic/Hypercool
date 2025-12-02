@@ -16,6 +16,8 @@
     display: flex;
     justify-content: space-between;
     margin-bottom: var(--spacing-xs);
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
 }
 
 .message-sender {
@@ -31,4 +33,29 @@
 .message-content {
     color: var(--text);
     white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .message-list {
+        gap: var(--spacing-sm);
+    }
+
+    .message-item {
+        padding: var(--spacing-sm);
+    }
+
+    .message-sender {
+        font-size: 0.875rem;
+    }
+
+    .message-date {
+        font-size: 0.75rem;
+    }
+
+    .message-content {
+        font-size: 0.875rem;
+    }
 }

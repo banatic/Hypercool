@@ -26,7 +26,7 @@ use tauri::{
 };
 use tauri::{Emitter, Manager, Runtime};
 #[cfg(target_os = "windows")]
-use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SW_HIDE, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SW_HIDE, SW_SHOW, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_acrylic;
 #[cfg(target_os = "macos")]
@@ -648,6 +648,27 @@ fn hide_main_window(app: tauri::AppHandle) {
     }
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(hwnd) = w.hwnd() {
+                unsafe {
+                    let hwnd_ptr: *mut std::ffi::c_void = hwnd.0;
+                    let hwnd_addr = hwnd_ptr as usize;
+                    let winapi_hwnd = hwnd_addr as *mut winapi::ctypes::c_void;
+                    ShowWindow(winapi_hwnd as _, SW_SHOW);
+                    ShowWindow(winapi_hwnd as _, SW_RESTORE);
+                    SetForegroundWindow(winapi_hwnd as _);
+                }
+            }
+        }
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 #[tauri::command]
 async fn close_message_viewer(app: tauri::AppHandle, message_id: i64) -> Result<(), String> {
     let window_label = format!("message-viewer-{}", message_id);
@@ -1231,9 +1252,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            let _ = app.get_webview_window("main")
-                .expect("no main window")
-                .set_focus();
+            show_main_window(app);
             
             // Windows: Deep link is passed as an argument to the second instance
             for arg in args {
@@ -1357,10 +1376,7 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
+                        show_main_window(app);
                     }
                     "quit" => {
                         std::process::exit(0);
@@ -1369,12 +1385,9 @@ fn main() {
                 })
                 .on_tray_icon_event(|tray, event| {
                     match event {
-                        tauri::tray::TrayIconEvent::Click { .. } | tauri::tray::TrayIconEvent::DoubleClick { .. } => {
+                        tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } | tauri::tray::TrayIconEvent::DoubleClick { button: tauri::tray::MouseButton::Left, .. } => {
                             let app = tray.app_handle();
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
+                            show_main_window(app);
                         }
                         _ => {}
                     }

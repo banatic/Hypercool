@@ -9,10 +9,27 @@ interface CalendarViewProps {
   todos: ManualTodo[];
   schedules: PeriodSchedule[];
   loading: boolean;
+  currentDate?: Date;
+  onDateChange?: (date: Date) => void;
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ todos, schedules, loading }) => {
-  const [currentDate, setCurrentDate] = useState(new Date());
+export const CalendarView: React.FC<CalendarViewProps> = ({ 
+  todos, 
+  schedules, 
+  loading,
+  currentDate: externalCurrentDate,
+  onDateChange
+}) => {
+  const [internalCurrentDate, setInternalCurrentDate] = useState(new Date());
+  const currentDate = externalCurrentDate || internalCurrentDate;
+  
+  const handleDateChange = (newDate: Date) => {
+    if (onDateChange) {
+      onDateChange(newDate);
+    } else {
+      setInternalCurrentDate(newDate);
+    }
+  };
   const [selectedEvent, setSelectedEvent] = useState<ManualTodo | PeriodSchedule | null>(null);
 
   const { days, todosByDate, periodSchedulesByDate } = useMemo(() => {
@@ -71,15 +88,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ todos, schedules, lo
   }, [currentDate, todos, schedules]);
 
   const goToPreviousMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    handleDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
 
   const goToNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    handleDateChange(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
   const goToToday = () => {
-    setCurrentDate(new Date());
+    handleDateChange(new Date());
   };
 
   const getPeriodPosition = (schedule: PeriodSchedule, day: Date): 'start' | 'middle' | 'end' | 'start end' => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -361,15 +361,39 @@ function App() {
     }
   }, [saveToRegistry]);
 
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleSync = useCallback(async (silent: boolean = false) => {
     try {
       if (!silent) {
         setIsLoading(true);
         setSyncError(null);
       }
-      console.log('Syncing data:', { manualTodosCount: manualTodos.length, periodSchedulesCount: periodSchedules.length, lastSyncTime });
+
+      // CRITICAL: Load latest data from registry BEFORE syncing to avoid overwriting with stale state
+      // This prevents the issue where a widget update (saved to registry) is overwritten by a sync 
+      // triggered with stale App state.
+      const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
+      const currentManualTodos: ManualTodo[] = savedManualTodos ? JSON.parse(savedManualTodos) : [];
       
-      const result = await SyncService.syncData(manualTodos, periodSchedules, lastSyncTime);
+      const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
+      const currentPeriodSchedules: PeriodSchedule[] = savedPeriodSchedules ? JSON.parse(savedPeriodSchedules) : [];
+
+      const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
+      const currentDeadlines: Record<string, string | null> = savedDeadlines ? JSON.parse(savedDeadlines) : {};
+
+      const savedCalendarTitles = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
+      const currentCalendarTitles: Record<string, string> = savedCalendarTitles ? JSON.parse(savedCalendarTitles) : {};
+
+      // Update local state to match registry (so UI is consistent)
+      setManualTodos(currentManualTodos);
+      setPeriodSchedules(currentPeriodSchedules);
+      setDeadlines(currentDeadlines);
+      setCalendarTitles(currentCalendarTitles);
+      
+      console.log('Syncing data:', { manualTodosCount: currentManualTodos.length, periodSchedulesCount: currentPeriodSchedules.length, lastSyncTime });
+      
+      const result = await SyncService.syncData(currentManualTodos, currentPeriodSchedules, lastSyncTime);
       
       if (udbPath) {
         await SyncService.syncMessages(udbPath, (current, total) => {
@@ -377,7 +401,7 @@ function App() {
         });
         
         // Sync message metadata (deadlines, titles)
-        await SyncService.syncMessageMetadata(deadlines, calendarTitles);
+        await SyncService.syncMessageMetadata(currentDeadlines, currentCalendarTitles);
       }
 
       setManualTodos(result.mergedTodos);
@@ -405,18 +429,17 @@ function App() {
         setSyncProgress(null);
       }
     }
-  }, [manualTodos, periodSchedules, lastSyncTime, saveToRegistry, udbPath, deadlines, calendarTitles]);
+  }, [lastSyncTime, saveToRegistry, udbPath, deadlines, calendarTitles]);
 
   // Debounced Sync for Auto-Sync
-  const debouncedSync = useMemo(() => {
-    let timeoutId: NodeJS.Timeout;
-    return () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        console.log('Auto-sync triggered');
-        void handleSync(true);
-      }, 5000); // 5초 후 자동 동기화
-    };
+  const debouncedSync = useCallback(() => {
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+    syncTimeoutRef.current = setTimeout(() => {
+      console.log('Auto-sync triggered');
+      void handleSync(true);
+    }, 5000); // 5초 후 자동 동기화
   }, [handleSync]);
 
   // UDB 변경 이벤트 구독 (Watchdog에서 발생)

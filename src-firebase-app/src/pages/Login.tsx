@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -11,22 +11,40 @@ export const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        navigate('/dashboard');
-      }
-    });
-    return () => unsubscribe();
-  }, [navigate]);
-
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setError(null);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      // Navigation handled by onAuthStateChanged
+      const result = await signInWithPopup(auth, provider);
+      
+      // Google OAuth credential에서 토큰 가져오기
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential) {
+        throw new Error('Failed to get Google OAuth credential');
+      }
+      
+      // Google OAuth ID 토큰 사용 (Google이 직접 발급한 토큰)
+      const googleIdToken = credential.idToken;
+      if (!googleIdToken) {
+        throw new Error('Failed to get Google OAuth ID token');
+      }
+      
+      // Tauri deeplink로 Google OAuth 토큰 전달
+      try {
+        const deeplinkUrl = `hypercool://auth/callback?token=${encodeURIComponent(googleIdToken)}&type=google`;
+        window.location.href = deeplinkUrl;
+        
+        // deeplink 전송 후 짧은 지연을 두고 웹 앱에서 /calendar로 리다이렉트
+        // Tauri 앱이 실행되면 deeplink가 처리되고, 실행되지 않으면 웹 앱에서 계속 사용
+        setTimeout(() => {
+          navigate('/calendar');
+        }, 500);
+      } catch (deeplinkError) {
+        console.warn("Failed to send token via deeplink:", deeplinkError);
+        // deeplink 실패 시에도 로그인은 성공했으므로 /calendar로 이동
+        navigate('/calendar');
+      }
     } catch (err: any) {
       console.error("Login failed", err);
       setError(err.message || "Failed to login with Google");
