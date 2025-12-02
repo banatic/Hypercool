@@ -46,6 +46,8 @@ function App() {
   const [allMessages, setAllMessages] = useState<Message[]>([]);
   // 상태 텍스트는 파생값으로 계산합니다
   const [isLoading, setIsLoading] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const [classified, setClassified] = useState<Record<number, 'left' | 'right'>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string | null>>({});
@@ -359,11 +361,25 @@ function App() {
     }
   }, [saveToRegistry]);
 
-  const handleSync = useCallback(async () => {
+  const handleSync = useCallback(async (silent: boolean = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+        setSyncError(null);
+      }
+      console.log('Syncing data:', { manualTodosCount: manualTodos.length, periodSchedulesCount: periodSchedules.length, lastSyncTime });
+      
       const result = await SyncService.syncData(manualTodos, periodSchedules, lastSyncTime);
       
+      if (udbPath) {
+        await SyncService.syncMessages(udbPath, (current, total) => {
+          if (!silent) setSyncProgress({ current, total });
+        });
+        
+        // Sync message metadata (deadlines, titles)
+        await SyncService.syncMessageMetadata(deadlines, calendarTitles);
+      }
+
       setManualTodos(result.mergedTodos);
       setPeriodSchedules(result.mergedSchedules);
       setLastSyncTime(result.newSyncTime);
@@ -375,14 +391,59 @@ function App() {
       // Notify calendar widget
       await emit('calendar-update', {});
       
-      alert('동기화 완료!');
-    } catch (e) {
+      if (!silent) alert('동기화 완료!');
+    } catch (e: any) {
       console.error('Sync failed:', e);
-      alert('동기화 실패: ' + e);
+      const errorMessage = e?.message || e?.toString() || '알 수 없는 오류';
+      if (!silent) {
+        setSyncError(errorMessage);
+        alert('동기화 실패: ' + errorMessage);
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+        setSyncProgress(null);
+      }
     }
-  }, [manualTodos, periodSchedules, lastSyncTime, saveToRegistry]);
+  }, [manualTodos, periodSchedules, lastSyncTime, saveToRegistry, udbPath, deadlines, calendarTitles]);
+
+  // Debounced Sync for Auto-Sync
+  const debouncedSync = useMemo(() => {
+    let timeoutId: NodeJS.Timeout;
+    return () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        console.log('Auto-sync triggered');
+        void handleSync(true);
+      }, 5000); // 5초 후 자동 동기화
+    };
+  }, [handleSync]);
+
+  // UDB 변경 이벤트 구독 (Watchdog에서 발생)
+  useEffect(() => {
+    const unlistenPromise = listen('udb-changed', async () => {
+      if (udbPath) {
+        // 히스토리 첫 페이지 및 관련 상태 초기화
+        setHistoryIndex(0);
+        await loadUdbFile(udbPath, 0, '');
+        
+        // UDB 변경 시 자동 동기화 트리거
+        debouncedSync();
+      }
+    });
+    return () => { void unlistenPromise.then(unlisten => unlisten()); };
+  }, [udbPath, loadUdbFile, debouncedSync]);
+
+  // Calendar Update 이벤트 구독 (일정 변경 시)
+  useEffect(() => {
+    const unlistenPromise = listen('calendar-update', async () => {
+      // 레지스트리에서 최신 데이터 로드
+      await loadFromRegistry();
+      // 일정 변경 시 자동 동기화 트리거
+      debouncedSync();
+    });
+    return () => { void unlistenPromise.then(unlisten => unlisten()); };
+  }, [loadFromRegistry, debouncedSync]);
 
   const classify = useCallback((id: number | string, direction: 'left' | 'right') => {
     setClassified(prev => {
@@ -815,18 +876,25 @@ function App() {
           />
         )}
         {page === 'settings' && (
-          <SettingsPage
-            udbPath={udbPath}
-            setUdbPath={setUdbPath}
-            pickUdb={pickUdb}
-            saveToRegistry={saveToRegistry}
-            classTimes={classTimes}
-            setClassTimes={setClassTimes}
-            uiScale={uiScale}
-            setUiScale={setUiScale}
-            onSync={handleSync}
-            lastSyncTime={lastSyncTime}
-          />
+          <SettingsPage 
+              udbPath={udbPath} 
+              setUdbPath={setUdbPath}
+              pickUdb={pickUdb}
+              saveToRegistry={saveToRegistry}
+              classTimes={classTimes}
+              setClassTimes={setClassTimes}
+              manualTodos={manualTodos}
+              setManualTodos={setManualTodos}
+              periodSchedules={periodSchedules}
+              setPeriodSchedules={setPeriodSchedules}
+              uiScale={uiScale}
+              setUiScale={setUiScale}
+              onSync={handleSync}
+              lastSyncTime={lastSyncTime}
+              isLoadingSync={isLoading}
+              syncProgress={syncProgress}
+              syncError={syncError}
+            />
         )}
         <ScheduleModal
           scheduleModal={scheduleModal}

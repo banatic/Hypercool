@@ -4,18 +4,26 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { PageHeader } from './PageHeader';
 import { AuthLanding } from './AuthLanding';
 import { invoke } from '@tauri-apps/api/core';
+import type { ManualTodo, PeriodSchedule } from '../types';
 
 interface SettingsPageProps {
   udbPath: string;
   setUdbPath: (path: string) => void;
-  pickUdb: () => void;
+  pickUdb: () => Promise<void>;
   saveToRegistry: (key: string, value: string) => Promise<void>;
   classTimes: string[];
   setClassTimes: (times: string[]) => void;
+  manualTodos: ManualTodo[];
+  setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
+  periodSchedules: PeriodSchedule[];
+  setPeriodSchedules: React.Dispatch<React.SetStateAction<PeriodSchedule[]>>;
   uiScale: number;
   setUiScale: (scale: number) => void;
   onSync: () => Promise<void>;
   lastSyncTime: string | null;
+  isLoadingSync?: boolean;
+  syncProgress?: { current: number; total: number } | null;
+  syncError?: string | null;
 }
 
 const REG_KEY_UDB = 'UdbPath';
@@ -33,10 +41,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   saveToRegistry,
   classTimes,
   setClassTimes,
+  manualTodos,
+  setManualTodos,
+  periodSchedules,
+  setPeriodSchedules,
   uiScale,
   setUiScale,
   onSync,
   lastSyncTime,
+  isLoadingSync,
+  syncProgress,
+  syncError
 }) => {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; date: string; body: string } | null>(null);
@@ -217,7 +232,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="field">
         <label>계정 및 동기화</label>
         <div className="setting-item">
-          <AuthLanding onSync={onSync} lastSyncTime={lastSyncTime} />
+          <AuthLanding 
+            onSync={() => onSync()} 
+            lastSyncTime={lastSyncTime}
+            isLoadingSync={isLoadingSync}
+            syncProgress={syncProgress}
+            syncError={syncError}
+          />
         </div>
       </div>
 
@@ -350,6 +371,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
       </div>
+
 
       <div className="field">
         <label>업데이트</label>

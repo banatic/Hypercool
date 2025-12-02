@@ -5,8 +5,13 @@
 
 .main-content {
     flex: 1;
-    margin-left: 250px;
-    /* Sidebar width */
+    margin-left: 70px;
+    /* Sidebar width (collapsed) */
     padding: var(--spacing-xl);
     background-color: var(--background);
+    transition: margin-left var(--transition-fast);
+}
+
+.sidebar:hover ~ .main-content {
+    margin-left: 250px;
 }
