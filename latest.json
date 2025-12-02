@@ -1,11 +1,11 @@
 {
-    "version": "0.3.2",
-    "notes": "할일 드래그 기능 추가",
-    "pub_date": "2025-11-27T02:21:47.242Z",
+    "version": "0.3.3",
+    "notes": "클라우드화",
+    "pub_date": "2025-12-02T04:03:57.103Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dThyVC8vNExxbnZpREdYQkhyYVU4UTNreU1UMHdzZ1ZULzF6WnFSOHp4ZzlCZFRGOHNwa2htck16Rm5SbkFKWFRlbU9Kc1dXOWE0TERnc1JhSUFFUEFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0MjEwMjQxCWZpbGU6SHlwZXJDb29sXzAuMy4yX3g2NF9lbi1VUy5tc2kKZHJwN054VFZMcXJ5M2tlUVlKYjNaUGJsU2EyN0hRNDhtcFhab1Z1YXN1TWhxZnJVc2pDZjRjS1Rsa01tRmQwUFc2Ujgrbk1ZRlBkbTlEQlJwR3dPQ3c9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.2/HyperCool_0.3.2_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dXhENVBlRzRBOTZyTTBPdFNpdGtYQ2JlcWhvbUt2dWtGRGdLclZNMGRZZEc3VHJmR01BUS9oSkYwYlM5ZVd6NHJPL0hSYkFIeEhNUHdiUVdzb1V0ckFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0NjQ4OTYxCWZpbGU6SHlwZXJDb29sXzAuMy4zX3g2NF9lbi1VUy5tc2kKMlQwMUVCT0p5R3ZGdmJyWEg0WDFNNUhIOExIZnZ5OXN0Y0o3TUo3R1JPUFFqdDR0dDJOZ1h0NFlWZzlLMjA4dUdMTE9sV01SVmcweXdXWmNkSUF5REE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.3/HyperCool_0.3.3_x64_en-US.msi"
         }
     }
 }
