@@ -172,7 +172,20 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   }, [id, udbPath, allMessages, isManualTodo, setAllMessages]);
 
   const onSave = () => {
-    const iso = new Date(`${dateVal}T${timeVal}:00`).toISOString();
+    if (!dateVal || !timeVal) {
+      alert('날짜와 시간을 모두 입력해주세요.');
+      return;
+    }
+
+    const dateStr = `${dateVal}T${timeVal}:00`;
+    const dateObj = new Date(dateStr);
+
+    if (isNaN(dateObj.getTime())) {
+      alert('유효하지 않은 날짜 형식입니다.');
+      return;
+    }
+
+    const iso = dateObj.toISOString();
     
     // calendarTitle 저장
     if (calendarTitle.trim()) {

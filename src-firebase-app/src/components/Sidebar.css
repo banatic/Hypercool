@@ -1,5 +1,5 @@
 .sidebar {
-    width: 250px;
+    width: 70px;
     height: 100vh;
     background-color: var(--surface);
     border-right: 1px solid var(--border);
@@ -8,17 +8,41 @@
     position: fixed;
     left: 0;
     top: 0;
+    transition: width var(--transition-fast);
+    overflow: hidden;
+    z-index: 100;
+}
+
+.sidebar:hover {
+    width: 250px;
 }
 
 .sidebar-header {
     padding: var(--spacing-xl);
     border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60px;
 }
 
 .sidebar-header h2 {
     color: var(--primary);
     font-size: 1.5rem;
     font-weight: 700;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    pointer-events: none;
+}
+
+.sidebar:hover .sidebar-header h2 {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.sidebar:hover .sidebar-header {
+    justify-content: flex-start;
 }
 
 .sidebar-nav {
@@ -38,6 +62,18 @@
     border-radius: var(--radius-md);
     transition: all var(--transition-fast);
     font-weight: 500;
+    white-space: nowrap;
+}
+
+.nav-item span {
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    pointer-events: none;
+}
+
+.sidebar:hover .nav-item span {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .nav-item:hover {

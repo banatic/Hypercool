@@ -63,6 +63,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [editTodoModalOpen, setEditTodoModalOpen] = useState(false);
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null);
   const [addPeriodModalOpen, setAddPeriodModalOpen] = useState(false);
+  const [editPeriodModalOpen, setEditPeriodModalOpen] = useState(false);
+  const [selectedPeriodSchedule, setSelectedPeriodSchedule] = useState<PeriodSchedule | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; todo?: TodoItem; schedule?: PeriodSchedule } | null>(null);
 
   // 모든 할일 목록 (메모이제이션)
@@ -399,7 +401,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                         className={className}
                         onClick={(e) => {
                           e.stopPropagation();
-                          // 기간 일정 편집 모달 (추후 구현 가능)
+                          setSelectedPeriodSchedule(schedule);
+                          setEditPeriodModalOpen(true);
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1044,6 +1047,54 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           }}
         />
       )}
+      {editPeriodModalOpen && selectedPeriodSchedule && (
+        <EditPeriodModalWidget
+          schedule={selectedPeriodSchedule}
+          onClose={() => {
+            setEditPeriodModalOpen(false);
+            setSelectedPeriodSchedule(null);
+          }}
+          onSave={async (content: string, calendarTitle: string, startDate: string, endDate: string) => {
+            const scheduleId = selectedPeriodSchedule.id;
+
+            if (!content.trim()) {
+              alert('일정 내용을 입력해주세요.');
+              return;
+            }
+
+            if (!startDate || !endDate) {
+              alert('시작일과 종료일을 모두 입력해주세요.');
+              return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+              alert('시작일이 종료일보다 늦을 수 없습니다.');
+              return;
+            }
+
+            const updatedSchedules = periodSchedules.map(s => 
+              s.id === scheduleId 
+                ? { 
+                    ...s, 
+                    content: content.trim(), 
+                    calendarTitle: calendarTitle.trim() || undefined, 
+                    startDate, 
+                    endDate, 
+                    updatedAt: new Date().toISOString() 
+                  }
+                : s
+            );
+            
+            await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
+            setPeriodSchedules(updatedSchedules);
+
+            void emit('calendar-update');
+            setEditPeriodModalOpen(false);
+            setSelectedPeriodSchedule(null);
+            loadTodos();
+          }}
+        />
+      )}
       {contextMenu && (
         <>
           <div 
@@ -1376,6 +1427,92 @@ const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, on
             <label htmlFor="period-end-date">종료일</label>
             <input 
               id="period-end-date" 
+              type="date" 
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)} 
+            />
+            <div className="row">
+              <button onClick={handleSave}>저장</button>
+              <button onClick={onClose}>취소</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface EditPeriodModalWidgetProps {
+  schedule: PeriodSchedule;
+  onClose: () => void;
+  onSave: (content: string, calendarTitle: string, startDate: string, endDate: string) => Promise<void>;
+}
+
+const EditPeriodModalWidget: React.FC<EditPeriodModalWidgetProps> = ({ schedule, onClose, onSave }) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  
+  // 기존 값 로드
+  const [content, setContent] = useState<string>(schedule.content);
+  const [calendarTitle, setCalendarTitle] = useState<string>(schedule.calendarTitle || '');
+  const [startDate, setStartDate] = useState<string>(schedule.startDate);
+  const [endDate, setEndDate] = useState<string>(schedule.endDate);
+
+  const handleSave = async () => {
+    await onSave(content, calendarTitle, startDate, endDate);
+  };
+
+  return (
+    <div className="schedule-modal-overlay" onClick={onClose}>
+      <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="schedule-inner">
+          <div className="schedule-preview">
+            <div style={{ padding: '16px' }}>
+              <h3 style={{ marginBottom: '12px' }}>기간 일정 내용</h3>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="기간 일정 내용을 입력하세요... (예: 겨울 방학, 프로젝트 기간)"
+                style={{
+                  width: '100%',
+                  minHeight: '200px',
+                  padding: '12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: '15px',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          </div>
+          <div className="schedule-panel">
+            <h3>기간 설정</h3>
+            <label htmlFor="edit-period-calendar-title">달력 제목</label>
+            <input 
+              id="edit-period-calendar-title" 
+              type="text" 
+              value={calendarTitle}
+              onChange={(e) => setCalendarTitle(e.target.value)}
+              placeholder="예: 겨울방학, 프로젝트"
+              maxLength={20}
+              style={{
+                width: '100%',
+                padding: '8px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius)',
+                fontSize: '14px',
+              }}
+            />
+            <label htmlFor="edit-period-start-date">시작일</label>
+            <input 
+              id="edit-period-start-date" 
+              type="date" 
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)} 
+            />
+            <label htmlFor="edit-period-end-date">종료일</label>
+            <input 
+              id="edit-period-end-date" 
               type="date" 
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)} 

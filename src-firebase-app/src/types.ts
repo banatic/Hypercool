@@ -4,6 +4,8 @@ export interface Message {
     content: string;
     receive_date?: string | null;
     file_paths?: string[];
+    deadline?: string | null;  // ISO date string
+    calendarTitle?: string | null;
 }
 
 export interface ManualTodo {

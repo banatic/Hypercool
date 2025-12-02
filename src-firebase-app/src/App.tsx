@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
 import { CalendarPage } from './pages/CalendarPage';
 import { MessagesPage } from './pages/MessagesPage';
+import { TodosPage } from './pages/TodosPage';
 import { Layout } from './components/Layout';
 import './App.css';
 
@@ -33,9 +33,9 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<AuthGuard />}>
           <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
+            <Route index element={<Navigate to="/calendar" replace />} />
             <Route path="calendar" element={<CalendarPage />} />
+            <Route path="todos" element={<TodosPage />} />
             <Route path="messages" element={<MessagesPage />} />
           </Route>
         </Route>

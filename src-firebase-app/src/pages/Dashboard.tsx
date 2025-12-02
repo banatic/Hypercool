@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card } from '../components/ui/Card';
-import { Calendar, MessageSquare, DollarSign } from 'lucide-react';
+import { Calendar, MessageSquare } from 'lucide-react';
 import { useCalendarData } from '../hooks/useCalendarData';
 import { useMessages } from '../hooks/useMessages';
 import { CalendarView } from '../components/CalendarView';
@@ -15,7 +15,6 @@ export const Dashboard: React.FC = () => {
     { title: 'Total Todos', value: todos.length.toString(), icon: Calendar, change: '' },
     { title: 'Schedules', value: schedules.length.toString(), icon: Calendar, change: '' },
     { title: 'Messages', value: messages.length.toString(), icon: MessageSquare, change: '' },
-    { title: 'Revenue', value: '$12,345', icon: DollarSign, change: '+23%' },
   ];
 
   return (

@@ -61,7 +61,7 @@ export const AuthService = {
         // Open system browser to the login page
         // For development, use localhost. In production, use the hosted URL.
         // TODO: Replace with production URL when deployed
-        const loginUrl = 'http://localhost:5173/login';
+        const loginUrl = 'https://hypercool-fe1fa.web.app/login';
         try {
             await open(loginUrl);
         } catch (e) {
