@@ -1,11 +1,11 @@
 {
-    "version": "0.3.5",
-    "notes": "일정 등록 버그 수정",
-    "pub_date": "2025-12-02T06:52:17.540Z",
+    "version": "0.3.6",
+    "notes": "커스텀 스킴 등록 추가",
+    "pub_date": "2025-12-02T07:49:11.127Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTljZnJCYllkUUxrYVFFUVM2dnBNK1c3WkpEenBhQXhPTzlpZGtyb0FEaDBKZk1jVUV5QzlRa3kwaHVsWU4rSzBOTGdDc2hjUTJXRDVQUjlWaXRKWHdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0NjU4NDQ0CWZpbGU6SHlwZXJDb29sXzAuMy41X3g2NF9lbi1VUy5tc2kKRHJZRzdIcmpydXpVTWFNWTZPY0JWQ2FJQS90c0J1Wlc1ZnJxWm9yZlRyRFdFSTQ0Uk9IdWxDQjRIMUpjekxDazMxN0FydjJLVjRFaEY1MGpaQmN0REE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.5/HyperCool_0.3.5_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTRGNXBXZnlnV1dWZHFDbGNwV0NUMW1QRi85ZVk5RFNqMlZRa2dNT2g3S09XNG41am43NDhqN0gyTEZlaWp2cEFkbWFBaDNLemFPcnNyc3Q5eG51UEE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0NjYxOTkxCWZpbGU6SHlwZXJDb29sXzAuMy42X3g2NF9lbi1VUy5tc2kKMU5DdE1DekdiMFh2QTYyYTBXaFM1Rngvdmp3eUEzMTd3dDdnVUZ3eHg3aCtkbjZYYTFmN2JNN0prNkRoTXNwcEkwMXN6U0JWSXV5clhQVWZPTkRVRHc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.6/HyperCool_0.3.6_x64_en-US.msi"
         }
     }
 }
