@@ -41,10 +41,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   saveToRegistry,
   classTimes,
   setClassTimes,
-  manualTodos,
-  setManualTodos,
-  periodSchedules,
-  setPeriodSchedules,
+
   uiScale,
   setUiScale,
   onSync,

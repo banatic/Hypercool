@@ -40,6 +40,7 @@
 .login-btn {
     width: 100%;
     margin-top: var(--spacing-sm);
+    min-height: 48px;
 }
 
 .google-btn {
@@ -67,4 +68,23 @@
     color: var(--error);
     font-size: 0.875rem;
     text-align: center;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .login-page {
+        padding: var(--spacing-md);
+    }
+
+    .login-container {
+        gap: var(--spacing-lg);
+    }
+
+    .login-header h1 {
+        font-size: 2rem;
+    }
+
+    .login-header p {
+        font-size: 0.875rem;
+    }
 }

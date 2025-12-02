@@ -16,6 +16,8 @@
   padding: 20px 24px;
   background: white;
   border-bottom: 1px solid #f3f4f6;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
 }
 
 .header-left {
@@ -56,6 +58,9 @@
   cursor: pointer;
   color: #374151;
   transition: all 0.2s ease;
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: manipulation;
 }
 
 .nav-btn {
@@ -110,6 +115,7 @@
   overflow-y: auto;
   background: #e5e7eb;
   gap: 1px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .calendar-day {
@@ -352,4 +358,114 @@
 .event-body ul, .event-body ol {
   padding-left: 1.5em;
   margin-bottom: 0.5em;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .calendar-container {
+    border-radius: 0;
+    box-shadow: none;
+    height: calc(100vh - 50px);
+    min-height: calc(100vh - 50px);
+  }
+
+  .calendar-header {
+    padding: 8px 12px;
+    gap: 4px;
+  }
+
+  .calendar-title {
+    font-size: 1.125rem;
+  }
+
+  .calendar-title .year {
+    font-size: 0.875rem;
+    margin-left: 4px;
+  }
+
+  .header-left {
+    gap: 4px;
+  }
+
+  .calendar-nav {
+    gap: 4px;
+  }
+
+  .nav-btn,
+  .today-btn {
+    padding: 4px 8px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 0.7rem;
+  }
+
+  .nav-btn {
+    padding: 4px;
+  }
+
+  .today-btn {
+    padding: 4px 6px;
+  }
+
+  .weekday {
+    padding: 6px 2px;
+    font-size: 0.6rem;
+  }
+
+  .calendar-grid {
+    gap: 0.5px;
+  }
+
+  .calendar-day {
+    min-height: calc((100vh - 140px) / 6);
+    padding: 2px;
+    gap: 1px;
+  }
+
+  .day-header {
+    margin-bottom: 2px;
+  }
+
+  .day-number {
+    font-size: 0.7rem;
+    width: 18px;
+    height: 18px;
+  }
+
+  .day-content {
+    gap: 1px;
+  }
+
+  .calendar-schedule {
+    font-size: 0.55rem;
+    padding: 1px 3px;
+    height: 16px;
+    margin-bottom: 1px;
+  }
+
+  .calendar-todo {
+    font-size: 0.55rem;
+    padding: 1px 3px;
+    gap: 3px;
+    margin-top: 0;
+  }
+
+  .todo-dot {
+    width: 3px;
+    height: 3px;
+  }
+
+  .event-detail-content {
+    gap: 10px;
+  }
+
+  .event-time-info {
+    font-size: 0.7rem;
+    padding: 6px 8px;
+  }
+
+  .event-body {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
 }

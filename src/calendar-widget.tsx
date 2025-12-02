@@ -1449,7 +1449,7 @@ interface EditPeriodModalWidgetProps {
 }
 
 const EditPeriodModalWidget: React.FC<EditPeriodModalWidgetProps> = ({ schedule, onClose, onSave }) => {
-  const pad = (n: number) => n.toString().padStart(2, '0');
+
   
   // 기존 값 로드
   const [content, setContent] = useState<string>(schedule.content);

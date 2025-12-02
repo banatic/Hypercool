@@ -6,6 +6,8 @@
     font-weight: 500;
     transition: all var(--transition-fast);
     gap: var(--spacing-sm);
+    min-height: 44px;
+    touch-action: manipulation;
 }
 
 .btn:disabled {
@@ -23,6 +25,10 @@
     background-color: var(--primary-hover);
 }
 
+.btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
 .btn-secondary {
     background-color: var(--surface);
     color: var(--text);
@@ -31,6 +37,10 @@
 
 .btn-secondary:hover:not(:disabled) {
     background-color: var(--surface-hover);
+}
+
+.btn-secondary:active:not(:disabled) {
+    transform: scale(0.98);
 }
 
 .btn-outline {
@@ -43,6 +53,10 @@
     background-color: rgba(99, 102, 241, 0.1);
 }
 
+.btn-outline:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
 .btn-ghost {
     background-color: transparent;
     color: var(--text-muted);
@@ -53,20 +67,27 @@
     color: var(--text);
 }
 
+.btn-ghost:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
 /* Sizes */
 .btn-sm {
-    padding: 0.25rem 0.75rem;
+    padding: 0.375rem 0.75rem;
     font-size: 0.875rem;
+    min-height: 36px;
 }
 
 .btn-md {
-    padding: 0.5rem 1rem;
+    padding: 0.625rem 1rem;
     font-size: 1rem;
+    min-height: 44px;
 }
 
 .btn-lg {
-    padding: 0.75rem 1.5rem;
+    padding: 0.875rem 1.5rem;
     font-size: 1.125rem;
+    min-height: 52px;
 }
 
 /* Spinner */
@@ -82,5 +103,23 @@
 @keyframes spin {
     to {
         transform: rotate(360deg);
+    }
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .btn {
+        min-height: 48px;
+        font-size: 1rem;
+    }
+
+    .btn-sm {
+        min-height: 40px;
+        font-size: 0.875rem;
+    }
+
+    .btn-lg {
+        min-height: 56px;
+        font-size: 1.125rem;
     }
 }
