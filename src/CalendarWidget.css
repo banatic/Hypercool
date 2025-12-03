@@ -446,7 +446,7 @@ body,
 
 .calendar-widget .schedule-inner {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 75% 20%;
   gap: 20px;
   height: calc(80vh - 48px);
   max-height: calc(80vh - 48px);
