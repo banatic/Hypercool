@@ -1373,10 +1373,24 @@ const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, on
 
   const handleSave = async () => {
     await onSave(content, calendarTitle, startDate, endDate);
+    // 저장 후 상태 초기화
+    setContent('');
+    setCalendarTitle('');
+    setStartDate(defaultStartDate);
+    setEndDate(defaultEndDate);
+  };
+
+  const handleClose = () => {
+    // 닫을 때 상태 초기화
+    setContent('');
+    setCalendarTitle('');
+    setStartDate(defaultStartDate);
+    setEndDate(defaultEndDate);
+    onClose();
   };
 
   return (
-    <div className="schedule-modal-overlay" onClick={onClose}>
+    <div className="schedule-modal-overlay" onClick={handleClose}>
       <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
         <div className="schedule-inner">
           <div className="schedule-preview">
@@ -1433,7 +1447,7 @@ const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, on
             />
             <div className="row">
               <button onClick={handleSave}>저장</button>
-              <button onClick={onClose}>취소</button>
+              <button onClick={handleClose}>취소</button>
             </div>
           </div>
         </div>
@@ -1554,10 +1568,26 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
 
   const handleSave = async () => {
     await onSave(content, calendarTitle, deadlineDate, deadlineTime);
+    // 저장 후 상태 초기화
+    setContent('');
+    setCalendarTitle('');
+    setDeadlineDate(defaultDate);
+    setDeadlineTime(defaultTime);
+    setParsedDateInfo({ date: null, time: null });
+  };
+
+  const handleClose = () => {
+    // 닫을 때 상태 초기화
+    setContent('');
+    setCalendarTitle('');
+    setDeadlineDate(defaultDate);
+    setDeadlineTime(defaultTime);
+    setParsedDateInfo({ date: null, time: null });
+    onClose();
   };
 
   return (
-    <div className="schedule-modal-overlay" onClick={onClose}>
+    <div className="schedule-modal-overlay" onClick={handleClose}>
       <div className="schedule-modal" onClick={(e) => e.stopPropagation()}>
         <div className="schedule-inner">
           <div className="schedule-preview">
@@ -1626,7 +1656,7 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
             />
             <div className="row">
               <button onClick={handleSave}>저장</button>
-              <button onClick={onClose}>취소</button>
+              <button onClick={handleClose}>취소</button>
             </div>
           </div>
         </div>

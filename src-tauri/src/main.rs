@@ -669,6 +669,32 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn register_custom_scheme() -> Result<(), String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    use std::env;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = std::path::Path::new("Software").join("Classes").join("hypercool");
+    let (key, _) = hkcu.create_subkey(&path).map_err(|e| e.to_string())?;
+
+    key.set_value("", &"URL:HyperCool Protocol").map_err(|e| e.to_string())?;
+    key.set_value("URL Protocol", &"").map_err(|e| e.to_string())?;
+
+    let shell = key.create_subkey("shell").map_err(|e| e.to_string())?.0;
+    let open = shell.create_subkey("open").map_err(|e| e.to_string())?.0;
+    let command = open.create_subkey("command").map_err(|e| e.to_string())?.0;
+
+    let exe_path = env::current_exe().map_err(|e| e.to_string())?;
+    let exe_path_str = exe_path.to_str().ok_or("Failed to convert path to string")?;
+    
+    let command_str = format!("\"{}\" \"%1\"", exe_path_str);
+    command.set_value("", &command_str).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[tauri::command]
 async fn close_message_viewer(app: tauri::AppHandle, message_id: i64) -> Result<(), String> {
     let window_label = format!("message-viewer-{}", message_id);
@@ -1105,9 +1131,9 @@ async fn get_timetable_data() -> Result<timetable_parser::TimetableData, String>
 }
 
 #[tauri::command]
-async fn get_meal_data(date: String) -> Result<school_data::MealData, String> {
+async fn get_meal_data(date: String, atpt_code: String, school_code: String) -> Result<school_data::MealData, String> {
     tokio::task::spawn_blocking(move || {
-        school_data::fetch_meal_data(&date)
+        school_data::fetch_meal_data(&date, &atpt_code, &school_code)
     }).await.map_err(|e| format!("Task join error: {}", e))?
 }
 
@@ -1288,6 +1314,14 @@ fn main() {
             get_all_messages_for_sync
         ])
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            {
+                // Ensure custom scheme is registered on startup
+                if let Err(e) = register_custom_scheme() {
+                    eprintln!("Failed to register custom scheme: {}", e);
+                }
+            }
+
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
             if let Some(win) = app.get_webview_window("main") {
                 apply_vibrancy_effect(&win);

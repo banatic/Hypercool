@@ -226,9 +226,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     <div className="settings page-content">
       <PageHeader title="설정" />
       
-      <div className="field">
+      <div className="field field-horizontal">
         <label>계정 및 동기화</label>
-        <div className="setting-item">
+        <div className="auth-landing-container">
           <AuthLanding 
             onSync={() => onSync()} 
             lastSyncTime={lastSyncTime}

@@ -37,3 +37,6 @@ AIOWidget/*
 AIOWidget
 바탕화면 위젯/*
 바탕화면 위젯
+
+# Firebase
+firestore.rules

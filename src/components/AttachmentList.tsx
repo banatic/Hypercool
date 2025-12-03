@@ -94,7 +94,7 @@ export const AttachmentList: React.FC<AttachmentListProps> = ({ filePaths }) => 
             }}
           >
             <span style={{ fontSize: '12px', marginRight: '8px' }}>📎</span>
-            <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#000000' }}>
               {fileName}
             </span>
             <span

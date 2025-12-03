@@ -53,6 +53,8 @@ export default function SchoolWidget() {
   // 설정 상태
   const [schoolWidgetPinned, setSchoolWidgetPinned] = useState(false);
   const [defaultTeacher, setDefaultTeacher] = useState('');
+  const [regionCode, setRegionCode] = useState(() => localStorage.getItem('schoolRegionCode') || 'C10');
+  const [schoolCode, setSchoolCode] = useState(() => localStorage.getItem('schoolCode') || '7150451');
 
   // 캐싱 상태 관리
   const [dataLoaded, setDataLoaded] = useState({
@@ -115,6 +117,11 @@ export default function SchoolWidget() {
     setPoints([]);
   }, [grade, classNum]);
 
+  // 지역 코드나 학교 코드가 변경되면 급식 데이터 캐시 초기화
+  useEffect(() => {
+    setDataLoaded(prev => ({ ...prev, meal: false }));
+  }, [regionCode, schoolCode]);
+
   // Fetch functions
   const fetchTimetable = async () => {
     if (dataLoaded.timetable && timetableData) return; // Already loaded
@@ -149,7 +156,11 @@ export default function SchoolWidget() {
       const month = String(kstDate.getMonth() + 1).padStart(2, '0');
       const day = String(kstDate.getDate()).padStart(2, '0');
       const date = `${year}${month}${day}`;
-      const data = await invoke<MealInfo>('get_meal_data', { date });
+      const data = await invoke<MealInfo>('get_meal_data', { 
+        date,
+        atptCode: regionCode,
+        schoolCode: schoolCode
+      });
       setMealInfo(data);
       setDataLoaded(prev => ({ ...prev, meal: true }));
     } catch (error) {
@@ -242,6 +253,19 @@ export default function SchoolWidget() {
           setDefaultTeacher(savedDefaultTeacher);
         }
         
+        // 지역 코드와 학교 코드
+        const savedRegionCode = await invoke<string | null>('get_registry_value', { key: 'SchoolRegionCode' });
+        if (savedRegionCode) {
+          setRegionCode(savedRegionCode);
+          localStorage.setItem('schoolRegionCode', savedRegionCode);
+        }
+        
+        const savedSchoolCode = await invoke<string | null>('get_registry_value', { key: 'SchoolCode' });
+        if (savedSchoolCode) {
+          setSchoolCode(savedSchoolCode);
+          localStorage.setItem('schoolCode', savedSchoolCode);
+        }
+        
       } catch (error) {
         // Failed to load settings
       }
@@ -277,6 +301,15 @@ export default function SchoolWidget() {
       // 학년/반
       await invoke('set_registry_value', { key: 'SchoolGrade', value: grade });
       await invoke('set_registry_value', { key: 'SchoolClass', value: classNum });
+      
+      // 지역 코드와 학교 코드
+      await invoke('set_registry_value', { key: 'SchoolRegionCode', value: regionCode });
+      await invoke('set_registry_value', { key: 'SchoolCode', value: schoolCode });
+      localStorage.setItem('schoolRegionCode', regionCode);
+      localStorage.setItem('schoolCode', schoolCode);
+      
+      // 급식 데이터 캐시 초기화 (코드가 변경되었으므로)
+      setDataLoaded(prev => ({ ...prev, meal: false }));
       
       
       alert('설정이 저장되었습니다.');
@@ -783,6 +816,40 @@ export default function SchoolWidget() {
                 </div>
                 <div className="setting-description">
                   출결 및 상벌점 조회에 사용되는 학년과 반입니다.
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>학교 정보</h3>
+              <div className="setting-item">
+                <label htmlFor="settings-region-code">지역 코드</label>
+                <input
+                  id="settings-region-code"
+                  type="text"
+                  value={regionCode}
+                  onChange={(e) => setRegionCode(e.target.value)}
+                  placeholder="예: C10"
+                  className="setting-input"
+                  style={{ maxWidth: '200px' }}
+                />
+                <div className="setting-description">
+                  NEIS API에서 사용하는 지역 교육청 코드입니다. (예: 서울 C10, 경기 J10)
+                </div>
+              </div>
+              <div className="setting-item">
+                <label htmlFor="settings-school-code">학교 코드</label>
+                <input
+                  id="settings-school-code"
+                  type="text"
+                  value={schoolCode}
+                  onChange={(e) => setSchoolCode(e.target.value)}
+                  placeholder="예: 7150451"
+                  className="setting-input"
+                  style={{ maxWidth: '200px' }}
+                />
+                <div className="setting-description">
+                  NEIS API에서 사용하는 학교 코드입니다. 학교 정보 검색을 통해 확인할 수 있습니다.
                 </div>
               </div>
             </div>

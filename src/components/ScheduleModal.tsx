@@ -61,7 +61,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
-  // 메시지 내용에서 날짜 파싱 및 초기값 설정
+  // id가 변경될 때만 초기값 설정 (입력값 보존)
   useEffect(() => {
     // 기존 calendarTitle 로드
     if (isManualTodo) {
@@ -85,51 +85,71 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
       return;
     }
 
-    // 메시지 내용 파싱
-    let contentToParse = '';
+    // 수동 할 일인 경우 즉시 파싱
     if (isManualTodo) {
       const manualTodo = manualTodos.find(t => t.id === id);
       if (manualTodo) {
-        contentToParse = manualTodo.content;
-      }
-    } else if (modalMsg) {
-      contentToParse = modalMsg.content;
-    }
-
-    if (contentToParse) {
-      // HTML 태그 제거하고 텍스트만 추출
-      const textContent = contentToParse.replace(/<[^>]*>/g, '');
-      
-      // 메시지의 receiveDate를 기준으로 날짜 파싱
-      let baseDate: Date | undefined = undefined;
-      if (!isManualTodo && modalMsg?.receive_date) {
-        try {
-          baseDate = new Date(modalMsg.receive_date);
-        } catch {
-          // 파싱 실패 시 무시
+        const textContent = manualTodo.content.replace(/<[^>]*>/g, '');
+        const parsed = parseDateFromText(textContent);
+        setParsedDateInfo(parsed);
+        
+        if (parsed.date) {
+          setDateVal(parsed.date);
+        } else {
+          setDateVal(defaultDate);
         }
-      }
-      
-      const parsed = parseDateFromText(textContent, baseDate);
-      setParsedDateInfo(parsed);
-      
-      if (parsed.date) {
-        setDateVal(parsed.date);
+        
+        if (parsed.time) {
+          setTimeVal(parsed.time);
+        } else {
+          setTimeVal(defaultTime);
+        }
       } else {
         setDateVal(defaultDate);
-      }
-      
-      if (parsed.time) {
-        setTimeVal(parsed.time);
-      } else {
         setTimeVal(defaultTime);
       }
     } else {
-      // 파싱할 내용이 없으면 기본값 사용
+      // 일반 메시지인 경우 기본값만 설정 (modalMsg 로드 후 파싱)
       setDateVal(defaultDate);
       setTimeVal(defaultTime);
     }
-  }, [id, modalMsg, isManualTodo, manualTodos, deadlines, calendarTitles, defaultDate, defaultTime, parseDateFromText]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]); // id가 변경될 때만 실행하여 입력값 보존
+
+  // modalMsg가 로드된 후 날짜 파싱 (사용자가 이미 입력한 값이 있으면 덮어쓰지 않음)
+  useEffect(() => {
+    if (isManualTodo || !modalMsg) return;
+    
+    // 이미 deadline이 있으면 파싱하지 않음
+    const current = deadlines[id.toString()];
+    if (current) return;
+    
+    // 사용자가 이미 입력한 값이 있으면 파싱하지 않음
+    if (dateVal && dateVal !== defaultDate) return;
+    if (timeVal && timeVal !== defaultTime) return;
+
+    const textContent = modalMsg.content.replace(/<[^>]*>/g, '');
+    let baseDate: Date | undefined = undefined;
+    if (modalMsg.receive_date) {
+      try {
+        baseDate = new Date(modalMsg.receive_date);
+      } catch {
+        // 파싱 실패 시 무시
+      }
+    }
+    
+    const parsed = parseDateFromText(textContent, baseDate);
+    setParsedDateInfo(parsed);
+    
+    if (parsed.date && (!dateVal || dateVal === defaultDate)) {
+      setDateVal(parsed.date);
+    }
+    
+    if (parsed.time && (!timeVal || timeVal === defaultTime)) {
+      setTimeVal(parsed.time);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalMsg, id]); // modalMsg가 로드될 때만 실행
 
   useEffect(() => {
     if (isManualTodo) {

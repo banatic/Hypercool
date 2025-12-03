@@ -27,11 +27,7 @@ pub struct PointsData {
 }
 
 // NEIS API로 급식 데이터 가져오기
-pub fn fetch_meal_data(date: &str) -> Result<MealData, String> {
-    // 명호고등학교 코드
-    let atpt_code = "C10";
-    let school_code = "7150451";
-    
+pub fn fetch_meal_data(date: &str, atpt_code: &str, school_code: &str) -> Result<MealData, String> {
     let url = format!(
         "https://open.neis.go.kr/hub/mealServiceDietInfo?Type=json&ATPT_OFCDC_SC_CODE={}&SD_SCHUL_CODE={}&MLSV_YMD={}",
         atpt_code, school_code, date
