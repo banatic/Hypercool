@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, emit } from '@tauri-apps/api/event';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { AttachmentList } from './components/AttachmentList';
 import { ManualTodo, PeriodSchedule } from './types';
 import './styles.css';
@@ -23,6 +24,7 @@ interface TodoItem {
   content: string;
   deadline: string | null;
   sender?: string;
+  receiveDate?: string | null;
   isManual?: boolean;
   calendarTitle?: string;
   isCompleted?: boolean;
@@ -76,7 +78,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           id, 
           content: m.content, 
           deadline: deadlines[id] || null, 
-          sender: m.sender, 
+          sender: m.sender,
+          receiveDate: m.receive_date || null,
           isManual: false,
           calendarTitle: calendarTitles[id] || undefined,
           isCompleted: completedTodos.has(id),
@@ -259,6 +262,54 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       unlistenPromise.then(unlisten => unlisten());
     };
   }, [loadTodos]);
+
+  // 하이퍼링크 클릭 시 외부 브라우저에서 열기
+  useEffect(() => {
+    const handleLinkClick = async (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a');
+      
+      if (link) {
+        // href 속성에서 원본 URL 가져오기 (상대 경로도 처리)
+        const href = link.getAttribute('href') || link.href;
+        
+        if (href) {
+          console.log('링크 발견:', href, 'link.href:', link.href);
+          
+          // http:// 또는 https://로 시작하는 외부 링크인 경우
+          if (href.startsWith('http://') || href.startsWith('https://')) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('외부 브라우저에서 열기 시도:', href);
+            try {
+              await shellOpen(href);
+              console.log('링크 열기 성공:', href);
+            } catch (error) {
+              console.error('링크 열기 실패:', error);
+            }
+          } else if (link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
+            // link.href가 절대 URL로 변환된 경우
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('외부 브라우저에서 열기 시도 (절대 URL):', link.href);
+            try {
+              await shellOpen(link.href);
+              console.log('링크 열기 성공:', link.href);
+            } catch (error) {
+              console.error('링크 열기 실패:', error);
+            }
+          }
+        }
+      }
+    };
+
+    // 이벤트 위임을 사용해서 동적으로 추가되는 링크도 처리
+    document.addEventListener('click', handleLinkClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, []);
 
   // 달력 렌더링
   const renderCalendar = () => {
@@ -1207,6 +1258,35 @@ const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualT
     textarea.innerHTML = html;
     return textarea.value;
   };
+
+  // 날짜 포맷팅 함수
+  const formatReceiveDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      const year = date.getFullYear();
+      const month = pad(date.getMonth() + 1);
+      const day = pad(date.getDate());
+      const hours = pad(date.getHours());
+      const minutes = pad(date.getMinutes());
+      
+      if (diffDays === 0) {
+        return `오늘 ${hours}:${minutes}`;
+      } else if (diffDays === 1) {
+        return `어제 ${hours}:${minutes}`;
+      } else if (diffDays < 7) {
+        return `${diffDays}일 전 ${hours}:${minutes}`;
+      } else {
+        return `${year}.${month}.${day} ${hours}:${minutes}`;
+      }
+    } catch {
+      return dateStr;
+    }
+  };
   
   // 기존 값 로드
   const existingDeadline = deadlines[todo.id] || (todo.isManual ? manualTodos.find(t => t.id === todo.id)?.deadline : null);
@@ -1249,6 +1329,32 @@ const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualT
           <div className="schedule-preview">
             <div>
               <h3 style={{ marginBottom: '12px', color: '#1a1a1a', marginTop: 0 }}>할 일 내용</h3>
+              {(todo.sender || todo.receiveDate) && (
+                <div style={{ 
+                  marginBottom: '16px', 
+                  padding: '10px 14px', 
+                  backgroundColor: '#f5f5f5',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  color: '#666666',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  {todo.sender && (
+                    <span style={{ fontWeight: 500, color: '#333333' }}>{todo.sender}</span>
+                  )}
+                  {todo.receiveDate && (
+                    <>
+                      {todo.sender && (
+                        <span style={{ color: '#cccccc' }}>•</span>
+                      )}
+                      <span>{formatReceiveDate(todo.receiveDate)}</span>
+                    </>
+                  )}
+                </div>
+              )}
               {todo.isManual ? (
                 <textarea
                   value={content}
