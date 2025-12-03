@@ -510,8 +510,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.3.4",
-        notes="최소화후 창이 안켜지는 버그 수정",
+        version="0.3.7",
+        notes="버그 수정 : 일정 등록시 모달 창이 리로드되면서 작성 내용이 날라가는 버그를 수정했습니다.",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

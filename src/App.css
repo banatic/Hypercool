@@ -884,8 +884,22 @@
   gap: 8px;
 }
 
+.settings .field.field-horizontal {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .settings .field.field-horizontal {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings .field label {
   font-weight: 600;
+  padding-top: 4px;
 }
 
 .settings .row {
@@ -1330,4 +1344,235 @@
 
 .schedule-panel .row button:first-child:hover {
   background: var(--primary-dark);
+}
+
+/* Auth Landing Styles */
+.auth-landing-container {
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+  color: #1f2937;
+}
+
+.auth-landing {
+  width: 100%;
+  color: #1f2937;
+}
+
+.auth-user-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.auth-user-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.auth-user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border-color);
+}
+
+.auth-user-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-user-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.auth-user-email {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.auth-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.auth-sync-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+.auth-sync-time-label {
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.auth-sync-time-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.auth-sync-button-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-sync-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.auth-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-sync-progress-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #667eea;
+}
+
+.auth-sync-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--success);
+  background: var(--success);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+
+.auth-sync-button:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.auth-sync-button:active {
+  transform: translateY(0);
+}
+
+.auth-sync-button svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.auth-sync-error {
+  color: var(--danger);
+  font-size: 16px;
+  cursor: help;
+}
+
+.auth-signout-button {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+
+.auth-signout-button:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+}
+
+.auth-signout-button:active {
+  transform: translateY(0);
+}
+
+.auth-login-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.auth-login-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.auth-login-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.auth-login-description {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.auth-signin-button {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+
+.auth-signin-button:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.auth-signin-button:active {
+  transform: translateY(0);
 }

@@ -3,6 +3,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
+import { check } from '@tauri-apps/plugin-updater';
 
 import { Message, SearchResultItem, ManualTodo, Page, PeriodSchedule } from './types';
 import { SyncService } from './sync/SyncService';
@@ -13,6 +14,7 @@ import { HistoryPage } from './components/HistoryPage';
 import { SettingsPage } from './components/SettingsPage';
 import { ScheduleModal } from './components/ScheduleModal';
 import { AddTodoModal } from './components/AddTodoModal';
+import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { AuthService } from './auth/AuthService';
 
 import './App.css';
@@ -26,7 +28,9 @@ const REG_KEY_UI_SCALE = 'UIScale';
 const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
 const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
 const REG_KEY_LAST_SYNC = 'LastSyncTime';
+const REG_KEY_SKIPPED_UPDATE_VERSION = 'SkippedUpdateVersion';
 const DRAG_THRESHOLD = 160;
+const UPDATE_CHECK_INTERVAL = 10 * 60 * 1000; // 10분
 
 // 기본 수업 시간 (HHMM-HHMM 형식)
 const DEFAULT_CLASS_TIMES = [
@@ -66,6 +70,8 @@ function App() {
   const [isLoadingActiveSearch, setIsLoadingActiveSearch] = useState(false);
   const [classTimes, setClassTimes] = useState<string[]>(DEFAULT_CLASS_TIMES);
   const [uiScale, setUiScale] = useState<number>(1.0);
+  const [updateNotification, setUpdateNotification] = useState<{ version: string; date: string; body: string } | null>(null);
+  const [skippedUpdateVersion, setSkippedUpdateVersion] = useState<string | null>(null);
   const HISTORY_PAGE_SIZE = 20;
   
   const decodeEntities = useCallback((html: string): string => {
@@ -159,6 +165,11 @@ function App() {
         }
       }
 
+      const savedSkippedVersion = await invoke<string | null>('get_registry_value', { key: REG_KEY_SKIPPED_UPDATE_VERSION });
+      if (savedSkippedVersion) {
+        setSkippedUpdateVersion(savedSkippedVersion);
+      }
+
     } catch (e) {
       console.warn('레지스트리 로드 실패', e);
     }
@@ -211,6 +222,38 @@ function App() {
   useEffect(() => {
     loadFromRegistry();
   }, [loadFromRegistry]);
+
+  // 자동 업데이트 체크 (10분마다)
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      try {
+        const update = await check();
+        if (update) {
+          // 넘어간 버전이 아니면 모달 표시
+          if (update.version !== skippedUpdateVersion) {
+            setUpdateNotification({
+              version: update.version,
+              date: update.date || '',
+              body: update.body || '',
+            });
+          }
+        }
+      } catch (error) {
+        // 업데이트 체크 실패는 조용히 무시 (콘솔에만 로그)
+        console.log('자동 업데이트 체크 실패:', error);
+      }
+    };
+
+    // 초기 체크
+    checkForUpdates();
+
+    // 10분마다 체크
+    const interval = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [skippedUpdateVersion]);
 
   // 하이퍼링크 클릭 시 외부 브라우저에서 열기
   useEffect(() => {
@@ -946,6 +989,20 @@ function App() {
           saveToRegistry={saveToRegistry}
           parseDateFromText={parseDateFromText}
         />
+        {updateNotification && (
+          <UpdateNotificationModal
+            updateInfo={updateNotification}
+            onClose={() => {
+              setUpdateNotification(null);
+            }}
+            onSkip={async () => {
+              // 넘어간 버전 저장
+              await saveToRegistry(REG_KEY_SKIPPED_UPDATE_VERSION, updateNotification.version);
+              setSkippedUpdateVersion(updateNotification.version);
+              setUpdateNotification(null);
+            }}
+          />
+        )}
       </main>
     </div>
   );
