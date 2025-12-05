@@ -456,7 +456,7 @@ function App() {
       await saveToRegistry(REG_KEY_LAST_SYNC, result.newSyncTime);
       
       // Notify calendar widget
-      await emit('calendar-update', {});
+      await emit('calendar-update', { source: 'app-sync' });
       
       if (!silent) alert('동기화 완료!');
     } catch (e: any) {
@@ -502,7 +502,13 @@ function App() {
 
   // Calendar Update 이벤트 구독 (일정 변경 시)
   useEffect(() => {
-    const unlistenPromise = listen('calendar-update', async () => {
+    const unlistenPromise = listen<{ source?: string }>('calendar-update', async (event) => {
+      // 앱 자체 동기화로 인한 업데이트는 무시 (무한 루프 방지)
+      if (event.payload?.source === 'app-sync') {
+        console.log('Ignoring calendar-update from app-sync');
+        return;
+      }
+
       // 레지스트리에서 최신 데이터 로드
       await loadFromRegistry();
       // 일정 변경 시 자동 동기화 트리거

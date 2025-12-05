@@ -381,8 +381,8 @@ fn get_all_messages_for_sync(db_path: String) -> Result<Vec<Message>, String> {
         return Err("tbl_recv 테이블을 찾을 수 없습니다".into());
     }
 
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    let mut query_sql = "SELECT MessageKey as id, Sender, MessageText, MessageBody, ReceiveDate, FilePath FROM tbl_recv ORDER BY MessageKey ASC".to_string();
+    let params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let query_sql = "SELECT MessageKey as id, Sender, MessageText, MessageBody, ReceiveDate, FilePath FROM tbl_recv ORDER BY MessageKey ASC".to_string();
 
     // Add limit and offset for pagination
     // Note: The original function `get_all_messages_for_sync` did not have limit/offset parameters.
