@@ -1,11 +1,11 @@
 {
-    "version": "0.3.10",
+    "version": "0.4.0",
     "notes": "개선 : 동기화 알고리즘 개선",
-    "pub_date": "2025-12-05T03:40:42.987Z",
+    "pub_date": "2025-12-05T03:43:40.132Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dThuZUpZcUdRdWRjUzJwRGhnUVNDSm1xeGk1VS9SRzZFZHRPRXJxbkZtekNqRSt1MDl0NTlyZkhaWVFYQjd0aDI3c2hEVkVGbnVDVlhOcVE2WDc3bkFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0OTA2MTY5CWZpbGU6SHlwZXJDb29sXzAuMy4xMF94NjRfZW4tVVMubXNpCkxSZnI1dmtrdExZdEtnbWZXb1BQRGFEdlJ6UTd4SHZMSlc1NkYyaDFSeVJOK0RaNzVNYjNod1B5elBnVFMvZGxUZHhFbC83RmU1UHpSWHY1Z2dOakFBPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.3.10/HyperCool_0.3.10_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTNzaGNEeTlCOVZrWlB0TGxMeWpYcDdpVFpUclI3Vnp4dG9nalc5T3JmbFJCeEJ2b0s5NDdBM3QvemJLNlpXb28veGsyUFBpcWVocEt2NkF2UStkb2c0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0OTA2MzM0CWZpbGU6SHlwZXJDb29sXzAuNC4wX3g2NF9lbi1VUy5tc2kKTm9xMFBxaWl3aCtnZ0w4bXU3VkxVUWo1MWFLU3F1R2tPTlhnbkM5VkdWOFd1blJWTGhDUXFJT2plSzRnSkppb1pPRDltUkdMbFF4dkVtRkFBcHpOQlE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.0/HyperCool_0.4.0_x64_en-US.msi"
         }
     }
 }
