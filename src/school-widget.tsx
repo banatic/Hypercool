@@ -31,6 +31,31 @@ interface PointStatus {
 
 type Tab = 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
 
+// 고양이 종류 정의 (rows: 스프라이트 행 수, 보라/하양/까망은 더미 9행 포함)
+const CAT_TYPES = [
+  { id: 'default', name: '기본', sprite: 'stardew-cat.png', rows: 8 },
+  { id: 'orange', name: '주황이', sprite: 'stardew-cat-orange.png', rows: 8 },
+  { id: 'gray', name: '회색이', sprite: 'stardew-cat-gray.png', rows: 8 },
+  { id: 'black', name: '까망이', sprite: 'stardew-cat-black.png', rows: 9 },
+  { id: 'white', name: '하양이', sprite: 'stardew-cat-white.png', rows: 9 },
+  { id: 'purple', name: '보라', sprite: 'stardew-cat-purple.png', rows: 9 },
+] as const;
+
+type CatTypeId = typeof CAT_TYPES[number]['id'];
+type CatDirection = 'down' | 'right' | 'up' | 'left';
+type CatAction = 'walking' | 'sitting' | 'licking' | 'lying';
+
+interface CatState {
+  id: CatTypeId;
+  x: number;
+  y: number;
+  direction: CatDirection;
+  action: CatAction;
+  frame: number;
+  actionPhase?: 'forward' | 'hold' | 'reverse' | 'loop';
+  holdStartTime?: number;
+}
+
 export default function SchoolWidget() {
   const [activeTab, setActiveTab] = useState<Tab>('meal');
   const [timetableData, setTimetableData] = useState<TimetableData | null>(null);
@@ -39,16 +64,12 @@ export default function SchoolWidget() {
   const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });
   const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
   const [points, setPoints] = useState<PointStatus[]>([]);
-  const [catState, setCatState] = useState<{
-    x: number;
-    y: number;
-    direction: 'down' | 'right' | 'up' | 'left';
-    action: 'walking' | 'sitting' | 'licking' | 'lying';
-    frame: number;
-    actionPhase?: 'forward' | 'hold' | 'reverse' | 'loop'; // 액션 진행 단계
-    holdStartTime?: number; // 유지 시작 시간
-  } | null>(null);
-  const targetPosRef = useRef<{ x: number; y: number } | null>(null); // 목표 위치 (마우스 위치)
+  
+  // 여러 고양이 상태 관리
+  const catStatesRef = useRef<Map<CatTypeId, CatState>>(new Map());
+  const catElementsRef = useRef<Map<CatTypeId, HTMLDivElement | null>>(new Map());
+  const [visibleCats, setVisibleCats] = useState<Set<CatTypeId>>(new Set());
+  const targetPosRef = useRef<{ x: number; y: number } | null>(null);
   
   const [loadingStates, setLoadingStates] = useState({
     timetable: false,
@@ -65,12 +86,27 @@ export default function SchoolWidget() {
   const [defaultTeacher, setDefaultTeacher] = useState('');
   const [regionCode, setRegionCode] = useState(() => localStorage.getItem('schoolRegionCode') || 'C10');
   const [schoolCode, setSchoolCode] = useState(() => localStorage.getItem('schoolCode') || '7150451');
-  const [catEnabled, setCatEnabled] = useState(() => localStorage.getItem('schoolCatEnabled') !== 'false'); // 기본값 true
-  const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10)); // 기본값 32px
   
-  // 픽셀 데이터 캐싱을 위한 ref
-  const spritePixelDataRef = useRef<Map<string, ImageData>>(new Map());
-  const spriteImageRef = useRef<HTMLImageElement | null>(null);
+  // 활성화된 고양이 목록 (여러 고양이 지원)
+  const [enabledCats, setEnabledCats] = useState<CatTypeId[]>(() => {
+    const saved = localStorage.getItem('schoolEnabledCats');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return ['default'];
+      }
+    }
+    const oldEnabled = localStorage.getItem('schoolCatEnabled');
+    if (oldEnabled === 'false') return [];
+    return ['default'];
+  });
+  
+  const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10));
+  
+  // 픽셀 데이터 캐싱 (고양이 종류별)
+  const spritePixelDataRef = useRef<Map<CatTypeId, Map<string, ImageData>>>(new Map());
+  const spriteImagesRef = useRef<Map<CatTypeId, HTMLImageElement>>(new Map());
 
   // 캐싱 상태 관리
   const [dataLoaded, setDataLoaded] = useState({
@@ -92,50 +128,47 @@ export default function SchoolWidget() {
   }, [timetableData, teacherSearch]);
 
   // 고양이 스프라이트 행 번호 계산
-  const getCatSpriteRow = (direction: 'down' | 'right' | 'up' | 'left', action: 'walking' | 'sitting' | 'licking' | 'lying'): number => {
+  const getCatSpriteRow = (direction: CatDirection, action: CatAction): number => {
     if (action === 'walking') {
       switch (direction) {
-        case 'down': return 0;  // 1행: 아래로 걷기
-        case 'right': return 1; // 2행: 오른쪽 걷기
-        case 'up': return 2;    // 3행: 위로 걷기
-        case 'left': return 3;  // 4행: 왼쪽 걷기
+        case 'down': return 0;
+        case 'right': return 1;
+        case 'up': return 2;
+        case 'left': return 3;
       }
     } else {
       switch (action) {
-        case 'sitting': return 4;   // 5행: 앉기
-        case 'licking': return 5;   // 6행: 손핥기
-        case 'lying': return 6;     // 7행: 오른쪽 보다가 바닥에 눕기
+        case 'sitting': return 4;
+        case 'licking': return 5;
+        case 'lying': return 6;
         default: return 1;
       }
     }
   };
 
-  // 스프라이트 이미지 로드 및 픽셀 데이터 캐싱
+  // 스프라이트 이미지 로드 및 픽셀 데이터 캐싱 (모든 고양이 종류)
   useEffect(() => {
-    const loadSpriteImage = () => {
+    const loadSpriteImage = (catType: typeof CAT_TYPES[number]) => {
       const img = new Image();
-      img.src = new URL('./asset/stardew-cat.png', import.meta.url).href;
+      img.src = new URL(`./asset/${catType.sprite}`, import.meta.url).href;
       img.onload = () => {
-        spriteImageRef.current = img;
+        spriteImagesRef.current.set(catType.id, img);
         
-        // 캔버스 생성 및 픽셀 데이터 추출
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         
-        // 스프라이트 시트 크기: 8행 4열, 각 프레임 32x32
         const frameWidth = 32;
         const frameHeight = 32;
         const cols = 4;
-        const rows = 8;
+        const rows = catType.rows;
         
         canvas.width = frameWidth;
         canvas.height = frameHeight;
         
-        // 각 프레임의 픽셀 데이터 캐싱
+        const catPixelData = new Map<string, ImageData>();
         for (let row = 0; row < rows; row++) {
           for (let col = 0; col < cols; col++) {
-            // 해당 프레임 영역만 그리기
             ctx.clearRect(0, 0, frameWidth, frameHeight);
             ctx.drawImage(
               img,
@@ -143,58 +176,55 @@ export default function SchoolWidget() {
               0, 0, frameWidth, frameHeight
             );
             
-            // 픽셀 데이터 추출
             const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
             const key = `${row}-${col}`;
-            spritePixelDataRef.current.set(key, imageData);
+            catPixelData.set(key, imageData);
           }
         }
+        spritePixelDataRef.current.set(catType.id, catPixelData);
       };
       img.onerror = () => {
-        console.error('Failed to load cat sprite image');
+        console.error(`Failed to load cat sprite: ${catType.sprite}`);
       };
     };
     
-    loadSpriteImage();
+    CAT_TYPES.forEach(catType => loadSpriteImage(catType));
   }, []);
 
   // 픽셀 퍼펙트 히트 테스트 함수
   const isPixelHit = (
+    catTypeId: CatTypeId,
     clickX: number,
     clickY: number,
     catX: number,
     catY: number,
-    catSize: number,
-    direction: 'down' | 'right' | 'up' | 'left',
-    action: 'walking' | 'sitting' | 'licking' | 'lying',
+    size: number,
+    direction: CatDirection,
+    action: CatAction,
     frame: number
   ): boolean => {
-    // 클릭 위치가 고양이 영역 밖이면 false
     if (
       clickX < catX ||
-      clickX > catX + catSize ||
+      clickX > catX + size ||
       clickY < catY ||
-      clickY > catY + catSize
+      clickY > catY + size
     ) {
       return false;
     }
     
-    // 스프라이트 이미지가 아직 로드되지 않았으면 기본 히트 테스트 (사각형)
-    if (!spriteImageRef.current || spritePixelDataRef.current.size === 0) {
+    const catPixelData = spritePixelDataRef.current.get(catTypeId);
+    if (!catPixelData || catPixelData.size === 0) {
       return true;
     }
     
-    // 클릭 위치를 고양이 로컬 좌표로 변환
     const localX = clickX - catX;
     const localY = clickY - catY;
     
-    // 원본 프레임 크기(32x32)로 스케일링
     const originalFrameSize = 32;
-    const scale = catSize / originalFrameSize;
+    const scale = size / originalFrameSize;
     const originalX = Math.floor(localX / scale);
     const originalY = Math.floor(localY / scale);
     
-    // 범위 체크
     if (
       originalX < 0 ||
       originalX >= originalFrameSize ||
@@ -204,21 +234,18 @@ export default function SchoolWidget() {
       return false;
     }
     
-    // 해당 프레임의 픽셀 데이터 가져오기
     const row = getCatSpriteRow(direction, action);
     const col = frame;
     const key = `${row}-${col}`;
-    const pixelData = spritePixelDataRef.current.get(key);
+    const pixelData = catPixelData.get(key);
     
     if (!pixelData) {
-      return true; // 픽셀 데이터가 없으면 기본 히트 테스트
+      return true;
     }
     
-    // 해당 위치의 픽셀 알파값 확인
     const pixelIndex = (originalY * originalFrameSize + originalX) * 4;
     const alpha = pixelData.data[pixelIndex + 3];
     
-    // 알파값이 0보다 크면 실제 고양이 영역
     return alpha > 0;
   };
 
