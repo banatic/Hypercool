@@ -31,7 +31,7 @@ interface PointStatus {
 
 type Tab = 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
 
-// 고양이 종류 정의 (rows: 스프라이트 행 수, 보라/하양/까망은 더미 9행 포함)
+// 고양이 종류 정의 (rows: 스프라이트 시트 행 수, 보라/하양이/까망이는 더미 9행 포함)
 const CAT_TYPES = [
   { id: 'default', name: '기본', sprite: 'stardew-cat.png', rows: 8 },
   { id: 'orange', name: '주황이', sprite: 'stardew-cat-orange.png', rows: 8 },
@@ -42,18 +42,47 @@ const CAT_TYPES = [
 ] as const;
 
 type CatTypeId = typeof CAT_TYPES[number]['id'];
+
+// 고양이 행동 상태 타입 (State Machine)
 type CatDirection = 'down' | 'right' | 'up' | 'left';
-type CatAction = 'walking' | 'sitting' | 'licking' | 'lying';
+type CatActionPhase = 'enter' | 'hold' | 'exit';
+
+interface CatBehaviorIdle {
+  type: 'idle';
+}
+
+interface CatBehaviorWalking {
+  type: 'walking';
+  target: { x: number; y: number } | null; // null이면 마우스 따라가기
+}
+
+interface CatBehaviorSitting {
+  type: 'sitting';
+  phase: CatActionPhase;
+  phaseStartTime: number;
+}
+
+interface CatBehaviorLicking {
+  type: 'licking';
+  startTime: number;
+  duration: number; // 핥기 지속 시간 (ms)
+}
+
+interface CatBehaviorLying {
+  type: 'lying';
+  phase: CatActionPhase;
+  phaseStartTime: number;
+}
+
+type CatBehavior = CatBehaviorIdle | CatBehaviorWalking | CatBehaviorSitting | CatBehaviorLicking | CatBehaviorLying;
 
 interface CatState {
   id: CatTypeId;
   x: number;
   y: number;
   direction: CatDirection;
-  action: CatAction;
+  behavior: CatBehavior;
   frame: number;
-  actionPhase?: 'forward' | 'hold' | 'reverse' | 'loop';
-  holdStartTime?: number;
 }
 
 export default function SchoolWidget() {
@@ -65,11 +94,11 @@ export default function SchoolWidget() {
   const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
   const [points, setPoints] = useState<PointStatus[]>([]);
   
-  // 여러 고양이 상태 관리
+  // 여러 고양이 상태 관리 - useRef로 성능 최적화
   const catStatesRef = useRef<Map<CatTypeId, CatState>>(new Map());
   const catElementsRef = useRef<Map<CatTypeId, HTMLDivElement | null>>(new Map());
-  const [visibleCats, setVisibleCats] = useState<Set<CatTypeId>>(new Set());
-  const targetPosRef = useRef<{ x: number; y: number } | null>(null);
+  const [visibleCats, setVisibleCats] = useState<Set<CatTypeId>>(new Set()); // 렌더링 트리거용
+  const targetPosRef = useRef<{ x: number; y: number } | null>(null); // 목표 위치 (마우스 위치)
   
   const [loadingStates, setLoadingStates] = useState({
     timetable: false,
@@ -97,15 +126,18 @@ export default function SchoolWidget() {
         return ['default'];
       }
     }
+    // 기존 catEnabled 설정이 있으면 마이그레이션
     const oldEnabled = localStorage.getItem('schoolCatEnabled');
-    if (oldEnabled === 'false') return [];
+    if (oldEnabled === 'false') {
+      return [];
+    }
     return ['default'];
   });
   
   const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10));
   
-  // 픽셀 데이터 캐싱 (고양이 종류별)
-  const spritePixelDataRef = useRef<Map<CatTypeId, Map<string, ImageData>>>(new Map());
+  // 픽셀 데이터 캐싱을 위한 ref (고양이 종류별로 캐싱)
+  const spritePixelDataRef = useRef<Map<string, Map<string, ImageData>>>(new Map());
   const spriteImagesRef = useRef<Map<CatTypeId, HTMLImageElement>>(new Map());
 
   // 캐싱 상태 관리
@@ -127,20 +159,20 @@ export default function SchoolWidget() {
     );
   }, [timetableData, teacherSearch]);
 
-  // 고양이 스프라이트 행 번호 계산
-  const getCatSpriteRow = (direction: CatDirection, action: CatAction): number => {
-    if (action === 'walking') {
+  // 고양이 스프라이트 행 번호 계산 (새로운 타입 시스템 사용)
+  const getCatSpriteRow = (direction: CatDirection, behaviorType: CatBehavior['type']): number => {
+    if (behaviorType === 'walking' || behaviorType === 'idle') {
       switch (direction) {
-        case 'down': return 0;
-        case 'right': return 1;
-        case 'up': return 2;
-        case 'left': return 3;
+        case 'down': return 0;  // 1행: 아래로 걷기
+        case 'right': return 1; // 2행: 오른쪽 걷기
+        case 'up': return 2;    // 3행: 위로 걷기
+        case 'left': return 3;  // 4행: 왼쪽 걷기
       }
     } else {
-      switch (action) {
-        case 'sitting': return 4;
-        case 'licking': return 5;
-        case 'lying': return 6;
+      switch (behaviorType) {
+        case 'sitting': return 4;   // 5행: 앉기
+        case 'licking': return 5;   // 6행: 손핥기
+        case 'lying': return 6;     // 7행: 오른쪽 보다가 바닥에 눕기
         default: return 1;
       }
     }
@@ -154,18 +186,21 @@ export default function SchoolWidget() {
       img.onload = () => {
         spriteImagesRef.current.set(catType.id, img);
         
+        // 캔버스 생성 및 픽셀 데이터 추출
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         
+        // 스프라이트 시트 크기: rows행 4열, 각 프레임 32x32
         const frameWidth = 32;
         const frameHeight = 32;
         const cols = 4;
-        const rows = catType.rows;
+        const rows = catType.rows; // 고양이별 행 수 사용
         
         canvas.width = frameWidth;
         canvas.height = frameHeight;
         
+        // 각 프레임의 픽셀 데이터 캐싱
         const catPixelData = new Map<string, ImageData>();
         for (let row = 0; row < rows; row++) {
           for (let col = 0; col < cols; col++) {
@@ -184,10 +219,11 @@ export default function SchoolWidget() {
         spritePixelDataRef.current.set(catType.id, catPixelData);
       };
       img.onerror = () => {
-        console.error(`Failed to load cat sprite: ${catType.sprite}`);
+        console.error(`Failed to load cat sprite image: ${catType.sprite}`);
       };
     };
     
+    // 모든 고양이 스프라이트 로드
     CAT_TYPES.forEach(catType => loadSpriteImage(catType));
   }, []);
 
@@ -200,9 +236,10 @@ export default function SchoolWidget() {
     catY: number,
     size: number,
     direction: CatDirection,
-    action: CatAction,
+    behaviorType: CatBehavior['type'],
     frame: number
   ): boolean => {
+    // 클릭 위치가 고양이 영역 밖이면 false
     if (
       clickX < catX ||
       clickX > catX + size ||
@@ -212,19 +249,23 @@ export default function SchoolWidget() {
       return false;
     }
     
+    // 스프라이트 이미지가 아직 로드되지 않았으면 기본 히트 테스트 (사각형)
     const catPixelData = spritePixelDataRef.current.get(catTypeId);
     if (!catPixelData || catPixelData.size === 0) {
       return true;
     }
     
+    // 클릭 위치를 고양이 로컬 좌표로 변환
     const localX = clickX - catX;
     const localY = clickY - catY;
     
+    // 원본 프레임 크기(32x32)로 스케일링
     const originalFrameSize = 32;
     const scale = size / originalFrameSize;
     const originalX = Math.floor(localX / scale);
     const originalY = Math.floor(localY / scale);
     
+    // 범위 체크
     if (
       originalX < 0 ||
       originalX >= originalFrameSize ||
@@ -234,18 +275,21 @@ export default function SchoolWidget() {
       return false;
     }
     
-    const row = getCatSpriteRow(direction, action);
+    // 해당 프레임의 픽셀 데이터 가져오기
+    const row = getCatSpriteRow(direction, behaviorType);
     const col = frame;
     const key = `${row}-${col}`;
     const pixelData = catPixelData.get(key);
     
     if (!pixelData) {
-      return true;
+      return true; // 픽셀 데이터가 없으면 기본 히트 테스트
     }
     
+    // 해당 위치의 픽셀 알파값 확인
     const pixelIndex = (originalY * originalFrameSize + originalX) * 4;
     const alpha = pixelData.data[pixelIndex + 3];
     
+    // 알파값이 0보다 크면 실제 고양이 영역
     return alpha > 0;
   };
 
@@ -783,383 +827,297 @@ export default function SchoolWidget() {
     };
   }, []);
 
-  // 급식 위젯에서 고양이가 돌아다니도록
+  // 고양이 애니메이션 상수
+  const CAT_CONFIG = {
+    FRAME_DELAY: 150, // 프레임 전환 속도 (ms)
+    MOVE_SPEED: 30, // 픽셀/초
+    ENTER_DURATION: 150 * 4, // enter 단계 (4프레임)
+    HOLD_DURATION: 3000, // hold 단계 (3초)
+    EXIT_DURATION: 150 * 4, // exit 단계 (4프레임)
+    LICKING_DURATION: 3000, // 핥기 지속 시간 (3초)
+    INIT_DELAY: 1000, // 초기화 지연 (1초)
+    IDLE_MIN: 2000, // 최소 대기 시간
+    IDLE_MAX: 4000, // 최대 대기 시간
+  };
+
+  // 고양이 애니메이션 (여러 고양이 지원)
   useEffect(() => {
-    if (!catEnabled) {
-      setCatState(null);
+    if (enabledCats.length === 0) {
+      catStatesRef.current.clear();
+      setVisibleCats(new Set());
       return;
     }
 
     let animationFrameId: number;
-    let lastMoveTime = performance.now();
-    let lastFrameTime = performance.now();
+    let lastTime = performance.now();
     let isRunning = true;
-    const frameDelay = 150; // 애니메이션 프레임 전환 속도 (ms)
-    const moveSpeed = 30; // 픽셀/초 이동 속도
 
-    // 고양이 초기화 (이미 있으면 초기화하지 않음)
-    // 랜덤 목표 지점 상태 관리
-    let randomTarget: { x: number; y: number } | null = null;
-    let idleStartTime: number | null = null;
-    let idleDuration: number = 0;
-
-    // 고양이 초기화 (이미 있으면 초기화하지 않음)
-    const initCat = () => {
-      setCatState(prev => {
-        if (prev) return prev; // 이미 존재하면 유지
-        
-        const container = document.querySelector('.school-widget-container');
-        if (!container) return null;
-        
-        const rect = container.getBoundingClientRect();
-        // 고양이 중심점 기준 경계 내에서 랜덤 위치 생성
-        const halfSize = catSize / 2;
-        const minCenterX = 10 + halfSize;
-        const maxCenterX = rect.width - 10 - halfSize;
-        const minCenterY = 80 + halfSize;
-        const maxCenterY = rect.height - 10 - halfSize;
-        
-        // 중심점 위치 생성
-        const centerX = Math.random() * (maxCenterX - minCenterX) + minCenterX;
-        const centerY = Math.random() * (maxCenterY - minCenterY) + minCenterY;
-        
-        // 중심점에서 왼쪽 상단 모서리 위치로 변환
-        return {
-          x: centerX - halfSize,
-          y: centerY - halfSize,
-          direction: 'right' as const,
-          action: 'walking' as const,
-          frame: 0
-        };
-      });
-    };
-
-    // 랜덤 목표 지점 생성 (고양이 중심점 기준)
-    const getRandomTarget = () => {
+    // 컨테이너 경계 계산 헬퍼
+    const getBounds = () => {
       const container = document.querySelector('.school-widget-container');
       if (!container) return null;
-      
       const rect = container.getBoundingClientRect();
       const halfSize = catSize / 2;
-      const minCenterX = 10 + halfSize;
-      const maxCenterX = rect.width - 10 - halfSize;
-      const minCenterY = 80 + halfSize;
-      const maxCenterY = rect.height - 10 - halfSize;
-      
       return {
-        x: Math.random() * (maxCenterX - minCenterX) + minCenterX,
-        y: Math.random() * (maxCenterY - minCenterY) + minCenterY
+        minX: 10 + halfSize,
+        maxX: rect.width - 10 - halfSize,
+        minY: 80 + halfSize,
+        maxY: rect.height - 10 - halfSize,
       };
     };
 
-    // 고양이 초기화 (3초 후)
-    const initTimeout = setTimeout(initCat, 3000);
+    // 랜덤 목표 지점 생성
+    const getRandomTarget = (): { x: number; y: number } | null => {
+      const bounds = getBounds();
+      if (!bounds) return null;
+      return {
+        x: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
+        y: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
+      };
+    };
 
-    const animate = (currentTime: number) => {
-      // 이동용 deltaTime (매 프레임 계산)
-      const moveDeltaTime = currentTime - lastMoveTime;
-      lastMoveTime = currentTime; // 항상 업데이트
-      
-      // 애니메이션 프레임용 deltaTime
-      const frameDeltaTime = currentTime - lastFrameTime;
-      const shouldUpdateFrame = frameDeltaTime >= frameDelay;
-      
-      if (shouldUpdateFrame) {
-        lastFrameTime = currentTime;
-      }
-      
-      const deltaSeconds = moveDeltaTime / 1000; // 초 단위로 변환
-      
-      setCatState(prev => {
-        if (!prev) return null;
+    // 랜덤 방향 선택
+    const getRandomDirection = (): CatDirection => {
+      const dirs: CatDirection[] = ['down', 'right', 'up', 'left'];
+      return dirs[Math.floor(Math.random() * 4)];
+    };
 
-        const container = document.querySelector('.school-widget-container');
-        if (!container) return prev;
-        
-        const rect = container.getBoundingClientRect();
-        // 고양이 중심점 기준 경계 설정
-        const halfSize = catSize / 2;
-        const bounds = { 
-          minX: 10 + halfSize, 
-          maxX: rect.width - 10 - halfSize, 
-          minY: 80 + halfSize, 
-          maxY: rect.height - 10 - halfSize 
-        };
-
-        let newState = { ...prev };
-        const moveDistance = moveSpeed * deltaSeconds; // 이번 프레임에서 이동할 거리
-        
-        // 고양이의 중심점 계산
-        const catCenterX = newState.x + halfSize;
-        const catCenterY = newState.y + halfSize;
-
-        // 액션에 따른 처리
-        const currentTargetPos = targetPosRef.current;
-        
-        // 목표 지점 결정 (마우스 위치 또는 랜덤 위치)
-        let targetX: number, targetY: number;
-        let isRandomWandering = false;
-
-        if (currentTargetPos) {
-          // 마우스가 위젯 안에 있으면 마우스 따라가기
-          targetX = currentTargetPos.x;
-          targetY = currentTargetPos.y;
-          // 마우스 추적 시 랜덤 타겟 및 대기 상태 초기화
-          randomTarget = null;
-          idleStartTime = null;
-        } else {
-          // 마우스가 밖으로 나가면 랜덤 배회
-          isRandomWandering = true;
-
-          // 대기 중인지 확인
-          if (idleStartTime !== null) {
-            if (currentTime - idleStartTime < idleDuration) {
-              // 아직 대기 중이면 움직이지 않음 (상태 유지)
-              // 대기 중 랜덤 행동 애니메이션 처리는 아래에서 계속됨
-            } else {
-              // 대기 끝, 새로운 목표 설정
-              idleStartTime = null;
-              randomTarget = getRandomTarget();
-            }
-          }
-
-          if (!randomTarget && !idleStartTime) {
-            randomTarget = getRandomTarget();
-          }
-          
-          if (randomTarget) {
-            targetX = randomTarget.x;
-            targetY = randomTarget.y;
-          } else {
-            // 대기 중이거나 목표가 없으면 현재 위치 유지
-            targetX = catCenterX;
-            targetY = catCenterY;
-          }
-        }
-
-        // 목표 위치를 경계 내로 제한 (마우스 위치는 중심점 기준)
-        const clampedTargetX = Math.max(bounds.minX, Math.min(bounds.maxX, targetX));
-        const clampedTargetY = Math.max(bounds.minY, Math.min(bounds.maxY, targetY));
-        
-        // 고양이 중심점과 목표 위치의 거리 계산
-        const dx = clampedTargetX - catCenterX;
-        const dy = clampedTargetY - catCenterY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // 목표 도달 임계값 (랜덤 배회 시 조금 더 여유롭게)
-        const arrivalThreshold = isRandomWandering ? 5 : 2;
-
-        if (newState.action === 'walking') {
-          // 벡터 기반 속도 제어로 이동
-          if (distance <= arrivalThreshold || (moveDistance >= distance && distance < 10)) {
-            // 목표 위치에 도달
-            if (isRandomWandering) {
-              // 랜덤 배회 중 목표 도달 시 대기 모드로 전환
-              if (idleStartTime === null) {
-                idleStartTime = currentTime;
-                idleDuration = 2000 + Math.random() * 4000; // 2~6초 대기
-                randomTarget = null;
-
-                // 랜덤 행동 결정 (앉기, 핥기, 눕기)
-                const rand = Math.random();
-                let nextAction: 'walking' | 'sitting' | 'licking' | 'lying' = 'sitting';
-                
-                if (rand < 0.4) nextAction = 'sitting';
-                else if (rand < 0.7) nextAction = 'licking';
-                else nextAction = 'lying';
-
-                newState.action = nextAction;
-                newState.frame = 0;
-                newState.actionPhase = 'forward';
-                newState.holdStartTime = currentTime;
-              }
-            } else {
-              // 마우스 추적 중 목표 도달 -> 멈춤 (앉기)
-              // 도착하면 앉기 (4번째 프레임 유지)
-              newState.action = 'sitting';
-              newState.frame = 3; // 4번째 프레임 (0-indexed)
-              newState.actionPhase = 'hold';
-              newState.holdStartTime = currentTime;
-            }
-            
-            // 위치 보정
-            const newCenterX = clampedTargetX;
-            const newCenterY = clampedTargetY;
-            newState.x = newCenterX - halfSize;
-            newState.y = newCenterY - halfSize;
-            
-          } else {
-            // 이동 중 (걷기)
-            // 대기 중이 아닐 때만 이동
-            if (!isRandomWandering || idleStartTime === null) {
-              const moveX = (dx / distance) * moveDistance;
-              const moveY = (dy / distance) * moveDistance;
-              
-              const newCenterX = Math.max(bounds.minX, Math.min(bounds.maxX, catCenterX + moveX));
-              const newCenterY = Math.max(bounds.minY, Math.min(bounds.maxY, catCenterY + moveY));
-              
-              // 중심점에서 왼쪽 상단 모서리 위치로 변환
-              newState.x = newCenterX - halfSize;
-              newState.y = newCenterY - halfSize;
-              
-              // 방향 결정 (히스테리시스 적용)
-              const absDx = Math.abs(dx);
-              const absDy = Math.abs(dy);
-              const currentDir = newState.direction;
-              const isHorizontal = currentDir === 'left' || currentDir === 'right';
-              
-              // 현재 방향을 유지하려는 성향 (1.5배 가중치)
-              if (isHorizontal) {
-                if (absDy > absDx * 1.5) {
-                  newState.direction = dy > 0 ? 'down' : 'up';
-                } else {
-                  newState.direction = dx > 0 ? 'right' : 'left';
-                }
-              } else {
-                if (absDx > absDy * 1.5) {
-                  newState.direction = dx > 0 ? 'right' : 'left';
-                } else {
-                  newState.direction = dy > 0 ? 'down' : 'up';
-                }
-              }
-              
-              // 이동 중 가끔 액션 수행 (프레임 업데이트 시에만 체크) - 랜덤 배회 중에는 제외
-              if (!isRandomWandering && shouldUpdateFrame && Math.random() < 0.02) {
-                 // 걷다가 가끔 멈춰서 핥거나 앉기
-                 const rand = Math.random();
-                 if (rand < 0.5) {
-                   newState.action = 'licking';
-                   newState.frame = 0;
-                   newState.actionPhase = undefined;
-                 } else {
-                   newState.action = 'sitting';
-                   newState.frame = 0;
-                   newState.actionPhase = 'forward';
-                 }
-              }
-            }
-          }
-        } else {
-          // 액션 애니메이션 처리 (walking 아님)
-          
-          // 마우스가 다시 이동하면 걷기로 전환 (마우스 추적 모드일 때만)
-          if (currentTargetPos) {
-             // 고양이 중심점과 목표 위치(마우스)의 거리 계산
-             const dx = currentTargetPos.x - catCenterX;
-             const dy = currentTargetPos.y - catCenterY;
-             const distance = Math.sqrt(dx * dx + dy * dy);
-             
-             // 마우스가 이동했으면 (거리가 충분히 멀면) 걷기로 전환
-             if (distance > 10) {
-               newState.action = 'walking';
-               newState.actionPhase = undefined;
-               newState.holdStartTime = undefined;
-             }
-          } else if (isRandomWandering && idleStartTime === null) {
-             // 랜덤 배회 모드인데 대기 시간이 끝났거나 설정되지 않았으면 걷기로 전환
-             // (위의 로직에서 idleStartTime이 null이면 randomTarget이 설정됨)
-             if (randomTarget) {
-                newState.action = 'walking';
-                newState.actionPhase = undefined;
-                newState.holdStartTime = undefined;
-             }
-          }
-          
-          // 액션 애니메이션 처리 (프레임 업데이트 시에만)
-          if (shouldUpdateFrame) {
-            const isForwardHoldReverse = newState.action === 'sitting' || newState.action === 'lying';
-            
-            if (isForwardHoldReverse) {
-              // 앉기/눕기: forward → hold → reverse 순서
-              if (!newState.actionPhase) {
-                newState.actionPhase = 'forward';
-                newState.frame = 0;
-              }
-
-              if (newState.actionPhase === 'forward') {
-                // 1→2→3→4 순서로 진행
-                if (newState.frame < 3) {
-                  newState.frame += 1;
-                } else {
-                  // 4번 프레임 도달, 유지 단계로
-                  newState.actionPhase = 'hold';
-                  newState.holdStartTime = currentTime;
-                }
-              } else if (newState.actionPhase === 'hold') {
-                // 4번 프레임 유지
-                // 마우스가 있으면 마우스가 이동할 때까지 유지 (자동 전환 안 함)
-                // 마우스가 없으면(랜덤 배회) 일정 시간 후 reverse로 전환 (랜덤 배회 로직에서 처리됨)
-                // 하지만 여기서도 안전장치로 처리 가능
-                
-                // 랜덤 배회 중 대기 시간이 끝나면 reverse로 전환하여 일어남
-                if (isRandomWandering && idleStartTime !== null && currentTime - idleStartTime >= idleDuration) {
-                   newState.actionPhase = 'reverse';
-                   newState.frame = 3;
-                }
-                
-                // 마우스 추적 모드에서 3초 이상 지나면 가끔 다른 행동 (예: 눕기 -> 앉기) - 복잡하니 생략
-              } else if (newState.actionPhase === 'reverse') {
-                // 4→3→2→1 역순으로 진행
-                if (newState.frame > 0) {
-                  newState.frame -= 1;
-                } else {
-                  // 애니메이션 완료 후 걷기로 전환
-                  newState.action = 'walking';
-                  newState.actionPhase = undefined;
-                  newState.holdStartTime = undefined;
-                  // 방향 랜덤 변경
-                  newState.direction = ['right', 'left', 'up', 'down'][Math.floor(Math.random() * 4)] as 'down' | 'right' | 'up' | 'left';
-                }
-              }
-            } else if (newState.action === 'licking') {
-               // licking: loop 상태로 지속
-               if (!newState.actionPhase) {
-                  newState.actionPhase = 'loop';
-                  newState.holdStartTime = currentTime;
-                  newState.frame = 0;
-               }
-
-               if (newState.actionPhase === 'loop') {
-                  newState.frame = (newState.frame + 1) % 4;
-                  
-                  // 랜덤 배회 중 대기 시간이 끝나면 걷기로 전환
-                  if (isRandomWandering && idleStartTime !== null && currentTime - idleStartTime >= idleDuration) {
-                      newState.action = 'walking';
-                      newState.actionPhase = undefined;
-                      newState.holdStartTime = undefined;
-                      newState.direction = ['right', 'left', 'up', 'down'][Math.floor(Math.random() * 4)] as 'down' | 'right' | 'up' | 'left';
-                  }
-                  
-                  // 마우스 추적 모드에서도 3초 지나면 걷기로 전환 (너무 오래 핥지 않게)
-                  if (!isRandomWandering && newState.holdStartTime && currentTime - newState.holdStartTime >= 3000) {
-                      newState.action = 'walking';
-                      newState.actionPhase = undefined;
-                      newState.holdStartTime = undefined;
-                  }
-               }
-            } else {
-              // 기타 액션 (걷기 애니메이션)
-              newState.frame = (newState.frame + 1) % 4;
-            }
-          }
-        }
-
-        return newState;
-      });
-      
-      if (isRunning) {
-        animationFrameId = requestAnimationFrame(animate);
+    // 랜덤 액션 선택 (앉기, 핥기, 눕기)
+    const getRandomAction = (currentTime: number): CatBehavior => {
+      const rand = Math.random();
+      if (rand < 0.4) {
+        return { type: 'sitting', phase: 'enter', phaseStartTime: currentTime };
+      } else if (rand < 0.7) {
+        return { type: 'licking', startTime: currentTime, duration: CAT_CONFIG.LICKING_DURATION };
+      } else {
+        return { type: 'lying', phase: 'enter', phaseStartTime: currentTime };
       }
     };
 
+    // 고양이 초기화 (catId별로)
+    const initCat = (catId: CatTypeId, index: number) => {
+      if (catStatesRef.current.has(catId)) return;
+
+      const bounds = getBounds();
+      if (!bounds) return;
+
+      // 각 고양이가 다른 위치에서 시작하도록 오프셋 적용
+      const offsetX = (index % 3) * 50;
+      const offsetY = Math.floor(index / 3) * 50;
+      
+      const centerX = Math.min(
+        bounds.maxX,
+        Math.max(bounds.minX, bounds.minX + offsetX + Math.random() * 100)
+      );
+      const centerY = Math.min(
+        bounds.maxY,
+        Math.max(bounds.minY, bounds.minY + offsetY + Math.random() * 100)
+      );
+      const halfSize = catSize / 2;
+
+      catStatesRef.current.set(catId, {
+        id: catId,
+        x: centerX - halfSize,
+        y: centerY - halfSize,
+        direction: getRandomDirection(),
+        behavior: { type: 'walking', target: getRandomTarget() },
+        frame: 0,
+      });
+      
+      setVisibleCats(prev => new Set([...prev, catId]));
+    };
+
+    // 프레임 계산 헬퍼
+    const getFrameForPhase = (phase: CatActionPhase, phaseStartTime: number, currentTime: number): number => {
+      const elapsed = currentTime - phaseStartTime;
+      const frameIndex = Math.floor(elapsed / CAT_CONFIG.FRAME_DELAY);
+      
+      if (phase === 'enter') {
+        return Math.min(frameIndex, 3);
+      } else if (phase === 'hold') {
+        return 3;
+      } else {
+        return Math.max(3 - frameIndex, 0);
+      }
+    };
+
+    // 방향 결정 (히스테리시스 적용)
+    const getDirectionToTarget = (dx: number, dy: number, currentDir: CatDirection): CatDirection => {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      const isHorizontal = currentDir === 'left' || currentDir === 'right';
+      
+      if (isHorizontal) {
+        if (absDy > absDx * 1.5) {
+          return dy > 0 ? 'down' : 'up';
+        }
+        return dx > 0 ? 'right' : 'left';
+      } else {
+        if (absDx > absDy * 1.5) {
+          return dx > 0 ? 'right' : 'left';
+        }
+        return dy > 0 ? 'down' : 'up';
+      }
+    };
+
+    // 개별 고양이 애니메이션 업데이트
+    const updateCat = (cat: CatState, currentTime: number, deltaSeconds: number) => {
+      const bounds = getBounds();
+      if (!bounds) return;
+
+      const halfSize = catSize / 2;
+      const catCenterX = cat.x + halfSize;
+      const catCenterY = cat.y + halfSize;
+      const moveDistance = CAT_CONFIG.MOVE_SPEED * deltaSeconds;
+
+      // 마우스 위치 또는 랜덤 타겟
+      const mousePos = targetPosRef.current;
+
+      switch (cat.behavior.type) {
+        case 'idle': {
+          cat.behavior = { type: 'walking', target: getRandomTarget() };
+          break;
+        }
+
+        case 'walking': {
+          let targetX: number, targetY: number;
+          const isRandomWandering = !mousePos;
+
+          if (mousePos) {
+            targetX = Math.max(bounds.minX, Math.min(bounds.maxX, mousePos.x));
+            targetY = Math.max(bounds.minY, Math.min(bounds.maxY, mousePos.y));
+            cat.behavior.target = null;
+          } else if (cat.behavior.target) {
+            targetX = cat.behavior.target.x;
+            targetY = cat.behavior.target.y;
+          } else {
+            const newTarget = getRandomTarget();
+            if (newTarget) {
+              cat.behavior.target = newTarget;
+              targetX = newTarget.x;
+              targetY = newTarget.y;
+            } else {
+              targetX = catCenterX;
+              targetY = catCenterY;
+            }
+          }
+
+          const dx = targetX - catCenterX;
+          const dy = targetY - catCenterY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const arrivalThreshold = isRandomWandering ? 5 : 2;
+
+          if (distance <= arrivalThreshold) {
+            if (isRandomWandering) {
+              cat.behavior = getRandomAction(currentTime);
+            } else {
+              cat.behavior = { type: 'sitting', phase: 'hold', phaseStartTime: currentTime };
+              cat.frame = 3;
+            }
+          } else {
+            const moveX = (dx / distance) * moveDistance;
+            const moveY = (dy / distance) * moveDistance;
+            
+            const newCenterX = Math.max(bounds.minX, Math.min(bounds.maxX, catCenterX + moveX));
+            const newCenterY = Math.max(bounds.minY, Math.min(bounds.maxY, catCenterY + moveY));
+            
+            cat.x = newCenterX - halfSize;
+            cat.y = newCenterY - halfSize;
+            cat.direction = getDirectionToTarget(dx, dy, cat.direction);
+            cat.frame = Math.floor(currentTime / CAT_CONFIG.FRAME_DELAY) % 4;
+          }
+          break;
+        }
+
+        case 'sitting':
+        case 'lying': {
+          const behavior = cat.behavior as CatBehaviorSitting | CatBehaviorLying;
+          const elapsed = currentTime - behavior.phaseStartTime;
+          
+          if (mousePos) {
+            const dx = mousePos.x - catCenterX;
+            const dy = mousePos.y - catCenterY;
+            if (Math.sqrt(dx * dx + dy * dy) > 10) {
+              cat.behavior = { type: 'walking', target: null };
+              break;
+            }
+          }
+
+          if (behavior.phase === 'enter' && elapsed >= CAT_CONFIG.ENTER_DURATION) {
+            cat.behavior = { ...behavior, phase: 'hold', phaseStartTime: currentTime };
+          } else if (behavior.phase === 'hold' && elapsed >= CAT_CONFIG.HOLD_DURATION) {
+            cat.behavior = { ...behavior, phase: 'exit', phaseStartTime: currentTime };
+          } else if (behavior.phase === 'exit' && elapsed >= CAT_CONFIG.EXIT_DURATION) {
+            cat.behavior = { type: 'walking', target: getRandomTarget() };
+            cat.direction = getRandomDirection();
+          }
+
+          cat.frame = getFrameForPhase(behavior.phase, behavior.phaseStartTime, currentTime);
+          break;
+        }
+
+        case 'licking': {
+          const elapsed = currentTime - cat.behavior.startTime;
+
+          if (mousePos) {
+            const dx = mousePos.x - catCenterX;
+            const dy = mousePos.y - catCenterY;
+            if (Math.sqrt(dx * dx + dy * dy) > 10) {
+              cat.behavior = { type: 'walking', target: null };
+              break;
+            }
+          }
+
+          if (elapsed >= cat.behavior.duration) {
+            cat.behavior = { type: 'walking', target: getRandomTarget() };
+            cat.direction = getRandomDirection();
+          } else {
+            cat.frame = Math.floor(currentTime / CAT_CONFIG.FRAME_DELAY) % 4;
+          }
+          break;
+        }
+      }
+    };
+
+    // 메인 애니메이션 루프
+    const animate = (currentTime: number) => {
+      if (!isRunning) return;
+
+      const deltaTime = currentTime - lastTime;
+      lastTime = currentTime;
+      const deltaSeconds = deltaTime / 1000;
+
+      // 모든 활성 고양이 업데이트
+      catStatesRef.current.forEach((cat) => {
+        updateCat(cat, currentTime, deltaSeconds);
+
+        // DOM 직접 업데이트
+        const el = catElementsRef.current.get(cat.id);
+        if (el) {
+          el.style.left = `${cat.x}px`;
+          el.style.top = `${cat.y}px`;
+          
+          const row = getCatSpriteRow(cat.direction, cat.behavior.type);
+          el.style.backgroundPosition = `-${cat.frame * catSize}px -${row * catSize}px`;
+        }
+      });
+
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    // 활성화된 고양이들 초기화 (지연 시간 적용)
+    const initTimeouts = enabledCats.map((catId, index) => 
+      setTimeout(() => initCat(catId, index), CAT_CONFIG.INIT_DELAY + index * 500)
+    );
+    
     animationFrameId = requestAnimationFrame(animate);
 
     return () => {
       isRunning = false;
-      clearTimeout(initTimeout);
+      initTimeouts.forEach(clearTimeout);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [catEnabled]);
+  }, [enabledCats, catSize]);
 
   return (
     <div className="school-widget-container">
@@ -1220,70 +1178,6 @@ export default function SchoolWidget() {
 
           </div>
         )}
-        
-        {catEnabled && catState && (
-          <div 
-            className="cat-sprite"
-            onClick={(e) => {
-              // 클릭 위치를 컨테이너 기준 좌표로 변환
-              const container = document.querySelector('.school-widget-container');
-              if (!container) return;
-              
-              const rect = container.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              const clickY = e.clientY - rect.top;
-              
-              // 픽셀 퍼펙트 히트 테스트
-              const isHit = isPixelHit(
-                clickX,
-                clickY,
-                catState.x,
-                catState.y,
-                catSize,
-                catState.direction,
-                catState.action,
-                catState.frame
-              );
-              
-              if (!isHit) {
-                return; // 투명 영역 클릭 무시
-              }
-              
-              // 클릭 시 1픽셀씩 커지기
-              const newSize = catSize + 1;
-              setCatSize(newSize);
-              localStorage.setItem('schoolCatSize', newSize.toString());
-              
-              setCatState(prev => {
-                if (!prev) return null;
-                // 클릭 시 앉거나 눕기 (50% 확률)
-                const action = Math.random() < 0.5 ? 'sitting' : 'lying';
-                return {
-                  ...prev,
-                  action: action as 'sitting' | 'lying',
-                  frame: 0,
-                  actionPhase: 'forward',
-                  holdStartTime: undefined
-                };
-              });
-            }}
-            style={{
-              position: 'absolute',
-              left: `${catState.x}px`,
-              top: `${catState.y}px`,
-              width: `${catSize}px`,
-              height: `${catSize}px`,
-              backgroundImage: `url(${new URL('./asset/stardew-cat.png', import.meta.url).href})`,
-              backgroundSize: `${catSize * 4}px ${catSize * 8}px`,
-              backgroundPosition: `-${catState.frame * catSize}px -${getCatSpriteRow(catState.direction, catState.action) * catSize}px`,
-              imageRendering: 'pixelated',
-              zIndex: 1000,
-              cursor: 'pointer',
-              pointerEvents: 'auto', // 클릭 이벤트를 받기 위해
-            }}
-          />
-        )}
-
 
         {activeTab === 'timetable' && (
           <div className="timetable-section">
@@ -1419,22 +1313,63 @@ export default function SchoolWidget() {
                 </div>
               </div>
               <div className="setting-item">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={catEnabled}
-                    onChange={(e) => {
-                      setCatEnabled(e.target.checked);
-                      localStorage.setItem('schoolCatEnabled', e.target.checked.toString());
-                      if (!e.target.checked) {
-                        setCatState(null);
-                      }
-                    }}
-                  />
-                  <span>급식 탭 고양이 표시</span>
+                <label style={{ marginBottom: '8px', display: 'block', fontWeight: 500 }}>
+                  고양이 선택
                 </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                  {CAT_TYPES.map(catType => (
+                    <label
+                      key={catType.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        backgroundColor: enabledCats.includes(catType.id) ? 'rgba(100, 200, 100, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        border: enabledCats.includes(catType.id) ? '1px solid rgba(100, 200, 100, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enabledCats.includes(catType.id)}
+                        onChange={(e) => {
+                          let newEnabledCats: CatTypeId[];
+                          if (e.target.checked) {
+                            newEnabledCats = [...enabledCats, catType.id];
+                          } else {
+                            newEnabledCats = enabledCats.filter(id => id !== catType.id);
+                            // 비활성화된 고양이 상태 제거
+                            catStatesRef.current.delete(catType.id);
+                            setVisibleCats(prev => {
+                              const next = new Set(prev);
+                              next.delete(catType.id);
+                              return next;
+                            });
+                          }
+                          setEnabledCats(newEnabledCats);
+                          localStorage.setItem('schoolEnabledCats', JSON.stringify(newEnabledCats));
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      <span
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
+                          backgroundSize: `64px ${16 * catType.rows}px`,
+                          backgroundPosition: '-32px 0',
+                          imageRendering: 'pixelated',
+                        }}
+                      />
+                      <span style={{ fontSize: '13px' }}>{catType.name}</span>
+                    </label>
+                  ))}
+                </div>
                 <div className="setting-description">
-                  급식 탭에서 고양이가 돌아다닙니다.
+                  여러 고양이를 선택하면 함께 돌아다닙니다.
                 </div>
               </div>
               <div className="setting-item">
@@ -1554,6 +1489,73 @@ export default function SchoolWidget() {
           </div>
         )}
       </div>
+
+      {/* 고양이 스프라이트들 - tab-content 바깥에서 모든 탭에 표시 */}
+      {Array.from(visibleCats).map(catId => {
+        const catType = CAT_TYPES.find(t => t.id === catId);
+        if (!catType) return null;
+        
+        return (
+          <div 
+            key={catId}
+            ref={(el) => catElementsRef.current.set(catId, el)}
+            className="cat-sprite"
+            onClick={(e) => {
+              const cat = catStatesRef.current.get(catId);
+              if (!cat) return;
+              
+              const container = document.querySelector('.school-widget-container');
+              if (!container) return;
+              
+              const rect = container.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const clickY = e.clientY - rect.top;
+              
+              const isHit = isPixelHit(
+                catId,
+                clickX,
+                clickY,
+                cat.x,
+                cat.y,
+                catSize,
+                cat.direction,
+                cat.behavior.type,
+                cat.frame
+              );
+              
+              if (!isHit) return;
+              
+              // 클릭 시 1픽셀씩 커지기
+              const newSize = catSize + 1;
+              setCatSize(newSize);
+              localStorage.setItem('schoolCatSize', newSize.toString());
+              
+              // 클릭 시 앉거나 눕기 (50% 확률)
+              const currentTime = performance.now();
+              if (Math.random() < 0.5) {
+                cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime };
+              } else {
+                cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime };
+              }
+              cat.frame = 0;
+            }}
+            style={{
+              position: 'absolute',
+              left: '0px',
+              top: '0px',
+              width: `${catSize}px`,
+              height: `${catSize}px`,
+              backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
+              backgroundSize: `${catSize * 4}px ${catSize * catType.rows}px`,
+              backgroundPosition: '0px 0px',
+              imageRendering: 'pixelated',
+              zIndex: 1000,
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
