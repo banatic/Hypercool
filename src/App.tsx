@@ -7,13 +7,14 @@ import { check } from '@tauri-apps/plugin-updater';
 
 import { Message, SearchResultItem, ManualTodo, Page, PeriodSchedule } from './types';
 import { SyncService } from './sync/SyncService';
+import { ScheduleService } from './services/ScheduleService';
 import { Sidebar } from './components/Sidebar';
 import { ClassifierPage } from './components/ClassifierPage';
-import { TodosPage } from './components/TodosPage';
+
 import { HistoryPage } from './components/HistoryPage';
 import { SettingsPage } from './components/SettingsPage';
 import { ScheduleModal } from './components/ScheduleModal';
-import { AddTodoModal } from './components/AddTodoModal';
+
 import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { AuthService } from './auth/AuthService';
 
@@ -57,10 +58,11 @@ function App() {
   const [deadlines, setDeadlines] = useState<Record<string, string | null>>({});
   const [calendarTitles, setCalendarTitles] = useState<Record<string, string>>({});
   const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number | string }>({ open: false });
+  const [schedules, setSchedules] = useState<import('./types/schedule').ScheduleItem[]>([]);
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [addTodoModal, setAddTodoModal] = useState<boolean>(false);
+
   const [historyIndex, setHistoryIndex] = useState(0);
   const [totalMessageCount, setTotalMessageCount] = useState(0);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -104,7 +106,9 @@ function App() {
 
   const saveToRegistry = useCallback(async (key: string, value: string) => {
     try {
+      console.log(`Saving to registry: ${key} = ${value}`);
       await invoke('set_registry_value', { key, value });
+      console.log(`Saved to registry: ${key}`);
     } catch (e) {
       console.warn('레지스트리 저장 실패', e);
     }
@@ -113,22 +117,15 @@ function App() {
   const loadFromRegistry = useCallback(async () => {
     try {
       const savedPath = await invoke<string | null>('get_registry_value', { key: REG_KEY_UDB });
+      console.log(`Loaded UDB path from registry: ${savedPath}`);
       if (savedPath) setUdbPath(savedPath);
       
       const savedMap = await invoke<string | null>('get_registry_value', { key: REG_KEY_CLASSIFIED });
       if (savedMap) setClassified(JSON.parse(savedMap) || {});
 
-      const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
-      if (savedDeadlines) setDeadlines(JSON.parse(savedDeadlines) || {});
-
-      const savedCalendarTitles = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
-      if (savedCalendarTitles) setCalendarTitles(JSON.parse(savedCalendarTitles) || {});
-
-      const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
-      if (savedManualTodos) setManualTodos(JSON.parse(savedManualTodos) || []);
-
-      const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
-      if (savedPeriodSchedules) setPeriodSchedules(JSON.parse(savedPeriodSchedules) || []);
+      // Legacy Registry keys for schedules are NO LONGER LOADED here.
+      // We load from ScheduleService instead.
+      await loadSchedules();
 
       const savedLastSync = await invoke<string | null>('get_registry_value', { key: REG_KEY_LAST_SYNC });
       if (savedLastSync) setLastSyncTime(savedLastSync);
@@ -170,8 +167,134 @@ function App() {
         setSkippedUpdateVersion(savedSkippedVersion);
       }
 
+      // Try to migrate legacy registry data to DB if not already done
+      // This is safe to call multiple times as it checks for existence (or we can make it idempotent)
+      // Our migration function in db.rs checks if items exist before adding, but duplicates might be an issue if we don't track migration status.
+      // However, since we use UUIDs for new items, we might create duplicates if we run it every time.
+      // Let's check a flag in registry "DataMigratedToDB".
+      const migrationStatus = await invoke<string | null>('get_registry_value', { key: 'DataMigratedToDB' });
+      if (migrationStatus !== 'true') {
+        console.log("Migrating legacy registry data to DB...");
+        try {
+          const result = await invoke<string>('migrate_registry_to_db_command');
+          console.log("Migration result:", result);
+          await saveToRegistry('DataMigratedToDB', 'true');
+          // Reload schedules after migration
+          await loadSchedules();
+        } catch (e) {
+          console.error("Migration failed:", e);
+        }
+      }
+
     } catch (e) {
       console.warn('레지스트리 로드 실패', e);
+    }
+  }, [saveToRegistry]);
+
+
+  const lastLoadSchedulesTimeRef = useRef(0);
+
+  const loadSchedules = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastLoadSchedulesTimeRef.current < 1000) {
+      return;
+    }
+    lastLoadSchedulesTimeRef.current = now;
+
+    try {
+      // Load all schedules (wide range or all? getSchedules takes range. 
+      // For now, let's assume we want everything or a very wide range.
+      // Since we are replacing registry which held EVERYTHING, we should fetch everything.
+      // But getSchedules requires range.
+      // Let's use a very wide range for now: 2000-01-01 to 2100-12-31
+      const start = new Date('2000-01-01');
+      const end = new Date('2100-12-31');
+      const items = await ScheduleService.getSchedules({ start, end });
+
+      const newManualTodos: ManualTodo[] = [];
+      const newPeriodSchedules: PeriodSchedule[] = [];
+      const newDeadlines: Record<string, string | null> = {};
+      const newCalendarTitles: Record<string, string> = {};
+
+      for (const item of items) {
+        if (item.type === 'manual_todo') {
+          newManualTodos.push({
+            id: item.id,
+            content: item.content || '',
+            deadline: item.startDate || null,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            calendarTitle: item.title,
+            isDeleted: item.isDeleted
+          });
+        } else if (item.type === 'period_schedule') {
+          newPeriodSchedules.push({
+            id: item.id,
+            content: item.content || '',
+            startDate: item.startDate!, // Should be present for period schedule
+            endDate: item.endDate!,
+            calendarTitle: item.title,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            isDeleted: item.isDeleted
+          });
+        } else if (item.type === 'message_task') {
+          if (item.referenceId) {
+            // Check if referenceId is a valid number (message ID)
+            const isNumeric = !isNaN(Number(item.referenceId));
+            if (isNumeric) {
+              newDeadlines[item.referenceId] = item.startDate || null;
+              newCalendarTitles[item.referenceId] = item.title;
+            } else {
+              // If referenceId is not a number (e.g. UUID), it's an orphaned task or migrated incorrectly.
+              // Treat it as a manual todo so it shows up.
+              newManualTodos.push({
+                id: item.id,
+                content: item.content || '',
+                deadline: item.startDate || null,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                calendarTitle: item.title,
+                isDeleted: item.isDeleted
+              });
+            }
+          }
+        }
+      }
+
+      setManualTodos(newManualTodos);
+      setPeriodSchedules(newPeriodSchedules);
+      setDeadlines(newDeadlines);
+      setCalendarTitles(newCalendarTitles);
+      setSchedules(items);
+
+      // Ensure ClassifiedMap includes all message tasks as 'right'
+      const savedClassified = await invoke<string | null>('get_registry_value', { key: REG_KEY_CLASSIFIED });
+      const currentClassified: Record<number, 'left' | 'right'> = savedClassified ? JSON.parse(savedClassified) : {};
+      let classifiedChanged = false;
+
+      for (const refId of Object.keys(newDeadlines)) {
+        const msgId = Number(refId);
+        if (!isNaN(msgId) && currentClassified[msgId] !== 'right') {
+          currentClassified[msgId] = 'right';
+          classifiedChanged = true;
+        }
+      }
+
+      if (classifiedChanged) {
+        await saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(currentClassified));
+        setClassified(currentClassified);
+      }
+
+      return {
+        manualTodos: newManualTodos,
+        periodSchedules: newPeriodSchedules,
+        deadlines: newDeadlines,
+        calendarTitles: newCalendarTitles
+      };
+    } catch (e) {
+      console.error("Failed to load schedules from DB", e);
+      return null;
     }
   }, [saveToRegistry]);
 
@@ -220,8 +343,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadFromRegistry();
-  }, [loadFromRegistry]);
+    // Load from DB on startup (source of truth)
+    const initData = async () => {
+      await loadFromRegistry();
+      await loadSchedules();
+    };
+    initData();
+  }, [loadSchedules, loadFromRegistry]);
 
   // 자동 업데이트 체크 (10분마다)
   useEffect(() => {
@@ -434,26 +562,21 @@ function App() {
       setDeadlines(currentDeadlines);
       setCalendarTitles(currentCalendarTitles);
       
-      console.log('Syncing data:', { manualTodosCount: currentManualTodos.length, periodSchedulesCount: currentPeriodSchedules.length, lastSyncTime });
+      console.log('Syncing data:', { lastSyncTime });
       
-      const result = await SyncService.syncData(currentManualTodos, currentPeriodSchedules, lastSyncTime);
+      const newSyncTime = await SyncService.syncData(lastSyncTime);
       
       if (udbPath) {
         await SyncService.syncMessages(udbPath, (current, total) => {
           if (!silent) setSyncProgress({ current, total });
         });
-        
-        // Sync message metadata (deadlines, titles)
-        await SyncService.syncMessageMetadata(currentDeadlines, currentCalendarTitles);
       }
 
-      setManualTodos(result.mergedTodos);
-      setPeriodSchedules(result.mergedSchedules);
-      setLastSyncTime(result.newSyncTime);
+      // Reload schedules from DB to reflect changes
+      await loadSchedules();
       
-      await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(result.mergedTodos));
-      await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(result.mergedSchedules));
-      await saveToRegistry(REG_KEY_LAST_SYNC, result.newSyncTime);
+      setLastSyncTime(newSyncTime);
+      await saveToRegistry(REG_KEY_LAST_SYNC, newSyncTime);
       
       // Notify calendar widget
       await emit('calendar-update', { source: 'app-sync' });
@@ -573,19 +696,7 @@ function App() {
   };
   const { onMouseDown } = dragHandlers();
 
-  const keptMessages = useMemo(() => {
-    const rightIds = new Set(Object.keys(classified).filter(k => classified[Number(k)] === 'right').map(Number));
-    return allMessages
-      .filter(m => rightIds.has(m.id))
-      .sort((a, b) => {
-        const da = deadlines[a.id.toString()] || '';
-        const db = deadlines[b.id.toString()] || '';
-        if (!da && !db) return 0;
-        if (!da) return 1;
-        if (!db) return -1;
-        return da.localeCompare(db);
-      });
-  }, [classified, allMessages, deadlines]);
+
 
   // 누락된 메시지들을 로드
   useEffect(() => {
@@ -907,21 +1018,7 @@ function App() {
             formatReceiveDate={formatReceiveDate}
           />
         )}
-        {page === 'todos' && (
-          <TodosPage
-            keptMessages={keptMessages}
-            manualTodos={manualTodos}
-            deadlines={deadlines}
-            setAddTodoModal={setAddTodoModal}
-            classify={classify}
-            setScheduleModal={setScheduleModal}
-            decodeEntities={decodeEntities}
-            formatReceiveDate={formatReceiveDate}
-            saveToRegistry={saveToRegistry}
-            setManualTodos={setManualTodos}
-            setDeadlines={setDeadlines}
-          />
-        )}
+
         {page === 'history' && (
           <HistoryPage
             totalMessageCount={totalMessageCount}
@@ -985,16 +1082,9 @@ function App() {
           setClassified={setClassified}
           parseDateFromText={parseDateFromText}
           decodeEntities={decodeEntities}
+          schedules={schedules}
         />
-        <AddTodoModal
-          addTodoModal={addTodoModal}
-          setAddTodoModal={setAddTodoModal}
-          setManualTodos={setManualTodos}
-          setDeadlines={setDeadlines}
-          setCalendarTitles={setCalendarTitles}
-          saveToRegistry={saveToRegistry}
-          parseDateFromText={parseDateFromText}
-        />
+
         {updateNotification && (
           <UpdateNotificationModal
             updateInfo={updateNotification}

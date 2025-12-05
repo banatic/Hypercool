@@ -32,6 +32,39 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
   const [selectedEvent, setSelectedEvent] = useState<ManualTodo | PeriodSchedule | null>(null);
 
+  // Fetch message content if missing
+  const [fetchedContent, setFetchedContent] = useState<string | null>(null);
+  const [fetchingContent, setFetchingContent] = useState(false);
+
+  React.useEffect(() => {
+    if (selectedEvent && !selectedEvent.content && selectedEvent.referenceId) {
+      const fetchMessage = async () => {
+        setFetchingContent(true);
+        try {
+          const { doc, getDoc } = await import('firebase/firestore');
+          const { db, auth } = await import('../firebase');
+          if (auth.currentUser) {
+            const msgRef = doc(db, 'users', auth.currentUser.uid, 'messages', selectedEvent.referenceId!);
+            const snap = await getDoc(msgRef);
+            if (snap.exists()) {
+              setFetchedContent(snap.data().content);
+            } else {
+              setFetchedContent("메시지를 찾을 수 없습니다.");
+            }
+          }
+        } catch (e) {
+          console.error("Error fetching message content:", e);
+          setFetchedContent("내용을 불러오는데 실패했습니다.");
+        } finally {
+          setFetchingContent(false);
+        }
+      };
+      fetchMessage();
+    } else {
+      setFetchedContent(null);
+    }
+  }, [selectedEvent]);
+
   const { days, todosByDate, periodSchedulesByDate } = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -176,7 +209,23 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         {days.map((day, index) => {
           const dateKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
           const dayTodos = todosByDate[dateKey] || [];
-          const dayPeriodSchedules = periodSchedulesByDate[dateKey] || [];
+          // Sort schedules: multi-day first
+          const dayPeriodSchedules = [...(periodSchedulesByDate[dateKey] || [])].sort((a, b) => {
+            const getIsMultiDay = (schedule: PeriodSchedule) => {
+              const start = new Date(schedule.startDate);
+              start.setHours(0, 0, 0, 0);
+              const end = new Date(schedule.endDate);
+              end.setHours(0, 0, 0, 0);
+              return start.getTime() !== end.getTime();
+            };
+            
+            const aMulti = getIsMultiDay(a);
+            const bMulti = getIsMultiDay(b);
+            
+            if (aMulti && !bMulti) return -1;
+            if (!aMulti && bMulti) return 1;
+            return 0;
+          });
           const isCurrentMonth = day.getMonth() === currentDate.getMonth();
           const isToday = day.toDateString() === new Date().toDateString();
 
@@ -253,7 +302,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             </div>
             <div 
               className="event-body"
-              dangerouslySetInnerHTML={{ __html: selectedEvent.content || '<p class="text-gray-400 italic">내용이 없습니다.</p>' }}
+              dangerouslySetInnerHTML={{ __html: fetchedContent || selectedEvent.content || (fetchingContent ? '<p>내용을 불러오는 중...</p>' : '<p class="text-gray-400 italic">내용이 없습니다.</p>') }}
             />
           </div>
         )}

@@ -1,117 +1,147 @@
 import { collection, getDocs, doc, writeBatch, query, where, orderBy, limit } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { ManualTodo, PeriodSchedule } from "../types";
+import { ScheduleItem } from "../types/schedule";
+import { ScheduleService } from "../services/ScheduleService";
 
-const COLLECTION_TODOS = "todos";
-const COLLECTION_SCHEDULES = "schedules";
+const COLLECTION_EVENTS = "events";
 
 export const SyncService = {
-    async syncData(
-        localTodos: ManualTodo[],
-        localSchedules: PeriodSchedule[],
-        lastSyncTime: string | null
-    ): Promise<{
-        mergedTodos: ManualTodo[];
-        mergedSchedules: PeriodSchedule[];
-        newSyncTime: string;
-    }> {
+    async syncData(lastSyncTime: string | null): Promise<string> {
         const user = auth.currentUser;
         if (!user) {
             throw new Error("User not authenticated");
         }
 
         const newSyncTime = new Date().toISOString();
-        const batch = writeBatch(db);
+        let batch = writeBatch(db);
         let batchCount = 0;
 
-        // 1. Pull changes from Firestore
-        const todosRef = collection(db, "users", user.uid, COLLECTION_TODOS);
-        const schedulesRef = collection(db, "users", user.uid, COLLECTION_SCHEDULES);
+        // 1. Get Local Data
+        // We fetch ALL schedules for now to ensure we have everything for merging.
+        // Optimization: Fetch only modified if we trust the modification time, 
+        // but for safety in this transition, let's fetch all.
+        // Or better: Fetch all from local DB.
+        const start = new Date('2000-01-01');
+        const end = new Date('2100-12-31');
+        const localItems = await ScheduleService.getSchedules({ start, end });
 
-        let remoteTodos: ManualTodo[] = [];
-        let remoteSchedules: PeriodSchedule[] = [];
+        // 2. Get Remote Data
+        const eventsRef = collection(db, "users", user.uid, COLLECTION_EVENTS);
+        let remoteItems: ScheduleItem[] = [];
 
         try {
+            // Fetch all remote items for now to ensure full sync
+            // Optimization: Use updated_at query if lastSyncTime exists
+            let q = query(eventsRef);
             if (lastSyncTime) {
-                const qTodos = query(todosRef, where("updatedAt", ">", lastSyncTime));
-                const qSchedules = query(schedulesRef, where("updatedAt", ">", lastSyncTime));
-
-                const [todosSnap, schedulesSnap] = await Promise.all([
-                    getDocs(qTodos),
-                    getDocs(qSchedules)
-                ]);
-
-                remoteTodos = todosSnap.docs.map(d => d.data() as ManualTodo);
-                remoteSchedules = schedulesSnap.docs.map(d => d.data() as PeriodSchedule);
-            } else {
-                // First sync: get all
-                const [todosSnap, schedulesSnap] = await Promise.all([
-                    getDocs(todosRef),
-                    getDocs(schedulesRef)
-                ]);
-                remoteTodos = todosSnap.docs.map(d => d.data() as ManualTodo);
-                remoteSchedules = schedulesSnap.docs.map(d => d.data() as PeriodSchedule);
+                q = query(eventsRef, where("updatedAt", ">", lastSyncTime));
             }
+            const snapshot = await getDocs(q);
+            remoteItems = snapshot.docs.map(d => d.data() as ScheduleItem);
+
+            // If we only fetched modified, we need to know about others?
+            // No, for Last Write Wins, we only care about what changed.
+            // But if we want to update local with remote changes, we need those remote changes.
+            // If we want to update remote with local changes, we need to know if remote is older.
+
+            // If lastSyncTime is set, we might miss items that were created on another device 
+            // but not yet synced here.
+            // So fetching "modified since lastSyncTime" from remote is correct for "pulling updates".
+
+            // But for "pushing updates", we need to compare with remote state.
+            // If we blindly push local > lastSyncTime, we might overwrite newer remote changes 
+            // if clocks are off or race conditions.
+            // But standard sync usually relies on timestamps.
+
+            // Let's stick to:
+            // 1. Pull remote changes (modified > lastSync) -> Update Local
+            // 2. Push local changes (modified > lastSync) -> Update Remote
+
+            // However, we need to handle conflicts.
+            // If both changed, usually LWW (Last Write Wins) based on updatedAt.
+
+            // To do LWW properly, we need the CURRENT remote state for the items we want to push.
+            // But fetching everything is expensive.
+
+            // Simplified approach for now:
+            // 1. Pull all remote items modified > lastSyncTime.
+            // 2. For each remote item:
+            //    - Find local item.
+            //    - If local is older (or missing), update local.
+            //    - If local is newer, do nothing (we will push it in step 3).
+            // 3. Find all local items modified > lastSyncTime.
+            // 4. For each local item:
+            //    - If it was updated from remote in step 2, skip.
+            //    - Else, push to remote (blindly? or check remote timestamp?).
+            //      - Firestore rules can enforce timestamp check, or we can just overwrite.
+            //      - Let's overwrite for now (Client Wins / LWW).
+
         } catch (e) {
             console.error("Error fetching remote data:", e);
             throw e;
         }
 
-        // 2. Merge Logic (Last Write Wins)
-        const mergedTodosMap = new Map<string, ManualTodo>();
-        localTodos.forEach(t => mergedTodosMap.set(t.id, t));
+        // 3. Process Remote Changes (Update Local)
+        console.log(`DEBUG: Processing ${remoteItems.length} remote items`);
+        for (const remote of remoteItems) {
+            const local = localItems.find(i => i.id === remote.id);
 
-        remoteTodos.forEach(remote => {
-            const local = mergedTodosMap.get(remote.id);
-            if (!local || new Date(remote.updatedAt) > new Date(local.updatedAt)) {
-                mergedTodosMap.set(remote.id, remote);
-            }
-        });
+            if (!local) {
+                // New from remote
+                console.log(`DEBUG: Creating new local schedule from remote: ${remote.id} (${remote.title})`);
+                const { invoke } = await import('@tauri-apps/api/core');
+                await invoke('create_schedule', { item: remote });
+            } else {
+                // Conflict resolution
+                const remoteTime = new Date(remote.updatedAt).getTime();
+                const localTime = new Date(local.updatedAt).getTime();
 
-        const mergedSchedulesMap = new Map<string, PeriodSchedule>();
-        localSchedules.forEach(s => mergedSchedulesMap.set(s.id, s));
-
-        remoteSchedules.forEach(remote => {
-            const local = mergedSchedulesMap.get(remote.id);
-            if (!local || new Date(remote.updatedAt) > new Date(local.updatedAt)) {
-                mergedSchedulesMap.set(remote.id, remote);
-            }
-        });
-
-        // 3. Push changes to Firestore
-        for (const todo of mergedTodosMap.values()) {
-            const local = localTodos.find(t => t.id === todo.id);
-            const remote = remoteTodos.find(t => t.id === todo.id);
-
-            // We push if:
-            // 1. It's a local item (or merged result is same as local)
-            // 2. AND (It's recently modified OR It's missing from remote OR It's newer than remote)
-
-            const isLocalContent = local && todo.updatedAt === local.updatedAt;
-            const isMissingRemote = !remote;
-            const isRecentlyModified = !lastSyncTime || new Date(todo.updatedAt) > new Date(lastSyncTime);
-            const isNewerThanRemote = remote && new Date(todo.updatedAt) > new Date(remote.updatedAt);
-
-            if (isLocalContent && (isRecentlyModified || isMissingRemote || isNewerThanRemote)) {
-                const docRef = doc(todosRef, todo.id);
-                batch.set(docRef, todo);
-                batchCount++;
+                if (remoteTime > localTime) {
+                    // Remote is newer, update local
+                    console.log(`DEBUG: Updating local schedule from remote: ${remote.id}`);
+                    await ScheduleService.updateScheduleItem(remote);
+                }
             }
         }
 
-        for (const schedule of mergedSchedulesMap.values()) {
-            const local = localSchedules.find(s => s.id === schedule.id);
-            const remote = remoteSchedules.find(s => s.id === schedule.id);
+        // 4. Process Local Changes (Push to Remote)
+        // We need to re-fetch local items if we updated them? 
+        // Or just track what we updated.
+        // Actually, we only push items that were NOT updated from remote just now.
 
-            const isLocalContent = local && schedule.updatedAt === local.updatedAt;
-            const isMissingRemote = !remote;
-            const isRecentlyModified = !lastSyncTime || new Date(schedule.updatedAt) > new Date(lastSyncTime);
-            const isNewerThanRemote = remote && new Date(schedule.updatedAt) > new Date(remote.updatedAt);
+        const localItemsToPush = localItems.filter(local => {
+            // If we just updated it from remote, local.updatedAt matches remote.updatedAt (roughly).
+            // But we updated it in DB, so `localItems` array is stale for those.
+            // But we want to push items that are NEWER than lastSyncTime AND NOT updated from remote.
 
-            if (isLocalContent && (isRecentlyModified || isMissingRemote || isNewerThanRemote)) {
-                const docRef = doc(schedulesRef, schedule.id);
-                batch.set(docRef, schedule);
-                batchCount++;
+            // If lastSyncTime is null, push everything (except what we just pulled).
+            if (!lastSyncTime) return true;
+
+            return new Date(local.updatedAt) > new Date(lastSyncTime);
+        });
+
+        for (const local of localItemsToPush) {
+            // Check if we just updated this from remote
+            const remote = remoteItems.find(r => r.id === local.id);
+            if (remote) {
+                const remoteTime = new Date(remote.updatedAt).getTime();
+                const localTime = new Date(local.updatedAt).getTime();
+                if (remoteTime >= localTime) {
+                    // Remote was newer or equal, so we already updated local (or they are in sync).
+                    // Don't push back.
+                    continue;
+                }
+            }
+
+            // Push to remote
+            const docRef = doc(eventsRef, local.id);
+            batch.set(docRef, local);
+            batchCount++;
+
+            if (batchCount >= 450) {
+                await batch.commit();
+                batch = writeBatch(db);
+                batchCount = 0;
             }
         }
 
@@ -120,11 +150,7 @@ export const SyncService = {
             console.log(`Pushed ${batchCount} changes to Firestore`);
         }
 
-        return {
-            mergedTodos: Array.from(mergedTodosMap.values()),
-            mergedSchedules: Array.from(mergedSchedulesMap.values()),
-            newSyncTime
-        };
+        return newSyncTime;
     },
 
     async syncMessages(udbPath: string, onProgress?: (current: number, total: number) => void) {
@@ -221,58 +247,5 @@ export const SyncService = {
         }
 
         console.log("Message sync complete.");
-    },
-
-    async syncMessageMetadata(
-        deadlines: Record<string, string | null>,
-        calendarTitles: Record<string, string>
-    ) {
-        const user = auth.currentUser;
-        if (!user) return;
-
-        console.log("Syncing message metadata (deadlines/titles)...");
-        const messagesRef = collection(db, "users", user.uid, "messages");
-        const batch = writeBatch(db);
-        let batchCount = 0;
-
-        // Sync all deadlines/titles
-        // Since we don't track modification time for these, we sync all non-null ones.
-        // Optimization: In a real app, we should track 'metadataUpdatedAt'.
-        // For now, assuming the number of scheduled messages is reasonable (< 500 per sync).
-
-        const uniqueIds = new Set([...Object.keys(deadlines), ...Object.keys(calendarTitles)]);
-
-        for (const id of uniqueIds) {
-            const deadline = deadlines[id];
-            const calendarTitle = calendarTitles[id];
-
-            // Only update if there is something to update
-            if (deadline || calendarTitle) {
-                const docRef = doc(messagesRef, id);
-                // Use set with merge: true to update fields without overwriting the whole doc
-                // or creating it if it doesn't exist (though it should exist if we are scheduling it)
-                // Note: If message doesn't exist on server yet (not synced), this will create a partial doc.
-                // When the actual message syncs, it should merge or overwrite?
-                // SyncService.syncMessages uses batch.set() which overwrites.
-                // So we should run syncMessages FIRST, then syncMessageMetadata.
-
-                batch.set(docRef, {
-                    deadline: deadline || null,
-                    calendarTitle: calendarTitle || null
-                }, { merge: true });
-
-                batchCount++;
-
-                if (batchCount >= 450) { // Firestore batch limit is 500
-                    await batch.commit();
-                    batchCount = 0;
-                }
-            }
-        }
-
-        if (batchCount > 0) {
-            await batch.commit();
-            console.log(`Synced metadata for ${batchCount} messages.`);
-        }
     }
 };

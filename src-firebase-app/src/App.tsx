@@ -26,21 +26,25 @@ const AuthGuard = () => {
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
+import { DataProvider } from './context/DataContext';
+
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route element={<AuthGuard />}>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/calendar" replace />} />
-            <Route path="calendar" element={<CalendarPage />} />
-            <Route path="todos" element={<TodosPage />} />
-            <Route path="messages" element={<MessagesPage />} />
+    <DataProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<AuthGuard />}>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Navigate to="/calendar" replace />} />
+              <Route path="calendar" element={<CalendarPage />} />
+              <Route path="todos" element={<TodosPage />} />
+              <Route path="messages" element={<MessagesPage />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </DataProvider>
   );
 }
 

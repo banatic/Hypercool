@@ -1110,6 +1110,7 @@ struct CacheState {
 
 mod timetable_parser;
 mod school_data;
+mod db;
 
 #[derive(serde::Serialize)]
 struct AttendanceResponse {
@@ -1265,6 +1266,170 @@ async fn open_school_widget(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_schedules(app: tauri::AppHandle, start: String, end: String) -> Result<Vec<db::ScheduleItem>, String> {
+    db::get_schedules(&app, &start, &end)
+}
+
+#[tauri::command]
+fn create_schedule(app: tauri::AppHandle, item: db::ScheduleItem) -> Result<db::ScheduleItem, String> {
+    db::create_schedule(&app, item)
+}
+
+#[tauri::command]
+fn update_schedule(app: tauri::AppHandle, id: String, item: db::ScheduleItem) -> Result<db::ScheduleItem, String> {
+    db::update_schedule(&app, id, item)
+}
+
+#[tauri::command]
+fn delete_schedule(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    db::delete_schedule(&app, id)
+}
+
+#[derive(serde::Deserialize)]
+struct RegistryManualTodo {
+    id: String,
+    content: String,
+    deadline: Option<String>,
+    createdAt: String,
+    updatedAt: String,
+    calendarTitle: Option<String>,
+    isDeleted: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+struct RegistryPeriodSchedule {
+    id: String,
+    content: String,
+    startDate: String,
+    endDate: String,
+    calendarTitle: Option<String>,
+    createdAt: String,
+    updatedAt: String,
+    isDeleted: Option<bool>,
+}
+
+#[tauri::command]
+fn migrate_registry_to_db(app: tauri::AppHandle) -> Result<String, String> {
+    // Check if migration is already done
+    if let Ok(Some(val)) = get_registry_value("DbMigrationDone".to_string()) {
+        if val == "true" {
+            return Ok("Already migrated".to_string());
+        }
+    }
+
+    let mut count = 0;
+
+    // 1. Migrate ManualTodos
+    if let Ok(Some(json)) = get_registry_value("ManualTodos".to_string()) {
+        if let Ok(todos) = serde_json::from_str::<Vec<RegistryManualTodo>>(&json) {
+            for todo in todos {
+                let item = db::ScheduleItem {
+                    id: todo.id,
+                    schedule_type: "manual_todo".to_string(),
+                    title: todo.calendarTitle.unwrap_or_else(|| "할 일".to_string()),
+                    content: Some(todo.content),
+                    start_date: todo.deadline.clone(),
+                    end_date: todo.deadline, // For point-in-time todos, start=end
+                    is_all_day: false,
+                    reference_id: None,
+                    color: None,
+                    is_completed: false, // Registry doesn't track completion separately?
+                    created_at: todo.createdAt,
+                    updated_at: todo.updatedAt,
+                    is_deleted: todo.isDeleted.unwrap_or(false),
+                };
+                let _ = db::create_schedule(&app, item);
+                count += 1;
+            }
+        }
+    }
+
+    // 2. Migrate PeriodSchedules
+    if let Ok(Some(json)) = get_registry_value("PeriodSchedules".to_string()) {
+        // Note: Registry key might be different, checking types.ts it seems to be implied but not explicitly named in ScheduleModal.
+        // Assuming "PeriodSchedules" based on plan. If it doesn't exist, it skips.
+        if let Ok(schedules) = serde_json::from_str::<Vec<RegistryPeriodSchedule>>(&json) {
+            for schedule in schedules {
+                let item = db::ScheduleItem {
+                    id: schedule.id,
+                    schedule_type: "period_schedule".to_string(),
+                    title: schedule.calendarTitle.unwrap_or_else(|| "일정".to_string()),
+                    content: Some(schedule.content),
+                    start_date: Some(schedule.startDate),
+                    end_date: Some(schedule.endDate),
+                    is_all_day: true, // Period schedules are usually all-day
+                    reference_id: None,
+                    color: None,
+                    is_completed: false,
+                    created_at: schedule.createdAt,
+                    updated_at: schedule.updatedAt,
+                    is_deleted: schedule.isDeleted.unwrap_or(false),
+                };
+                let _ = db::create_schedule(&app, item);
+                count += 1;
+            }
+        }
+    }
+
+    // 3. Migrate Message Metadata (Deadlines & Titles)
+    let deadlines: std::collections::HashMap<String, String> = 
+        if let Ok(Some(json)) = get_registry_value("TodoDeadlineMap".to_string()) {
+            serde_json::from_str(&json).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+        
+    let titles: std::collections::HashMap<String, String> = 
+        if let Ok(Some(json)) = get_registry_value("CalendarTitles".to_string()) {
+            serde_json::from_str(&json).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+    
+    // Merge keys
+    let mut all_msg_ids: Vec<String> = deadlines.keys().cloned().collect();
+    for k in titles.keys() {
+        if !all_msg_ids.contains(k) {
+            all_msg_ids.push(k.clone());
+        }
+    }
+
+    for msg_id in all_msg_ids {
+        let deadline = deadlines.get(&msg_id);
+        let title = titles.get(&msg_id).cloned().unwrap_or_else(|| "메시지 일정".to_string());
+        
+        if let Some(d) = deadline {
+             let now = chrono::Utc::now().to_rfc3339();
+             // We don't have the message content here easily without querying DB.
+             // We'll leave content empty for now, UI can fetch it via reference_id.
+             let item = db::ScheduleItem {
+                id: uuid::Uuid::new_v4().to_string(),
+                schedule_type: "message_task".to_string(),
+                title: title,
+                content: None,
+                start_date: Some(d.clone()),
+                end_date: Some(d.clone()),
+                is_all_day: false,
+                reference_id: Some(msg_id),
+                color: None,
+                is_completed: false,
+                created_at: now.clone(),
+                updated_at: now,
+                is_deleted: false,
+            };
+            let _ = db::create_schedule(&app, item);
+            count += 1;
+        }
+    }
+
+    // Mark migration as done
+    let _ = set_registry_value("DbMigrationDone".to_string(), "true".to_string());
+
+    Ok(format!("Migrated {} items", count))
+}
+
+
 fn main() {
     let cache_size = NonZeroUsize::new(50).unwrap();
     let cache_state = CacheState {
@@ -1311,7 +1476,12 @@ fn main() {
             get_download_path,
             check_file_exists,
             open_file,
-            get_all_messages_for_sync
+            get_all_messages_for_sync,
+            // Schedule Commands
+            get_schedules,
+            create_schedule,
+            update_schedule,
+            delete_schedule
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -1320,6 +1490,12 @@ fn main() {
                 if let Err(e) = register_custom_scheme() {
                     eprintln!("Failed to register custom scheme: {}", e);
                 }
+            }
+
+            // Initialize DB
+            if let Err(e) = db::init_db(app.app_handle()) {
+                eprintln!("Failed to initialize DB: {}", e);
+                return Err(e.into());
             }
 
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)

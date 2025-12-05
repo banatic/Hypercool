@@ -236,6 +236,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             syncProgress={syncProgress}
             syncError={syncError}
           />
+
         </div>
       </div>
 

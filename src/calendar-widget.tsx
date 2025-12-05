@@ -10,11 +10,6 @@ import { ManualTodo, PeriodSchedule } from './types';
 import './styles.css';
 import './CalendarWidget.css';
 
-const REG_KEY_MANUAL_TODOS = 'ManualTodos';
-const REG_KEY_DEADLINES = 'TodoDeadlineMap';
-const REG_KEY_CALENDAR_TITLES = 'CalendarTitles';
-const REG_KEY_PERIOD_SCHEDULES = 'PeriodSchedules';
-const REG_KEY_COMPLETED_TODOS = 'CompletedTodos';
 const REG_KEY_TODO_ORDER = 'TodoOrderMap';
 
 
@@ -47,6 +42,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [completedTodos, setCompletedTodos] = useState<Set<string>>(new Set());
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
   const [todoOrder, setTodoOrder] = useState<Record<string, string[]>>({}); // 날짜별 할일 ID 순서
+  const [referenceIdToScheduleId, setReferenceIdToScheduleId] = useState<Record<string, string>>({});
   const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null);
   const draggedTodoIdRef = useRef<string | null>(null); // 동기적으로 접근하기 위한 ref
   // const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 }); // Performance: Removed state
@@ -101,136 +97,125 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   }, [keptMessages, manualTodos, deadlines, calendarTitles, completedTodos]);
 
   // 데이터 마이그레이션 (Number ID -> UUID String)
-  const migrateData = async () => {
-    try {
-      const savedManualTodosStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
-      const savedPeriodSchedulesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
-      
-      let needsMigration = false;
-      const manualTodos = savedManualTodosStr ? JSON.parse(savedManualTodosStr) : [];
-      const periodSchedules = savedPeriodSchedulesStr ? JSON.parse(savedPeriodSchedulesStr) : [];
 
-      // Check if migration is needed
-      if (manualTodos.some((t: any) => typeof t.id === 'number') || periodSchedules.some((s: any) => typeof s.id === 'number')) {
-        needsMigration = true;
-      }
-
-      if (!needsMigration) return;
-
-      console.log('Starting data migration to UUIDs...');
-      const idMap: Record<string, string> = {}; // oldId (stringified) -> newUUID
-
-      // Migrate ManualTodos
-      const newManualTodos = manualTodos.map((t: any) => {
-        if (typeof t.id === 'number') {
-          const newId = crypto.randomUUID();
-          idMap[t.id.toString()] = newId;
-          return { ...t, id: newId, updatedAt: t.createdAt || new Date().toISOString(), isDeleted: false };
-        }
-        return t;
-      });
-
-      // Migrate PeriodSchedules
-      const newPeriodSchedules = periodSchedules.map((s: any) => {
-        if (typeof s.id === 'number') {
-          const newId = crypto.randomUUID();
-          idMap[s.id.toString()] = newId;
-          return { ...s, id: newId, updatedAt: s.createdAt || new Date().toISOString(), isDeleted: false };
-        }
-        return s;
-      });
-
-      // Migrate Deadlines
-      const savedDeadlinesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
-      const deadlines = savedDeadlinesStr ? JSON.parse(savedDeadlinesStr) : {};
-      const newDeadlines: Record<string, string | null> = {};
-      Object.entries(deadlines).forEach(([key, value]) => {
-        const newKey = idMap[key] || key; // Use new UUID if mapped, else keep original (likely message ID)
-        newDeadlines[newKey] = value as string | null;
-      });
-
-      // Migrate CalendarTitles
-      const savedTitlesStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
-      const titles = savedTitlesStr ? JSON.parse(savedTitlesStr) : {};
-      const newTitles: Record<string, string> = {};
-      Object.entries(titles).forEach(([key, value]) => {
-        const newKey = idMap[key] || key;
-        newTitles[newKey] = value as string;
-      });
-
-      // Migrate CompletedTodos
-      const savedCompletedStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_COMPLETED_TODOS });
-      const completed = savedCompletedStr ? JSON.parse(savedCompletedStr) : [];
-      const newCompleted = completed.map((id: number | string) => idMap[id.toString()] || id.toString());
-
-      // Migrate TodoOrder
-      const savedOrderStr = await invoke<string | null>('get_registry_value', { key: REG_KEY_TODO_ORDER });
-      const order = savedOrderStr ? JSON.parse(savedOrderStr) : {};
-      const newOrder: Record<string, string[]> = {};
-      Object.entries(order).forEach(([dateKey, ids]) => {
-        newOrder[dateKey] = (ids as (number | string)[]).map(id => idMap[id.toString()] || id.toString());
-      });
-
-      // Save all migrated data
-      await invoke('set_registry_value', { key: REG_KEY_MANUAL_TODOS, value: JSON.stringify(newManualTodos) });
-      await invoke('set_registry_value', { key: REG_KEY_PERIOD_SCHEDULES, value: JSON.stringify(newPeriodSchedules) });
-      await invoke('set_registry_value', { key: REG_KEY_DEADLINES, value: JSON.stringify(newDeadlines) });
-      await invoke('set_registry_value', { key: REG_KEY_CALENDAR_TITLES, value: JSON.stringify(newTitles) });
-      await invoke('set_registry_value', { key: REG_KEY_COMPLETED_TODOS, value: JSON.stringify(newCompleted) });
-      await invoke('set_registry_value', { key: REG_KEY_TODO_ORDER, value: JSON.stringify(newOrder) });
-
-      console.log('Data migration completed successfully.');
-    } catch (e) {
-      console.error('Data migration failed:', e);
-    }
-  };
+  const lastLoadTimeRef = useRef(0);
 
   const loadTodos = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastLoadTimeRef.current < 1000) {
+      console.log('Skipping loadTodos (throttled)');
+      return;
+    }
+    lastLoadTimeRef.current = now;
+
     try {
-      await migrateData();
+      // Load from DB directly
+      const start = new Date('2000-01-01');
+      const end = new Date('2100-12-31');
+      // console.log("Fetching schedules from DB...", start.toISOString(), end.toISOString());
+      
+      const items = await invoke<any[]>('get_schedules', { 
+        start: start.toISOString(), 
+        end: end.toISOString() 
+      });
+      // console.log("Fetched items from DB:", items);
 
-      const savedManualTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_MANUAL_TODOS });
-      if (savedManualTodos) {
-        setManualTodos(JSON.parse(savedManualTodos) || []);
+      const newManualTodos: ManualTodo[] = [];
+      const newPeriodSchedules: PeriodSchedule[] = [];
+      const newDeadlines: Record<string, string | null> = {};
+      const newCalendarTitles: Record<string, string> = {};
+      const newReferenceIdToScheduleId: Record<string, string> = {};
+
+      for (const item of items) {
+        if (item.type === 'manual_todo') {
+          newManualTodos.push({
+            id: item.id,
+            content: item.content || '',
+            deadline: item.startDate || null,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            calendarTitle: item.title,
+            isDeleted: item.isDeleted
+          });
+        } else if (item.type === 'period_schedule') {
+          newPeriodSchedules.push({
+            id: item.id,
+            content: item.content || '',
+            startDate: item.startDate!, 
+            endDate: item.endDate!,
+            calendarTitle: item.title,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            isDeleted: item.isDeleted
+          });
+        } else if (item.type === 'message_task') {
+          if (item.referenceId) {
+             // Check if referenceId is a valid number (message ID)
+            const isNumeric = !isNaN(Number(item.referenceId));
+            if (isNumeric) {
+              newDeadlines[item.referenceId] = item.startDate || null;
+              newCalendarTitles[item.referenceId] = item.title;
+              newReferenceIdToScheduleId[item.referenceId] = item.id;
+            } else {
+              // Orphaned/UUID reference -> Treat as Manual Todo
+              newManualTodos.push({
+                id: item.id,
+                content: item.content || '',
+                deadline: item.startDate || null,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                calendarTitle: item.title,
+                isDeleted: item.isDeleted
+              });
+            }
+          }
+        }
       }
 
-      const savedDeadlines = await invoke<string | null>('get_registry_value', { key: REG_KEY_DEADLINES });
-      if (savedDeadlines) {
-        setDeadlines(JSON.parse(savedDeadlines) || {});
-      }
+      setManualTodos(newManualTodos);
+      setPeriodSchedules(newPeriodSchedules);
+      setDeadlines(newDeadlines);
+      setCalendarTitles(newCalendarTitles);
+      setReferenceIdToScheduleId(newReferenceIdToScheduleId);
 
-      const savedCalendarTitles = await invoke<string | null>('get_registry_value', { key: REG_KEY_CALENDAR_TITLES });
-      if (savedCalendarTitles) {
-        setCalendarTitles(JSON.parse(savedCalendarTitles) || {});
-      }
+      // Load CompletedTodos (Still in Registry for now? Or should be in DB?)
+      // DB has is_completed flag on ScheduleItem.
+      // Let's use that instead of registry set.
+      const completedSet = new Set<string>();
+      items.forEach(item => {
+        if (item.isCompleted) {
+          completedSet.add(item.id); // For manual/period
+          if (item.referenceId) completedSet.add(item.referenceId); // For message tasks
+        }
+      });
+      setCompletedTodos(completedSet);
 
-      const savedPeriodSchedules = await invoke<string | null>('get_registry_value', { key: REG_KEY_PERIOD_SCHEDULES });
-      if (savedPeriodSchedules) {
-        setPeriodSchedules(JSON.parse(savedPeriodSchedules) || []);
-      }
-
-      const savedCompletedTodos = await invoke<string | null>('get_registry_value', { key: REG_KEY_COMPLETED_TODOS });
-      if (savedCompletedTodos) {
-        const completedIds = JSON.parse(savedCompletedTodos) || [];
-        setCompletedTodos(new Set(completedIds));
-      }
-
+      // TodoOrder is strictly UI preference, maybe keep in registry?
       const savedTodoOrder = await invoke<string | null>('get_registry_value', { key: REG_KEY_TODO_ORDER });
       if (savedTodoOrder) {
         setTodoOrder(JSON.parse(savedTodoOrder) || {});
       }
 
-      // classified와 allMessages를 가져와서 keptMessages 계산
+      // Load Messages for "Kept" list
+      // We still need ClassifiedMap to know which messages are "Right" (Kept) but not yet scheduled?
+      // Or do we just show all messages that are NOT in the schedule list?
+      // The current logic uses ClassifiedMap to filter messages.
+      // If we remove ClassifiedMap, we lose "Left" (discarded).
+      // But "Right" (kept) items usually become tasks.
+      // If they are tasks, they are in DB.
+      // What about "Kept but not yet scheduled"?
+      // The UI shows "Kept Messages" list.
+      // If we rely on DB, we only have "Scheduled" items.
+      // We need to keep ClassifiedMap for the "Inbox" workflow.
       const savedClassified = await invoke<string | null>('get_registry_value', { key: 'ClassifiedMap' });
       const classified: Record<number, 'left' | 'right'> = savedClassified ? JSON.parse(savedClassified) : {};
       
       const savedUdbPath = await invoke<string | null>('get_registry_value', { key: 'UdbPath' });
       if (savedUdbPath) {
-        // 모든 메시지를 가져와서 keptMessages 계산
         try {
           const result = await invoke<{ messages: any[]; total_count: number }>('read_udb_messages', {
             dbPath: savedUdbPath,
-            limit: 1000, // 충분히 큰 수
+            limit: 1000, 
             offset: 0,
             searchTerm: null,
           });
@@ -249,8 +234,6 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
   useEffect(() => {
     loadTodos();
-    // 주기적으로 업데이트 (10초마다 - 이벤트 기반 업데이트가 주로 사용됨)
-    const interval = setInterval(loadTodos, 10000);
     
     // 레지스트리 변경 이벤트 구독 (즉시 업데이트)
     const unlistenPromise = listen('calendar-update', () => {
@@ -258,7 +241,6 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     });
     
     return () => {
-      clearInterval(interval);
       unlistenPromise.then(unlisten => unlisten());
     };
   }, [loadTodos]);
@@ -733,6 +715,61 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   };
 
   // 드롭
+  const updateScheduleInDb = async (item: TodoItem | PeriodSchedule, updates: Partial<any>) => {
+    try {
+      // Fetch current item from DB to get full details if needed, or construct from what we have.
+      // Since we don't have get_schedule_by_id, we construct best effort or rely on what we have.
+      // Actually, we should probably fetch the full list again or find it in our state.
+      // We have 'allTodos' and 'periodSchedules'.
+      
+      const isManual = 'isManual' in item ? item.isManual : false;
+      const type = 'startDate' in item ? 'period_schedule' : (isManual ? 'manual_todo' : 'message_task');
+      
+      // Determine target ID and whether to create or update
+      let targetId = item.id;
+      let shouldCreate = false;
+
+      if (type === 'message_task') {
+        const mappedId = referenceIdToScheduleId[item.id];
+        if (mappedId) {
+          targetId = mappedId;
+        } else {
+          // If no mapped ID, we need to create a new schedule
+          // But wait, if we are updating, we usually expect it to exist.
+          // If it's a message task that hasn't been scheduled yet (no DB record), we create it.
+          shouldCreate = true;
+          targetId = crypto.randomUUID(); // Generate new UUID for the schedule
+        }
+      }
+
+      // Construct ScheduleItem
+      const scheduleItem = {
+        id: targetId,
+        type: type,
+        title: item.calendarTitle || ('content' in item ? item.content : ''),
+        content: 'content' in item ? item.content : null,
+        startDate: updates.deadline || ('startDate' in item ? item.startDate : ('deadline' in item ? item.deadline : null)),
+        endDate: updates.deadline || ('endDate' in item ? item.endDate : ('deadline' in item ? item.deadline : null)),
+        isAllDay: type === 'period_schedule',
+        referenceId: type === 'message_task' ? item.id : ('referenceId' in item ? item.referenceId : null),
+        color: null,
+        isCompleted: 'isCompleted' in item ? item.isCompleted : false,
+        createdAt: 'createdAt' in item ? item.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isDeleted: 'isDeleted' in item ? item.isDeleted : false,
+        ...updates // Apply overrides
+      };
+
+      if (shouldCreate) {
+        await invoke('create_schedule', { item: scheduleItem });
+      } else {
+        await invoke('update_schedule', { id: targetId, item: scheduleItem });
+      }
+    } catch (e) {
+      console.error("Failed to update schedule in DB", e);
+    }
+  };
+
   const handleDrop = async (targetDateKey: string, targetTodoId?: string, position?: 'above' | 'below') => {
     const draggedId = draggedTodoIdRef.current;
     if (!draggedId) return;
@@ -763,18 +800,21 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       }
       const newDeadline = newDate.toISOString();
 
+      // Update DB
+      await updateScheduleInDb(draggedTodo, { 
+        startDate: newDeadline, 
+        endDate: newDeadline,
+        deadline: newDeadline // For local state update if needed
+      });
+      
+      // Update local state optimistically
       if (draggedTodo.isManual) {
-        const updatedTodos = manualTodos.map(t => 
-          t.id === draggedId ? { ...t, deadline: newDeadline, updatedAt: new Date().toISOString() } : t
-        );
-        await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
-        setManualTodos(updatedTodos);
-      } 
-      const updatedDeadlines = { ...deadlines, [draggedId]: newDeadline };
-      await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
-      setDeadlines(updatedDeadlines);
+        setManualTodos(prev => prev.map(t => t.id === draggedId ? { ...t, deadline: newDeadline } : t));
+      }
+      setDeadlines(prev => ({ ...prev, [draggedId]: newDeadline }));
     }
 
+    // Update Order (Keep in Registry for now as it's UI state)
     const newTodoOrderMap = { ...todoOrder };
 
     if (sourceDateKey !== targetDateKey && newTodoOrderMap[sourceDateKey]) {
@@ -784,8 +824,13 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     const currentOrder = newTodoOrderMap[targetDateKey] || [];
     
     const dayTodos = allTodos.filter(todo => {
-      if (!todo.deadline) return false;
-      const date = new Date(todo.deadline);
+      // Use new deadline if we just moved it
+      const deadline = todo.id === draggedId 
+        ? (sourceDateKey !== targetDateKey ? new Date(targetDateKey).toISOString() : todo.deadline) // Approx check
+        : todo.deadline;
+        
+      if (!deadline) return false;
+      const date = new Date(deadline);
       const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
       return dateKey === targetDateKey;
     });
@@ -830,61 +875,61 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   };
 
   const deleteTodo = async (todo: TodoItem) => {
-    const todoId = todo.id;
-    
-    // ManualTodo인 경우
-    if (todo.isManual) {
-      // Soft delete
-      const updatedTodos = manualTodos.map(t => 
-        t.id === todoId ? { ...t, isDeleted: true, updatedAt: new Date().toISOString() } : t
-      );
-      await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
-      setManualTodos(updatedTodos);
+    try {
+      await invoke('delete_schedule', { id: todo.id });
+      
+      // Update local state
+      if (todo.isManual) {
+        setManualTodos(prev => prev.filter(t => t.id !== todo.id));
+      }
+      setDeadlines(prev => {
+        const next = { ...prev };
+        delete next[todo.id];
+        return next;
+      });
+      setCalendarTitles(prev => {
+        const next = { ...prev };
+        delete next[todo.id];
+        return next;
+      });
+
+      void emit('calendar-update');
+      setContextMenu(null);
+      loadTodos();
+    } catch (e) {
+      console.error("Failed to delete todo", e);
     }
-
-    // deadline 삭제
-    const updatedDeadlines = { ...deadlines };
-    delete updatedDeadlines[todoId];
-    await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
-    setDeadlines(updatedDeadlines);
-
-    // calendarTitle 삭제
-    const updatedTitles = { ...calendarTitles };
-    delete updatedTitles[todoId];
-    await saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(updatedTitles));
-    setCalendarTitles(updatedTitles);
-
-    void emit('calendar-update');
-    setContextMenu(null);
-    loadTodos();
   };
 
   const deletePeriodSchedule = async (schedule: PeriodSchedule) => {
-    // Soft delete
-    const updatedSchedules = periodSchedules.map(s => 
-      s.id === schedule.id ? { ...s, isDeleted: true, updatedAt: new Date().toISOString() } : s
-    );
-    await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
-    setPeriodSchedules(updatedSchedules);
-    void emit('calendar-update');
-    setContextMenu(null);
-    loadTodos();
+    try {
+      await invoke('delete_schedule', { id: schedule.id });
+      
+      setPeriodSchedules(prev => prev.filter(s => s.id !== schedule.id));
+      void emit('calendar-update');
+      setContextMenu(null);
+      loadTodos();
+    } catch (e) {
+      console.error("Failed to delete schedule", e);
+    }
   };
 
   const toggleTodoCompletion = async (todo: TodoItem) => {
     const todoId = todo.id;
+    const newIsCompleted = !completedTodos.has(todoId);
+    
+    // Update DB
+    await updateScheduleInDb(todo, { isCompleted: newIsCompleted });
+
+    // Update local state
     const newCompletedSet = new Set(completedTodos);
-    
-    if (completedTodos.has(todoId)) {
-      // 완료 취소
-      newCompletedSet.delete(todoId);
-    } else {
-      // 완료 처리
+    if (newIsCompleted) {
       newCompletedSet.add(todoId);
+    } else {
+      newCompletedSet.delete(todoId);
     }
-    
-    await saveToRegistry(REG_KEY_COMPLETED_TODOS, JSON.stringify(Array.from(newCompletedSet)));
     setCompletedTodos(newCompletedSet);
+    
     void emit('calendar-update');
     setContextMenu(null);
     loadTodos();
@@ -961,36 +1006,53 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               : null;
 
             const now = new Date().toISOString();
-            const newTodo: ManualTodo = {
-              id: newId,
-              content: finalContent,
-              deadline,
-              createdAt: now,
-              updatedAt: now,
-              isDeleted: false,
-              calendarTitle: calendarTitle.trim() || undefined,
-            };
+            
+            // Create in DB
+            try {
+              await invoke('create_schedule', {
+                item: {
+                  id: newId,
+                  type: 'manual_todo',
+                  title: calendarTitle.trim(),
+                  content: finalContent,
+                  startDate: deadline,
+                  endDate: deadline,
+                  isAllDay: false,
+                  referenceId: null,
+                  color: null,
+                  isCompleted: false,
+                  createdAt: now,
+                  updatedAt: now,
+                  isDeleted: false
+                }
+              });
 
-            const currentTodos = [...manualTodos, newTodo];
-            await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(currentTodos));
-            setManualTodos(currentTodos);
+              // Update local state
+              const newTodo: ManualTodo = {
+                id: newId,
+                content: finalContent,
+                deadline,
+                createdAt: now,
+                updatedAt: now,
+                isDeleted: false,
+                calendarTitle: calendarTitle.trim() || undefined,
+              };
 
-            if (deadline) {
-              const currentDeadlines = { ...deadlines, [newId]: deadline };
-              await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(currentDeadlines));
-              setDeadlines(currentDeadlines);
+              setManualTodos(prev => [...prev, newTodo]);
+              if (deadline) {
+                setDeadlines(prev => ({ ...prev, [newId]: deadline }));
+              }
+              if (calendarTitle.trim()) {
+                setCalendarTitles(prev => ({ ...prev, [newId]: calendarTitle.trim() }));
+              }
+
+              void emit('calendar-update');
+              setAddTodoModalOpen(false);
+              setSelectedDate(null);
+              loadTodos();
+            } catch (e) {
+              console.error("Failed to create todo", e);
             }
-
-            if (calendarTitle.trim()) {
-              const currentTitles = { ...calendarTitles, [newId]: calendarTitle.trim() };
-              await saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(currentTitles));
-              setCalendarTitles(currentTitles);
-            }
-
-            void emit('calendar-update');
-            setAddTodoModalOpen(false);
-            setSelectedDate(null);
-            loadTodos();
           }}
           parseDateFromText={parseDateFromText}
         />
@@ -1011,39 +1073,35 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               ? new Date(`${deadlineDate}T${deadlineTime}:00`).toISOString()
               : null;
 
-            // ManualTodo인 경우
+            // Update DB
+            await updateScheduleInDb(selectedTodo, {
+                content: selectedTodo.isManual ? content.trim() : undefined, // Only update content if manual
+                title: calendarTitle.trim(),
+                startDate: deadline,
+                endDate: deadline,
+                deadline: deadline, // For local state update
+                calendarTitle: calendarTitle.trim() // For local state update
+            });
+
+            // Update local state (Optimistic)
             if (selectedTodo.isManual) {
-              const updatedTodos = manualTodos.map(t => 
+              setManualTodos(prev => prev.map(t => 
                 t.id === todoId 
                   ? { ...t, content: content.trim(), deadline, calendarTitle: calendarTitle.trim() || undefined, updatedAt: new Date().toISOString() }
                   : t
-              );
-              await saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(updatedTodos));
-              setManualTodos(updatedTodos);
+              ));
             }
-
-            // deadline 업데이트
+            
             if (deadline) {
-              const updatedDeadlines = { ...deadlines, [todoId]: deadline };
-              await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
-              setDeadlines(updatedDeadlines);
+                setDeadlines(prev => ({ ...prev, [todoId]: deadline }));
             } else {
-              const updatedDeadlines = { ...deadlines };
-              delete updatedDeadlines[todoId];
-              await saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(updatedDeadlines));
-              setDeadlines(updatedDeadlines);
+                setDeadlines(prev => { const n = {...prev}; delete n[todoId]; return n; });
             }
 
-            // calendarTitle 업데이트
             if (calendarTitle.trim()) {
-              const updatedTitles = { ...calendarTitles, [todoId]: calendarTitle.trim() };
-              await saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(updatedTitles));
-              setCalendarTitles(updatedTitles);
+                setCalendarTitles(prev => ({ ...prev, [todoId]: calendarTitle.trim() }));
             } else {
-              const updatedTitles = { ...calendarTitles };
-              delete updatedTitles[todoId];
-              await saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(updatedTitles));
-              setCalendarTitles(updatedTitles);
+                setCalendarTitles(prev => { const n = {...prev}; delete n[todoId]; return n; });
             }
 
             void emit('calendar-update');
@@ -1077,24 +1135,45 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
             const newId = crypto.randomUUID();
             const now = new Date().toISOString();
-            const newSchedule: PeriodSchedule = {
-              id: newId,
-              content: content.trim(),
-              startDate,
-              endDate,
-              createdAt: now,
-              updatedAt: now,
-              isDeleted: false,
-              calendarTitle: calendarTitle.trim() || undefined,
-            };
+            
+            try {
+                await invoke('create_schedule', {
+                    item: {
+                        id: newId,
+                        type: 'period_schedule',
+                        title: calendarTitle.trim(),
+                        content: content.trim(),
+                        startDate: startDate,
+                        endDate: endDate,
+                        isAllDay: true,
+                        referenceId: null,
+                        color: null,
+                        isCompleted: false,
+                        createdAt: now,
+                        updatedAt: now,
+                        isDeleted: false
+                    }
+                });
+                
+                // Update local state
+                const newSchedule: PeriodSchedule = {
+                  id: newId,
+                  content: content.trim(),
+                  startDate,
+                  endDate,
+                  createdAt: now,
+                  updatedAt: now,
+                  isDeleted: false,
+                  calendarTitle: calendarTitle.trim() || undefined,
+                };
+                setPeriodSchedules(prev => [...prev, newSchedule]);
 
-            const currentSchedules = [...periodSchedules, newSchedule];
-            await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(currentSchedules));
-            setPeriodSchedules(currentSchedules);
-
-            void emit('calendar-update');
-            setAddPeriodModalOpen(false);
-            loadTodos();
+                void emit('calendar-update');
+                setAddPeriodModalOpen(false);
+                loadTodos();
+            } catch (e) {
+                console.error("Failed to create period schedule", e);
+            }
           }}
         />
       )}
@@ -1123,7 +1202,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               return;
             }
 
-            const updatedSchedules = periodSchedules.map(s => 
+            // Update DB
+            await updateScheduleInDb(selectedPeriodSchedule, {
+                content: content.trim(),
+                title: calendarTitle.trim(),
+                startDate: startDate,
+                endDate: endDate,
+                calendarTitle: calendarTitle.trim() // For local state
+            });
+
+            // Update local state
+            setPeriodSchedules(prev => prev.map(s => 
               s.id === scheduleId 
                 ? { 
                     ...s, 
@@ -1134,10 +1223,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                     updatedAt: new Date().toISOString() 
                   }
                 : s
-            );
-            
-            await saveToRegistry(REG_KEY_PERIOD_SCHEDULES, JSON.stringify(updatedSchedules));
-            setPeriodSchedules(updatedSchedules);
+            ));
 
             void emit('calendar-update');
             setEditPeriodModalOpen(false);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ClassifyIcon, TodosIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon } from './icons';
+import { ClassifyIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon } from './icons';
 import { Page } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -29,9 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapse
         <button className={page === 'classify' ? 'active' : ''} onClick={() => setPage('classify')}>
           <span className="icon"><ClassifyIcon /></span><span className="label">메시지 분류</span>
         </button>
-        <button className={page === 'todos' ? 'active' : ''} onClick={() => setPage('todos')}>
-          <span className="icon"><TodosIcon /></span><span className="label">해야할 일</span>
-        </button>
+
         <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>
           <span className="icon"><HistoryIcon /></span><span className="label">전체 메시지</span>
         </button>

@@ -20,6 +20,7 @@ interface ScheduleModalProps {
   setClassified: React.Dispatch<React.SetStateAction<Record<number, 'left' | 'right'>>>;
   parseDateFromText: (text: string, baseDate?: Date) => { date: string | null; time: string | null };
   decodeEntities: (html: string) => string;
+  schedules: import('../types/schedule').ScheduleItem[];
 }
 
 const REG_KEY_MANUAL_TODOS = 'ManualTodos';
@@ -44,6 +45,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   setClassified,
   parseDateFromText,
   decodeEntities,
+  schedules,
 }) => {
   if (!scheduleModal.open || scheduleModal.id === undefined) return null;
 
@@ -191,7 +193,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     };
   }, [id, udbPath, allMessages, isManualTodo, setAllMessages]);
 
-  const onSave = () => {
+  const onSave = async () => {
     if (!dateVal || !timeVal) {
       alert('날짜와 시간을 모두 입력해주세요.');
       return;
@@ -206,46 +208,62 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     }
 
     const iso = dateObj.toISOString();
-    
-    // calendarTitle 저장
-    if (calendarTitle.trim()) {
-      setCalendarTitles((prev: Record<string, string>) => {
-        const next = { ...prev, [id.toString()]: calendarTitle.trim() };
-        void saveToRegistry(REG_KEY_CALENDAR_TITLES, JSON.stringify(next));
-        return next;
-      });
-    }
-    
-    if (isManualTodo) {
-      // 수동 할 일의 경우 manualTodos 업데이트
-      setManualTodos(prev => {
-        const next = prev.map(t => t.id === id ? { ...t, deadline: iso, calendarTitle: calendarTitle.trim() || undefined } : t);
-        void saveToRegistry(REG_KEY_MANUAL_TODOS, JSON.stringify(next));
-        return next;
-      });
-      // deadlines에도 저장 (일관성 유지)
-      setDeadlines(prev => {
-        const next = { ...prev, [id.toString()]: iso };
-        void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
-        return next;
-      });
-    } else {
-      setDeadlines(prev => {
-        const next = { ...prev, [id.toString()]: iso };
-        void saveToRegistry(REG_KEY_DEADLINES, JSON.stringify(next));
-        return next;
-      });
-      if (typeof id === 'number' && classified[id] !== 'right') {
-        setClassified(prev => {
-          const next = { ...prev, [id]: 'right' as const };
-          void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
-          return next;
-        });
+    const title = calendarTitle.trim();
+
+    try {
+      if (isManualTodo) {
+        // Find existing schedule item
+        // ManualTodo ID is the Schedule ID
+        const existingItem = schedules.find(s => s.id === id);
+        if (existingItem) {
+          await import('../services/ScheduleService').then(m => m.ScheduleService.updateScheduleItem({
+            ...existingItem,
+            title: title || existingItem.title,
+            startDate: iso,
+            endDate: iso, // Point in time
+            updatedAt: new Date().toISOString()
+          }));
+        } else {
+          console.error("Manual todo not found in schedules list");
+        }
+      } else {
+        // Message Task
+        // Check if exists
+        const existingItem = schedules.find(s => s.referenceId === id.toString() && s.type === 'message_task');
+        if (existingItem) {
+           await import('../services/ScheduleService').then(m => m.ScheduleService.updateScheduleItem({
+            ...existingItem,
+            title: title || existingItem.title,
+            startDate: iso,
+            endDate: iso,
+            updatedAt: new Date().toISOString()
+          }));
+        } else {
+          // Create new
+          await import('../services/ScheduleService').then(m => m.ScheduleService.convertMessageToSchedule(
+            typeof id === 'string' ? parseInt(id) : id,
+            dateObj,
+            title || "메시지 일정",
+            modalMsg?.content
+          ));
+        }
+
+        if (typeof id === 'number' && classified[id] !== 'right') {
+          setClassified(prev => {
+            const next = { ...prev, [id]: 'right' as const };
+            void saveToRegistry(REG_KEY_CLASSIFIED, JSON.stringify(next));
+            return next;
+          });
+        }
       }
+      
+      // 달력 업데이트 이벤트 발생
+      void emit('calendar-update');
+      setScheduleModal({ open: false });
+    } catch (e) {
+      console.error("Failed to save schedule", e);
+      alert("저장 실패");
     }
-    // 달력 업데이트 이벤트 발생
-    void emit('calendar-update');
-    setScheduleModal({ open: false });
   };
 
   const onNoDeadline = () => {
