@@ -104,8 +104,13 @@
   overflow: hidden;
 }
 
-.weekday.sunday { color: #ef4444; }
-.weekday.saturday { color: #3b82f6; }
+.weekday.sunday {
+  color: #ef4444;
+}
+
+.weekday.saturday {
+  color: #3b82f6;
+}
 
 /* Calendar Grid */
 .calendar-grid {
@@ -168,15 +173,40 @@
   font-weight: 700;
 }
 
-.day-number.sunday:not(.today .day-number) { color: #ef4444; }
-.day-number.saturday:not(.today .day-number) { color: #3b82f6; }
+.day-number.sunday:not(.today .day-number) {
+  color: #ef4444;
+}
+
+.day-number.saturday:not(.today .day-number) {
+  color: #3b82f6;
+}
 
 .day-content {
   display: flex;
   flex-direction: column;
   gap: 2px;
   flex: 1;
-  overflow-y: hidden; /* Hide overflow initially */
+  overflow-y: auto;
+  /* Enable vertical scrolling */
+  padding-right: 2px;
+  /* Space for scrollbar */
+}
+
+.day-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.day-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.day-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+}
+
+.day-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 /* Event Styles */
@@ -197,25 +227,33 @@
 
 /* 기간 일정 (여러 날짜에 걸친 일정) - 초록색 */
 .calendar-schedule.period {
-  background: #dcfce7; /* Green-100 */
-  color: #166534; /* Green-800 */
-  border-left: 2px solid #22c55e; /* Green-500 */
+  background: #dcfce7;
+  /* Green-100 */
+  color: #166534;
+  /* Green-800 */
+  border-left: 2px solid #22c55e;
+  /* Green-500 */
 }
 
 .calendar-schedule.period:hover {
-  background: #bbf7d0; /* Green-200 */
+  background: #bbf7d0;
+  /* Green-200 */
   transform: translateY(-1px);
 }
 
 /* 단일 일정 (하루 일정) - 파란색 */
 .calendar-schedule.single {
-  background: #dbeafe; /* Blue-100 */
-  color: #1e40af; /* Blue-800 */
-  border-left: 2px solid #3b82f6; /* Blue-500 */
+  background: #dbeafe;
+  /* Blue-100 */
+  color: #1e40af;
+  /* Blue-800 */
+  border-left: 2px solid #3b82f6;
+  /* Blue-500 */
 }
 
 .calendar-schedule.single:hover {
-  background: #bfdbfe; /* Blue-200 */
+  background: #bfdbfe;
+  /* Blue-200 */
   transform: translateY(-1px);
 }
 
@@ -250,11 +288,13 @@
 }
 
 .calendar-schedule.period.start.end {
-  border-left: 2px solid #22c55e; /* Green-500 */
+  border-left: 2px solid #22c55e;
+  /* Green-500 */
 }
 
 .calendar-schedule.single.start.end {
-  border-left: 2px solid #3b82f6; /* Blue-500 */
+  border-left: 2px solid #3b82f6;
+  /* Blue-500 */
 }
 
 .calendar-todo {
@@ -265,23 +305,28 @@
   gap: 6px;
   cursor: pointer;
   border-radius: 4px;
-  color: #9a3412; /* Orange-800 */
-  background: #fff7ed; /* Orange-50 */
+  color: #9a3412;
+  /* Orange-800 */
+  background: #fff7ed;
+  /* Orange-50 */
   border: 1px solid transparent;
   transition: all 0.2s;
   margin-top: 1px;
 }
 
 .calendar-todo:hover {
-  background: #ffedd5; /* Orange-100 */
-  border-color: #fdba74; /* Orange-300 */
+  background: #ffedd5;
+  /* Orange-100 */
+  border-color: #fdba74;
+  /* Orange-300 */
   transform: translateY(-1px);
 }
 
 .todo-dot {
   width: 6px;
   height: 6px;
-  background: #f97316; /* Orange-500 */
+  background: #f97316;
+  /* Orange-500 */
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.2);
@@ -315,7 +360,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Event Detail Modal Styles */
@@ -355,7 +402,8 @@
   margin-bottom: 0.5em;
 }
 
-.event-body ul, .event-body ol {
+.event-body ul,
+.event-body ol {
   padding-left: 1.5em;
   margin-bottom: 0.5em;
 }

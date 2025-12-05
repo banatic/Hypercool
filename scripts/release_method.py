@@ -510,7 +510,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.3.9",
+        version="0.4.0",
         notes="개선 : 동기화 알고리즘 개선",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,

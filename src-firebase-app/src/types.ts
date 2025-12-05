@@ -16,6 +16,7 @@ export interface ManualTodo {
     updatedAt: string;
     calendarTitle?: string;
     isDeleted?: boolean;
+    referenceId?: string | null;
 }
 
 export interface PeriodSchedule {
@@ -27,4 +28,21 @@ export interface PeriodSchedule {
     createdAt: string;
     updatedAt: string;
     isDeleted?: boolean;
+    referenceId?: string | null;
+}
+
+export interface ScheduleItem {
+    id: string;
+    type: 'manual_todo' | 'period_schedule' | 'message_task';
+    title: string;
+    content?: string;
+    startDate?: string;
+    endDate?: string;
+    isAllDay?: boolean;
+    referenceId?: string;
+    color?: string;
+    isCompleted?: boolean;
+    createdAt: string;
+    updatedAt: string;
+    isDeleted: boolean;
 }

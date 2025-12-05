@@ -60,6 +60,7 @@ interface CatBehaviorSitting {
   type: 'sitting';
   phase: CatActionPhase;
   phaseStartTime: number;
+  actionStartTime: number; // 액션 시작 시간 (최소 유지 시간 체크용)
 }
 
 interface CatBehaviorLicking {
@@ -72,6 +73,7 @@ interface CatBehaviorLying {
   type: 'lying';
   phase: CatActionPhase;
   phaseStartTime: number;
+  actionStartTime: number; // 액션 시작 시간 (최소 유지 시간 체크용)
 }
 
 type CatBehavior = CatBehaviorIdle | CatBehaviorWalking | CatBehaviorSitting | CatBehaviorLicking | CatBehaviorLying;
@@ -835,6 +837,7 @@ export default function SchoolWidget() {
     HOLD_DURATION: 3000, // hold 단계 (3초)
     EXIT_DURATION: 150 * 4, // exit 단계 (4프레임)
     LICKING_DURATION: 3000, // 핥기 지속 시간 (3초)
+    MIN_ACTION_DURATION: 5000, // 앉기/눕기/핥기 최소 유지 시간 (1.5초) - 이 시간 전에는 마우스에 반응 안함
     INIT_DELAY: 1000, // 초기화 지연 (1초)
     IDLE_MIN: 2000, // 최소 대기 시간
     IDLE_MAX: 4000, // 최대 대기 시간
@@ -886,11 +889,11 @@ export default function SchoolWidget() {
     const getRandomAction = (currentTime: number): CatBehavior => {
       const rand = Math.random();
       if (rand < 0.4) {
-        return { type: 'sitting', phase: 'enter', phaseStartTime: currentTime };
+        return { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
       } else if (rand < 0.7) {
         return { type: 'licking', startTime: currentTime, duration: CAT_CONFIG.LICKING_DURATION };
       } else {
-        return { type: 'lying', phase: 'enter', phaseStartTime: currentTime };
+        return { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
       }
     };
 
@@ -1011,7 +1014,7 @@ export default function SchoolWidget() {
             if (isRandomWandering) {
               cat.behavior = getRandomAction(currentTime);
             } else {
-              cat.behavior = { type: 'sitting', phase: 'hold', phaseStartTime: currentTime };
+              cat.behavior = { type: 'sitting', phase: 'hold', phaseStartTime: currentTime, actionStartTime: currentTime };
               cat.frame = 3;
             }
           } else {
@@ -1033,8 +1036,10 @@ export default function SchoolWidget() {
         case 'lying': {
           const behavior = cat.behavior as CatBehaviorSitting | CatBehaviorLying;
           const elapsed = currentTime - behavior.phaseStartTime;
+          const totalActionTime = currentTime - behavior.actionStartTime;
           
-          if (mousePos) {
+          // 최소 유지 시간이 지난 후에만 마우스에 반응
+          if (mousePos && totalActionTime >= CAT_CONFIG.MIN_ACTION_DURATION) {
             const dx = mousePos.x - catCenterX;
             const dy = mousePos.y - catCenterY;
             if (Math.sqrt(dx * dx + dy * dy) > 10) {
@@ -1059,7 +1064,8 @@ export default function SchoolWidget() {
         case 'licking': {
           const elapsed = currentTime - cat.behavior.startTime;
 
-          if (mousePos) {
+          // 최소 유지 시간이 지난 후에만 마우스에 반응
+          if (mousePos && elapsed >= CAT_CONFIG.MIN_ACTION_DURATION) {
             const dx = mousePos.x - catCenterX;
             const dy = mousePos.y - catCenterY;
             if (Math.sqrt(dx * dx + dy * dy) > 10) {
@@ -1533,9 +1539,9 @@ export default function SchoolWidget() {
               // 클릭 시 앉거나 눕기 (50% 확률)
               const currentTime = performance.now();
               if (Math.random() < 0.5) {
-                cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime };
+                cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
               } else {
-                cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime };
+                cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
               }
               cat.frame = 0;
             }}
