@@ -44,6 +44,8 @@ body {
     -webkit-backdrop-filter: blur(30px);
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    position: relative;
+    overflow: hidden;
 }
 
 /* Tab Bar */
@@ -240,6 +242,8 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    position: relative;
+    overflow: hidden;
 }
 
 .meal-items-container {
@@ -703,4 +707,21 @@ tr:last-child td {
 
 .save-btn:active {
     transform: translateY(0);
+}
+
+/* Cat Sprite */
+.cat-sprite {
+    position: absolute;
+    width: 32px;
+    height: 32px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    z-index: 1000;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.cat-sprite:active {
+    transform: scale(0.95);
 }

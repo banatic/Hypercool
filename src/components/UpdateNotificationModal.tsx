@@ -68,7 +68,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
   return (
     <div className="schedule-modal-overlay" onClick={onSkip}>
       <div className="schedule-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%' }}>
-        <div className="schedule-inner">
+        <div>
           <div style={{ padding: '24px' }}>
             <h2 style={{ marginTop: 0, marginBottom: '16px', fontSize: '20px', fontWeight: '600' }}>
               🎉 새로운 업데이트가 있습니다
