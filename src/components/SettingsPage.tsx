@@ -4,7 +4,6 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { PageHeader } from './PageHeader';
 import { AuthLanding } from './AuthLanding';
 import { invoke } from '@tauri-apps/api/core';
-import type { ManualTodo, PeriodSchedule } from '../types';
 
 interface SettingsPageProps {
   udbPath: string;
@@ -13,10 +12,6 @@ interface SettingsPageProps {
   saveToRegistry: (key: string, value: string) => Promise<void>;
   classTimes: string[];
   setClassTimes: (times: string[]) => void;
-  manualTodos: ManualTodo[];
-  setManualTodos: React.Dispatch<React.SetStateAction<ManualTodo[]>>;
-  periodSchedules: PeriodSchedule[];
-  setPeriodSchedules: React.Dispatch<React.SetStateAction<PeriodSchedule[]>>;
   uiScale: number;
   setUiScale: (scale: number) => void;
   onSync: () => Promise<void>;
@@ -41,7 +36,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   saveToRegistry,
   classTimes,
   setClassTimes,
-
   uiScale,
   setUiScale,
   onSync,
@@ -104,14 +98,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(classTimes));
   };
 
-  const formatTimeDisplay = (timeStr: string) => {
-    // HHMM-HHMM 형식을 HH:MM - HH:MM로 변환
-    const match = timeStr.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
-    if (match) {
-      return `${match[1]}:${match[2]} - ${match[3]}:${match[4]}`;
-    }
-    return timeStr;
-  };
+
 
   const addUpdateLog = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
     const now = new Date();
@@ -149,7 +136,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         addUpdateLog('최신 버전입니다.', 'success');
         setUpdateInfo(null);
         setIsLatestVersion(true);
-        alert('최신 버전입니다.');
+        // alert('최신 버전입니다.'); // Removed
       }
     } catch (error: any) {
       const errorMessage = error?.message || error?.toString() || '알 수 없는 오류';
@@ -157,7 +144,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       console.error('업데이트 확인 중 오류:', error);
       setUpdateInfo(null);
       setIsLatestVersion(false);
-      alert('업데이트 확인 중 오류가 발생했습니다.');
+      // alert('업데이트 확인 중 오류가 발생했습니다.'); // Removed
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -174,7 +161,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       const update = await check();
       if (!update) {
         addUpdateLog('업데이트를 찾을 수 없습니다.', 'error');
-        alert('업데이트를 찾을 수 없습니다.');
+        // alert('업데이트를 찾을 수 없습니다.'); // Removed
         setIsInstalling(false);
         setUpdateProgress(null);
         return;
@@ -216,7 +203,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       const errorMessage = error?.message || error?.toString() || '알 수 없는 오류';
       addUpdateLog(`업데이트 설치 중 오류: ${errorMessage}`, 'error');
       console.error('업데이트 설치 중 오류:', error);
-      alert('업데이트 설치 중 오류가 발생했습니다.');
+      // alert('업데이트 설치 중 오류가 발생했습니다.'); // Removed
       setIsInstalling(false);
       setUpdateProgress(null);
     }
@@ -241,6 +228,95 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
 
       <div className="field">
+        <label>업데이트</label>
+        <div className="update-container">
+          <div className="row" style={{ marginBottom: isLatestVersion || updateInfo ? '12px' : '0' }}>
+            <button 
+              onClick={checkForUpdates} 
+              disabled={isCheckingUpdate || isInstalling}
+              className="check-update-btn"
+            >
+              {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
+            </button>
+            {isLatestVersion && (
+              <span className="update-status-text success">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                최신 버전입니다.
+              </span>
+            )}
+          </div>
+          
+          {updateInfo && (
+            <div className="update-info-box">
+              <div className="update-info-header">
+                <span className="new-version-badge">NEW</span>
+                <span className="new-version-number">v{updateInfo.version}</span>
+                <span className="new-version-date">{updateInfo.date}</span>
+              </div>
+              {updateInfo.body && (
+                <div className="update-info-body">
+                  <pre>{updateInfo.body}</pre>
+                </div>
+              )}
+              
+              {updateProgress ? (
+                <div className="update-progress-container">
+                  <div className="update-progress-info">
+                    <span>다운로드 중...</span>
+                    <span>{Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="update-progress-bar">
+                    <div 
+                      className="update-progress-fill"
+                      style={{ 
+                        width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`
+                      }} 
+                    />
+                  </div>
+                </div>
+              ) : (
+                !isInstalling && (
+                  <button 
+                    className="update-install-btn"
+                    onClick={downloadAndInstallUpdate}
+                    disabled={isCheckingUpdate}
+                  >
+                    다운로드 및 설치
+                  </button>
+                )
+              )}
+              
+              {isInstalling && (
+                <div className="update-installing-text">
+                  설치 중... 완료 후 자동으로 재시작됩니다.
+                </div>
+              )}
+            </div>
+          )}
+          
+          {updateLogs.length > 0 && (
+            <div className="update-logs">
+              <div className="update-logs-header">
+                <span>로그</span>
+                <button onClick={() => setUpdateLogs([])}>지우기</button>
+              </div>
+              <div className="update-logs-content">
+                {updateLogs.map((log, index) => (
+                  <div key={index} className={`update-log-item ${log.type}`}>
+                    <span className="time">{log.time}</span>
+                    <span className="message">{log.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="field">
         <label htmlFor="udbPathInput">UDB 경로</label>
         <div className="row">
           <input id="udbPathInput" type="text" value={udbPath} onChange={(e) => setUdbPath(e.target.value)} placeholder="C:\...\your.udb" />
@@ -251,27 +327,64 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
       <div className="field">
         <label>수업 시간</label>
-        <div className="class-times-list">
-          {classTimes.map((time, index) => (
-            <div key={index} className="class-time-item">
-              <input
-                type="text"
-                value={time}
-                onChange={(e) => updateClassTime(index, e.target.value)}
-                placeholder="0830-0920"
-                pattern="\d{4}-\d{4}"
-              />
-              <span className="class-time-display">{formatTimeDisplay(time)}</span>
-              <button onClick={() => removeClassTime(index)} className="remove-btn">삭제</button>
-            </div>
-          ))}
+        <div className="class-times-container">
+          <div className="class-time-header">
+            <span className="col-period">교시</span>
+            <span className="col-time">시작 시간</span>
+            <span className="col-sep"></span>
+            <span className="col-time">종료 시간</span>
+            <span className="col-action"></span>
+          </div>
+          <div className="class-times-list">
+            {classTimes.map((time, index) => {
+              const [start, end] = time.split('-');
+              const startTime = start ? `${start.substring(0, 2)}:${start.substring(2, 4)}` : '';
+              const endTime = end ? `${end.substring(0, 2)}:${end.substring(2, 4)}` : '';
+
+              return (
+                <div key={index} className="class-time-row">
+                  <span className="period-label">{index + 1}교시</span>
+                  <input
+                    type="time"
+                    className="time-input"
+                    value={startTime}
+                    onChange={(e) => {
+                      const newStart = e.target.value.replace(':', '');
+                      updateClassTime(index, `${newStart}-${end}`);
+                    }}
+                  />
+                  <span className="time-sep">~</span>
+                  <input
+                    type="time"
+                    className="time-input"
+                    value={endTime}
+                    onChange={(e) => {
+                      const newEnd = e.target.value.replace(':', '');
+                      updateClassTime(index, `${start}-${newEnd}`);
+                    }}
+                  />
+                  <button onClick={() => removeClassTime(index)} className="icon-btn remove-btn" title="삭제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6L6 18M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="row">
-          <button onClick={addClassTime}>수업 시간 추가</button>
+        <div className="row" style={{ marginTop: '12px' }}>
+          <button onClick={addClassTime} className="add-time-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            수업 시간 추가
+          </button>
           <button onClick={saveClassTimes}>저장</button>
         </div>
         <div className="field-description">
-          수업 시간 동안에는 새로운 메시지가 와도 창이 자동으로 표시되지 않습니다. 형식: HHMM-HHMM (예: 0830-0920)
+          수업 시간 동안에는 새로운 메시지가 와도 창이 자동으로 표시되지 않습니다.
         </div>
       </div>
 
@@ -371,94 +484,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
 
 
-      <div className="field">
-        <label>업데이트</label>
-        <div className="row">
-          <button 
-            onClick={checkForUpdates} 
-            disabled={isCheckingUpdate || isInstalling}
-          >
-            {isCheckingUpdate ? '확인 중...' : '업데이트 확인'}
-          </button>
-        </div>
-        {isLatestVersion && (
-          <div className="update-status-message update-latest">
-            최신 버전입니다.
-          </div>
-        )}
-        {updateInfo && (
-          <div className="update-info-box">
-            <div className="update-info-header">
-              <strong>새 버전 발견:</strong> {updateInfo.version}
-            </div>
-            {updateInfo.date && (
-              <div className="update-info-date">
-                <strong>날짜:</strong> {updateInfo.date}
-              </div>
-            )}
-            {updateInfo.body && (
-              <div className="update-info-body">
-                <strong>변경 사항:</strong>
-                <pre>{updateInfo.body}</pre>
-              </div>
-            )}
-            {updateProgress && (
-              <div className="update-progress">
-                <div className="update-progress-text">
-                  다운로드 중: {Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%
-                </div>
-                <div className="update-progress-bar">
-                  <div 
-                    className="update-progress-fill"
-                    style={{ 
-                      width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`
-                    }} 
-                  />
-                </div>
-                <div className="update-progress-size">
-                  {Math.round(updateProgress.downloaded / 1024 / 1024 * 100) / 100} MB / {Math.round(updateProgress.total / 1024 / 1024 * 100) / 100} MB
-                </div>
-              </div>
-            )}
-            {!isInstalling && (
-              <button 
-                className="update-install-btn"
-                onClick={downloadAndInstallUpdate}
-                disabled={isCheckingUpdate}
-              >
-                업데이트 다운로드 및 설치
-              </button>
-            )}
-            {isInstalling && (
-              <div className="update-installing">
-                업데이트 설치 중... 설치가 완료되면 앱이 자동으로 재시작됩니다.
-              </div>
-            )}
-          </div>
-        )}
-        {updateLogs.length > 0 && (
-          <div className="update-logs">
-            <div className="update-logs-header">
-              <strong>업데이트 로그</strong>
-              <button 
-                className="update-logs-clear"
-                onClick={() => setUpdateLogs([])}
-                title="로그 지우기"
-              >
-                지우기
-              </button>
-            </div>
-            <div className="update-logs-content">
-              {updateLogs.map((log, index) => (
-                <div key={index} className={`update-log-item update-log-${log.type}`}>
-                  <span className="update-log-time">[{log.time}]</span>
-                  <span className="update-log-message">{log.message}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+
     </div>
   );
 };

@@ -57,7 +57,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
 
   const onSave = () => {
     if (!content.trim()) {
-      alert('할 일 내용을 입력해주세요.');
+      // alert('할 일 내용을 입력해주세요.'); // Removed
       return;
     }
 

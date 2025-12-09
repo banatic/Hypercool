@@ -510,8 +510,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.4.0",
-        notes="개선 : 동기화 알고리즘 개선",
+        version="0.4.3",
+        notes="버그수정 : 학교위젯 버그 수정",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

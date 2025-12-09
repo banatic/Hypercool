@@ -187,3 +187,26 @@ pub fn parse_timetable() -> Result<TimetableData, String> {
         timetables,
     })
 }
+
+#[tauri::command]
+pub fn get_timetable_data() -> Result<TimetableData, String> {
+    parse_timetable()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_cp949() {
+        // "가" in EUC-KR (CP949) is [0xB0, 0xA1]
+        let bytes = vec![0xB0, 0xA1];
+        let decoded = decode_cp949(&bytes);
+        assert_eq!(decoded, "가");
+
+        // ASCII
+        let bytes_ascii = b"Hello";
+        let decoded_ascii = decode_cp949(bytes_ascii);
+        assert_eq!(decoded_ascii, "Hello");
+    }
+}

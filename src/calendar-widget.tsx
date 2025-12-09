@@ -994,7 +994,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           }}
           onSave={async (content: string, calendarTitle: string, deadlineDate: string, deadlineTime: string) => {
             if (!calendarTitle.trim()) {
-              alert('달력 제목을 입력해주세요.');
+              // alert('달력 제목을 입력해주세요.'); // Removed
               return;
             }
 
@@ -1119,17 +1119,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           }}
           onSave={async (content: string, calendarTitle: string, startDate: string, endDate: string) => {
             if (!content.trim()) {
-              alert('일정 내용을 입력해주세요.');
+              // alert('일정 내용을 입력해주세요.'); // Removed
               return;
             }
 
             if (!startDate || !endDate) {
-              alert('시작일과 종료일을 모두 입력해주세요.');
+              // alert('시작일과 종료일을 모두 입력해주세요.'); // Removed
               return;
             }
 
             if (new Date(startDate) > new Date(endDate)) {
-              alert('시작일이 종료일보다 늦을 수 없습니다.');
+              // alert('시작일이 종료일보다 늦을 수 없습니다.'); // Removed
               return;
             }
 
@@ -1188,17 +1188,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             const scheduleId = selectedPeriodSchedule.id;
 
             if (!content.trim()) {
-              alert('일정 내용을 입력해주세요.');
+              // alert('일정 내용을 입력해주세요.'); // Removed
               return;
             }
 
             if (!startDate || !endDate) {
-              alert('시작일과 종료일을 모두 입력해주세요.');
+              // alert('시작일과 종료일을 모두 입력해주세요.'); // Removed
               return;
             }
 
             if (new Date(startDate) > new Date(endDate)) {
-              alert('시작일이 종료일보다 늦을 수 없습니다.');
+              // alert('시작일이 종료일보다 늦을 수 없습니다.'); // Removed
               return;
             }
 
@@ -1265,9 +1265,9 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                 <div 
                   className="calendar-context-menu-item"
                   onClick={() => {
-                    if (confirm('이 일정을 삭제하시겠습니까?')) {
+                    // if (confirm('이 일정을 삭제하시겠습니까?')) { // Removed
                       deleteTodo(contextMenu.todo!);
-                    }
+                    // }
                   }}
                 >
                   삭제
@@ -1278,9 +1278,9 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               <div 
                 className="calendar-context-menu-item"
                 onClick={() => {
-                  if (confirm('이 기간 일정을 삭제하시겠습니까?')) {
+                  // if (confirm('이 기간 일정을 삭제하시겠습니까?')) { // Removed
                     deletePeriodSchedule(contextMenu.schedule!);
-                  }
+                  // }
                 }}
               >
                 삭제

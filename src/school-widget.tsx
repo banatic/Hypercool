@@ -394,9 +394,9 @@ export default function SchoolWidget() {
     if (!forceRefresh && dataLoaded.attendance && latecomers.length > 0) return; // Already loaded
     setLoadingStates(prev => ({ ...prev, attendance: true }));
     try {
-      const response = await invoke<{ data: Latecomer[], debug_html: string }>('get_attendance_data', { grade, class: classNum });
-      if (response.data && Array.isArray(response.data)) {
-        setLatecomers(response.data);
+      const response = await invoke<[Latecomer[], string]>('get_attendance_data', { grade, class: classNum });
+      if (response && response[0] && Array.isArray(response[0])) {
+        setLatecomers(response[0]);
         setDataLoaded(prev => ({ ...prev, attendance: true }));
       } else {
         setLatecomers([]);
@@ -412,9 +412,9 @@ export default function SchoolWidget() {
     if (!forceRefresh && dataLoaded.points && points.length > 0) return; // Already loaded
     setLoadingStates(prev => ({ ...prev, points: true }));
     try {
-      const response = await invoke<{ data: PointStatus[], debug_html: string }>('get_points_data', { grade, class: classNum });
-      if (response.data && Array.isArray(response.data)) {
-        setPoints(response.data);
+      const response = await invoke<[PointStatus[], string]>('get_points_data', { grade, class: classNum });
+      if (response && response[0] && Array.isArray(response[0])) {
+        setPoints(response[0]);
         setDataLoaded(prev => ({ ...prev, points: true }));
       } else {
         setPoints([]);

@@ -27,7 +27,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
     try {
       const update = await check();
       if (!update) {
-        alert('업데이트를 찾을 수 없습니다.');
+        // alert('업데이트를 찾을 수 없습니다.'); // Removed
         setIsInstalling(false);
         setUpdateProgress(null);
         return;
@@ -55,7 +55,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
       await relaunch();
     } catch (error: any) {
       console.error('업데이트 설치 중 오류:', error);
-      alert(`업데이트 설치 중 오류가 발생했습니다: ${error?.message || error?.toString() || '알 수 없는 오류'}`);
+      // alert(`업데이트 설치 중 오류가 발생했습니다: ${error?.message || error?.toString() || '알 수 없는 오류'}`); // Removed
       setIsInstalling(false);
       setUpdateProgress(null);
     }

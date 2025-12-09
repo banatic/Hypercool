@@ -10,6 +10,8 @@
     "dialog:allow-open",
     "dialog:default",
     "shell:allow-open",
-    "deep-link:default"
+    "deep-link:default",
+    "core:window:allow-hide",
+    "core:window:allow-show"
   ]
 }
