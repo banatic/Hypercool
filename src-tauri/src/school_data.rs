@@ -442,4 +442,17 @@ pub fn fetch_points_data(grade: &str, class: &str) -> Result<(Vec<PointsData>, S
 
 
     
-    
+#[tauri::command]
+pub fn get_meal_data(date: String, atpt_code: String, school_code: String) -> Result<MealData, String> {
+    fetch_meal_data(&date, &atpt_code, &school_code)
+}
+
+#[tauri::command]
+pub fn get_attendance_data(grade: String, class: String) -> Result<(Vec<LatecomerData>, String), String> {
+    fetch_attendance_data(&grade, &class)
+}
+
+#[tauri::command]
+pub fn get_points_data(grade: String, class: String) -> Result<(Vec<PointsData>, String), String> {
+    fetch_points_data(&grade, &class)
+}

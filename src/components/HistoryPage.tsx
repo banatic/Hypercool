@@ -1,56 +1,49 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import { Message, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
+import { decodeEntities, formatDate, formatReceiveDate } from '../utils/dateUtils';
 
 interface HistoryPageProps {
   totalMessageCount: number;
-  historySearchTerm: string;
-  setHistorySearchTerm: (term: string) => void;
+  searchTerm: string;
+  setSearchTerm: (term: string) => void;
   historyIndex: number;
   setHistoryIndex: (index: number) => void;
   allMessages: Message[];
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
-  isLoading: boolean;
-  classified: Record<number, 'left' | 'right'>;
-  deadlines: Record<number, string | null>;
-  setScheduleModal: (modal: { open: boolean; id?: number }) => void;
-  decodeEntities: (html: string) => string;
-  formatDate: (dateString: string) => string;
-  formatReceiveDate: (dateString: string | null | undefined) => string | null;
+  isLoading?: boolean;
+  classified?: Record<number, 'left' | 'right'>;
+  deadlines: Record<string, string | null>;
+  setScheduleModal?: (modal: { open: boolean; id?: number }) => void;
   searchResults: SearchResultItem[] | null;
   isLoadingSearch: boolean;
   activeSearchMessage: Message | null;
   isLoadingActiveSearch: boolean;
-  handleSearchResultClick: (id: number) => void;
-  page: string;
+  onSearchResultClick: (id: number) => void;
+  onHideToTray?: () => void;
+  calendarTitles?: Record<string, string>;
 }
-
-
 
 export const HistoryPage: React.FC<HistoryPageProps> = ({
   totalMessageCount,
-  historySearchTerm,
-  setHistorySearchTerm,
+  searchTerm,
+  setSearchTerm,
   historyIndex,
   setHistoryIndex,
   allMessages,
   loadUdbFile,
   udbPath,
-  isLoading,
-  classified,
+  isLoading = false,
+  classified = {},
   deadlines,
   setScheduleModal,
-  decodeEntities,
-  formatDate,
-  formatReceiveDate,
   searchResults,
   isLoadingSearch,
   activeSearchMessage,
   isLoadingActiveSearch,
-  handleSearchResultClick,
-  page,
+  onSearchResultClick,
 }) => {
   const wheelLastProcessed = useRef(0);
   const historyDragRef = useRef({ startX: 0, dragging: false });
@@ -88,7 +81,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     if (isActionTaken) {
       wheelLastProcessed.current = now;
     }
-  }, [historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, historySearchTerm, setHistoryIndex]);
+  }, [historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, searchTerm, setHistoryIndex]);
 
   const historyOnMouseDown = useCallback((e: React.MouseEvent) => {
     historyDragRef.current.dragging = true;
@@ -123,7 +116,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // 키보드 이벤트로 메시지 넘기기
   const handleHistoryKeyDown = useCallback((e: KeyboardEvent) => {
-    if (page !== 'history' || isLoading) return;
+    if (isLoading) return;
     
     // 입력 필드에 포커스가 있으면 키보드 이벤트 무시
     const target = e.target as HTMLElement;
@@ -162,10 +155,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       wheelLastProcessed.current = now;
       e.preventDefault();
     }
-  }, [page, historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, historySearchTerm, setHistoryIndex]);
+  }, [historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, searchTerm, setHistoryIndex]);
 
   // 키보드 이벤트 리스너 등록
-  React.useEffect(() => {
+  useEffect(() => {
     window.addEventListener('keydown', handleHistoryKeyDown);
     return () => {
       window.removeEventListener('keydown', handleHistoryKeyDown);
@@ -179,8 +172,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           <input 
             type="text" 
             placeholder="발송자 또는 내용으로 검색..." 
-            value={historySearchTerm}
-            onChange={(e) => setHistorySearchTerm(e.target.value)}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
         <div className="history-nav">
@@ -227,7 +220,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 const isCurrent = idx === historyIndex;
                 const offset = idx - historyIndex;
                 const classification = classified[msg.id];
-                const deadline = deadlines[msg.id];
+                const deadline = deadlines[msg.id.toString()]; // deadlines keys are strings
                 
                 return (
                   <div 
@@ -258,12 +251,14 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                             {formatDate(deadline)}
                           </span>
                         )}
-                        <button 
-                          className="history-set-deadline-btn"
-                          onClick={() => setScheduleModal({ open: true, id: msg.id })}
-                        >
-                          마감 설정
-                        </button>
+                        {setScheduleModal && (
+                          <button 
+                            className="history-set-deadline-btn"
+                            onClick={() => setScheduleModal({ open: true, id: msg.id })}
+                          >
+                            마감 설정
+                          </button>
+                        )}
                       </div>
                       <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
                       {msg.file_paths && msg.file_paths.length > 0 && (
@@ -288,8 +283,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             <input
               type="text"
               placeholder="발송자 또는 내용으로 검색..."
-              value={historySearchTerm}
-              onChange={(e) => setHistorySearchTerm(e.target.value)}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
         </PageHeader>
@@ -302,12 +297,14 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   <div className="history-card-header">
                     <span className="history-id">#{activeSearchMessage.id}</span>
                     <span className="history-sender">{activeSearchMessage.sender}</span>
-                    <button
-                      className="history-set-deadline-btn"
-                      onClick={() => setScheduleModal({ open: true, id: activeSearchMessage.id })}
-                    >
-                      마감 설정
-                    </button>
+                    {setScheduleModal && (
+                      <button
+                        className="history-set-deadline-btn"
+                        onClick={() => setScheduleModal({ open: true, id: activeSearchMessage.id })}
+                      >
+                        마감 설정
+                      </button>
+                    )}
                   </div>
                   <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
                   {activeSearchMessage.file_paths && activeSearchMessage.file_paths.length > 0 && (
@@ -330,7 +327,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   <div
                     key={item.id}
                     className={`result-item ${activeSearchMessage?.id === item.id ? 'active' : ''}`}
-                    onClick={() => handleSearchResultClick(item.id)}
+                    onClick={() => onSearchResultClick(item.id)}
                   >
                     <div className="result-sender">{item.sender}</div>
                     <div className="result-snippet">{item.snippet}</div>
@@ -346,7 +343,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   return (
     <div className="history page-content">
-      {historySearchTerm.trim() ? renderSearchResults() : renderNormalHistory()}
+      {searchTerm.trim() ? renderSearchResults() : renderNormalHistory()}
     </div>
   );
 };

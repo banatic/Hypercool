@@ -18,11 +18,11 @@ const processUrl = (url: string) => {
                         .then(() => {
                             console.log('Successfully signed in with Google credential');
                             // Force UI update or notify user if needed
-                            alert('Successfully signed in!');
+                            // alert('Successfully signed in!'); // Removed
                         })
                         .catch((e) => {
                             console.error('Error signing in with Google credential:', e);
-                            alert('Sign in failed: ' + e.message);
+                            // alert('Sign in failed: ' + e.message); // Removed
                         });
                 } else {
                     signInWithCustomToken(auth, token)

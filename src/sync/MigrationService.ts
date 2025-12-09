@@ -1,6 +1,6 @@
 import { collection, getDocs, doc, writeBatch } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { ScheduleItem } from "../types/schedule";
+
 
 const COLLECTION_TODOS = "todos";
 const COLLECTION_SCHEDULES = "schedules";

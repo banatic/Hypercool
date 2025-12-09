@@ -53,7 +53,7 @@ export const AttachmentList: React.FC<AttachmentListProps> = ({ filePaths }) => 
       await invoke('open_file', { filePath: fullPath });
     } catch (error) {
       console.error('파일 열기 실패:', error);
-      alert('파일을 열 수 없습니다.');
+      // alert('파일을 열 수 없습니다.'); // Removed
     }
   };
 
