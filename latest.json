@@ -1,11 +1,11 @@
 {
-    "version": "0.4.0",
-    "notes": "개선 : 동기화 알고리즘 개선",
-    "pub_date": "2025-12-05T03:43:40.132Z",
+    "version": "0.4.2",
+    "notes": "개선 : 퍼포먼스 개선, DB 구조 개선",
+    "pub_date": "2025-12-09T01:29:30.139Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTNzaGNEeTlCOVZrWlB0TGxMeWpYcDdpVFpUclI3Vnp4dG9nalc5T3JmbFJCeEJ2b0s5NDdBM3QvemJLNlpXb28veGsyUFBpcWVocEt2NkF2UStkb2c0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0OTA2MzM0CWZpbGU6SHlwZXJDb29sXzAuNC4wX3g2NF9lbi1VUy5tc2kKTm9xMFBxaWl3aCtnZ0w4bXU3VkxVUWo1MWFLU3F1R2tPTlhnbkM5VkdWOFd1blJWTGhDUXFJT2plSzRnSkppb1pPRDltUkdMbFF4dkVtRkFBcHpOQlE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.0/HyperCool_0.4.0_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTBLRjVZWS9DM1N2QzgxYnJqRVNzRmxreC8zQVhyNHJxdDNhbC9kbzZyZ1dsTUx4WUZhWEhSckhMV1ltMGtHY3dteFRPajU0Mm9PVXlCaUlJSlV2V0E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1MjQzOTEwCWZpbGU6SHlwZXJDb29sXzAuNC4yX3g2NF9lbi1VUy5tc2kKZTVYd0p6RVRhZjVXV25Cd0E1K2dXbVFqUmtueFRzYzhWc1VwSi90d2w2T1VvYU1qbmpQNzR6UTBTS3BFcUNueW91QkVMRmFIQkE4UVgrYzMrd1ZDQVE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.2/HyperCool_0.4.2_x64_en-US.msi"
         }
     }
 }
