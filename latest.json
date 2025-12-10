@@ -1,11 +1,11 @@
 {
-    "version": "0.4.3",
-    "notes": "버그수정 : 학교위젯 버그 수정",
-    "pub_date": "2025-12-09T07:49:43.874Z",
+    "version": "0.4.4",
+    "notes": "기능추가 : 위젯 최소화 방지",
+    "pub_date": "2025-12-10T01:07:37.625Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTJ4bG41V2RmbXkrL1hlU3lTUVpKQ3JURHJxOHR2NkExWnFBaTZXOGxvMHFUc0R5ZzV4c1hrdldJSlg3aDVaZ0FodFRvcFlBMmVZRTQxTnNxOE15SWdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1MjY2NzAyCWZpbGU6SHlwZXJDb29sXzAuNC4zX3g2NF9lbi1VUy5tc2kKaUZsRVc1QkkwcGNKbmEya3NxYzE0R2pDVXpLUFMyWFNMY3dXcmYyWkUvamlCZmtXTWNpZElUblZvcklYaHNrNjg4MHpuUGJwR1dMdWlSRkVsRUtEREE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.3/HyperCool_0.4.3_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTRQNWd3eU9sR1NRZTdRTnBWTVpRQ0srTUs3cEVwNk8zcStoeG1YS25pNnN3MDhUQ1pEK2twYW1ZdUdmOGV1azJwYmZPZkNYVktNdjZueGFSV1cvc2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1MzI4OTc2CWZpbGU6SHlwZXJDb29sXzAuNC40X3g2NF9lbi1VUy5tc2kKUGp4dXJnM3d1NmZCQTh3SUR0UFVkcVVoOVVLRUp2a29laHhXbXgvajlPbU8xQmZTTjdrdmZQNTRSaUZJUHNaZzNQaUxveW5QYWh2U3pxU3ROemNmQUE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.4/HyperCool_0.4.4_x64_en-US.msi"
         }
     }
 }
