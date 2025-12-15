@@ -1,11 +1,11 @@
 {
-    "version": "0.4.4",
-    "notes": "기능추가 : 위젯 최소화 방지",
-    "pub_date": "2025-12-10T01:07:37.625Z",
+    "version": "0.4.5",
+    "notes": "기능추가 : 검색 기능 속도 개선중",
+    "pub_date": "2025-12-15T04:51:41.990Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTRQNWd3eU9sR1NRZTdRTnBWTVpRQ0srTUs3cEVwNk8zcStoeG1YS25pNnN3MDhUQ1pEK2twYW1ZdUdmOGV1azJwYmZPZkNYVktNdjZueGFSV1cvc2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1MzI4OTc2CWZpbGU6SHlwZXJDb29sXzAuNC40X3g2NF9lbi1VUy5tc2kKUGp4dXJnM3d1NmZCQTh3SUR0UFVkcVVoOVVLRUp2a29laHhXbXgvajlPbU8xQmZTTjdrdmZQNTRSaUZJUHNaZzNQaUxveW5QYWh2U3pxU3ROemNmQUE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.4/HyperCool_0.4.4_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dXkvK0tCajdCVUhBR1kybjN5REFVcm94V0N1TDhQZWtxdk82bjdtNHZEK01JRGJtSVpUUDBPa0RxdkRzM3JOelAyZmpKZmRoQmcvVTRBWXhaT0hWVGc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1Nzc0NTgzCWZpbGU6SHlwZXJDb29sXzAuNC41X3g2NF9lbi1VUy5tc2kKVVBuVEVVS3VnSHNHTEFsWHVoK2Y4MEplQ0ZlditkRXc4YTlsRjhqNkI2YkQrUks1clg4L1A5aHBDM0N0d2VFYkdXRHBjbElBWU11eUJwOXVTTzY4Q1E9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.5/HyperCool_0.4.5_x64_en-US.msi"
         }
     }
 }
