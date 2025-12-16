@@ -1,11 +1,11 @@
 {
-    "version": "0.4.6",
+    "version": "0.4.8",
     "notes": "검색 기능 속도 개선 완료(Virtualization)",
-    "pub_date": "2025-12-16T00:07:02.333Z",
+    "pub_date": "2025-12-16T02:16:28.720Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTJFcDgzenlBL3dpbXdmclpCS0FhR1ZZNUlybHd1S2sxZG9DNFEzeHlYTlZoS2NMSm5GZWFaTUpvUC9ESjdsdUJlaStOWXpnZU93QVljR1BySnlyWHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1ODQzODQxCWZpbGU6SHlwZXJDb29sXzAuNC42X3g2NF9lbi1VUy5tc2kKVndYeWJUMU1EbEhaR0F4MkNOU04zTVo0ek1kT213ZjBtR1VDSDJCVzY3YXFzNlJCQnU5V3hHUkdGODZ0dU4xUlFiM1JrVUltN0ZDVTlWNnpudDBHQnc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.6/HyperCool_0.4.6_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQXZsTUlMaW44dTFYMTdMUkk1bk9yVklscmF4Sm04bGl1aHhreU11ZE1pVmJhMFZ4V01IV2NNbHc4bDdTOFd3R3pFT2RoTnV1djczeWNWSFM1YlNhbnFmQUczRnRFYkFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY1ODUxNDkxCWZpbGU6SHlwZXJDb29sXzAuNC44X3g2NF9lbi1VUy5tc2kKcnVMRGI1eEhPOFlZeVY3YWZaQ3JLVnRhK1owS00yZ0tLVGJKY1hxcWtlemlNdUUzZTROWk5abU9ZbkI3by8wRFRHUGFzNm9Ub012M1pJOXNkd3B2QXc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.8/HyperCool_0.4.8_x64_en-US.msi"
         }
     }
 }
