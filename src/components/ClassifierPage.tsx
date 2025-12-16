@@ -1,5 +1,5 @@
 import React from 'react';
-import { Message } from '../types';
+import { MessageMeta } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
 import { decodeEntities, formatReceiveDate } from '../utils/dateUtils';
@@ -7,7 +7,7 @@ import { decodeEntities, formatReceiveDate } from '../utils/dateUtils';
 interface ClassifierPageProps {
   isLoading: boolean;
   statusText: string;
-  visibleMessages: Message[];
+  visibleMessages: MessageMeta[];  // Lightweight metadata only
   onMouseDown: (id: number) => (e: React.MouseEvent<HTMLDivElement>) => void;
   classify: (id: number, direction: 'left' | 'right') => void;
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
@@ -80,7 +80,7 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
                   </span>
                 )}
               </div>
-              <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
+              <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.preview) }} />
               {msg.file_paths && msg.file_paths.length > 0 && (
                 <AttachmentList filePaths={msg.file_paths} />
               )}

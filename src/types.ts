@@ -6,6 +6,15 @@ export interface Message {
   file_paths?: string[];
 }
 
+// Lightweight message metadata for lists (no full content)
+export interface MessageMeta {
+  id: number;
+  sender: string;
+  preview: string;  // First 200 chars only
+  receive_date?: string | null;
+  file_paths?: string[];
+}
+
 export interface SearchResultItem {
   id: number;
   sender: string;

@@ -10,6 +10,10 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 #[cfg(target_os = "windows")]
 use winapi::um::winuser::{FindWindowW, ShowWindow, SetForegroundWindow, SW_RESTORE, SW_HIDE, SW_SHOW, SetWindowPos, HWND_BOTTOM, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GWLP_HWNDPARENT};
+#[cfg(target_os = "windows")]
+use crate::dummy_window::DUMMY_OWNER_HWND;
 
 // 최근 숨김 시각 (워처 자동 표시 억제용)
 pub static LAST_HIDE_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
@@ -184,6 +188,19 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
     let window = builder
         .build()
         .map_err(|e| format!("달력 위젯 윈도우 생성 실패: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(dummy_hwnd) = DUMMY_OWNER_HWND.get() {
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let widget_hwnd = windows::Win32::Foundation::HWND(hwnd.0 as _);
+                    let prev = SetWindowLongPtrW(widget_hwnd, GWLP_HWNDPARENT, dummy_hwnd.0.0 as _);
+                    eprintln!("Calendar Widget Owner Set: Widget {:?} -> Owner {:?} (Prev: {:?})", widget_hwnd, dummy_hwnd.0.0, prev);
+                }
+            }
+        }
+    }
     
     // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
     if let Some(bounds) = saved_bounds {
@@ -207,11 +224,12 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
         let window_title = "달력 위젯";
         let title_wide: Vec<u16> = OsStr::new(window_title).encode_wide().chain(Some(0)).collect();
         
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         
         unsafe {
             let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
             if !hwnd.is_null() {
+                eprintln!("Found Calendar Widget HWND: {:?}", hwnd);
                 SetWindowPos(
                     hwnd,
                     HWND_BOTTOM,
@@ -221,6 +239,9 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
                     0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                 );
+                eprintln!("SetWindowPos(HWND_BOTTOM) called for Calendar Widget");
+            } else {
+                eprintln!("Failed to find Calendar Widget window for SetWindowPos");
             }
         }
     }
@@ -320,6 +341,19 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     let window = builder
         .build()
         .map_err(|e| format!("학교 위젯 윈도우 생성 실패: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(dummy_hwnd) = DUMMY_OWNER_HWND.get() {
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    let widget_hwnd = windows::Win32::Foundation::HWND(hwnd.0 as _);
+                    let prev = SetWindowLongPtrW(widget_hwnd, GWLP_HWNDPARENT, dummy_hwnd.0.0 as _);
+                    eprintln!("School Widget Owner Set: Widget {:?} -> Owner {:?} (Prev: {:?})", widget_hwnd, dummy_hwnd.0.0, prev);
+                }
+            }
+        }
+    }
     
     // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
     if let Some(bounds) = saved_bounds {
@@ -337,6 +371,33 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     }
     
     apply_vibrancy_effect(&window);
+    
+    #[cfg(target_os = "windows")]
+    {
+        let window_title = "학교 위젯";
+        let title_wide: Vec<u16> = OsStr::new(window_title).encode_wide().chain(Some(0)).collect();
+        
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null_mut(), title_wide.as_ptr());
+            if !hwnd.is_null() {
+                eprintln!("Found School Widget HWND: {:?}", hwnd);
+                SetWindowPos(
+                    hwnd,
+                    HWND_BOTTOM,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+                eprintln!("SetWindowPos(HWND_BOTTOM) called for School Widget");
+            } else {
+                eprintln!("Failed to find School Widget window for SetWindowPos");
+            }
+        }
+    }
     
     // 디바운싱을 위한 타이머
     let save_timer: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::new(Mutex::new(None));

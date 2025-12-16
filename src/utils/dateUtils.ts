@@ -23,10 +23,58 @@ export const formatDate = (dateString: string) => {
     return `${year}. ${month}. ${day}.`;
 };
 
+// HTML entity decode cache to avoid repeated DOM operations
+const entityDecodeCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 500;
+
+// Common HTML entities map
+const HTML_ENTITIES: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+    '&copy;': '©',
+    '&reg;': '®',
+    '&trade;': '™',
+    '&ndash;': '–',
+    '&mdash;': '—',
+    '&lsquo;': '\u2018',
+    '&rsquo;': '\u2019',
+    '&ldquo;': '\u201C',
+    '&rdquo;': '\u201D',
+    '&bull;': '\u2022',
+    '&hellip;': '\u2026',
+};
+
+// Decode HTML entities WITHOUT DOM manipulation (no forced layout!)
 export const decodeEntities = (html: string): string => {
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = html;
-    return textarea.value;
+    if (!html) return html;
+
+    // Check cache first
+    const cached = entityDecodeCache.get(html);
+    if (cached !== undefined) return cached;
+
+    // Decode using regex (no DOM!)
+    let decoded = html
+        // Named entities
+        .replace(/&[a-zA-Z]+;/g, (entity) => HTML_ENTITIES[entity] || entity)
+        // Numeric entities (decimal)
+        .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
+        // Numeric entities (hex)
+        .replace(/&#x([a-fA-F0-9]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+    // Cache the result (with size limit)
+    if (entityDecodeCache.size >= MAX_CACHE_SIZE) {
+        // Remove oldest entries (first 100)
+        const keys = Array.from(entityDecodeCache.keys()).slice(0, 100);
+        keys.forEach(k => entityDecodeCache.delete(k));
+    }
+    entityDecodeCache.set(html, decoded);
+
+    return decoded;
 };
 
 // 날짜 파싱 함수: 다양한 형식의 날짜 문자열을 파싱하여 ISO 날짜 문자열과 시간을 반환

@@ -5,6 +5,7 @@ use hypercool::commands::{messages, system, window};
 use hypercool::db;
 use hypercool::models::CacheState;
 use hypercool::school_data;
+use hypercool::search_db;
 use hypercool::timetable_parser;
 use hypercool::utils::is_class_time;
 use hypercool::commands::window::LAST_HIDE_AT;
@@ -29,6 +30,8 @@ use winreg::RegKey;
 const REG_BASE: &str = r"Software\\HyperCool";
 
 fn main() {
+    hypercool::dummy_window::init();
+
     let cache_size = NonZeroUsize::new(50).unwrap();
     let cache_state = CacheState {
         search_cache: Mutex::new(LruCache::new(cache_size)),
@@ -80,6 +83,14 @@ fn main() {
             db::delete_schedule,
             db::migrate_registry_to_db_command,
             
+            search_db::sync_search_db,
+            search_db::search_messages_fts,
+            search_db::get_cached_message,
+            search_db::get_search_db_stats,
+            search_db::read_cached_messages,
+            search_db::get_cached_message_count,
+            search_db::is_cache_ready,
+            
             timetable_parser::get_timetable_data,
             school_data::get_meal_data,
             school_data::get_attendance_data,
@@ -98,6 +109,12 @@ fn main() {
             if let Err(e) = db::init_db(app.app_handle()) {
                 eprintln!("Failed to initialize DB: {}", e);
                 return Err(e.into());
+            }
+            
+            // Initialize Search DB
+            if let Err(e) = search_db::init_search_db(app.app_handle()) {
+                eprintln!("Failed to initialize Search DB: {}", e);
+                // Don't return error - search is optional
             }
 
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
@@ -440,6 +457,16 @@ fn main() {
                                 // 메시지가 실제로 변경되었을 때만 이벤트 발생
                                 if has_new_message {
                                     let _ = app_handle.emit("udb-changed", ());
+                                    
+                                    // Sync search DB in background
+                                    let app_for_sync = app_handle.clone();
+                                    let path_for_sync = path.clone();
+                                    std::thread::spawn(move || {
+                                        if let Err(e) = search_db::sync_from_udb(&app_for_sync, path_for_sync) {
+                                            eprintln!("Search DB sync failed: {}", e);
+                                        }
+                                    });
+                                    
                                     // 최근 숨김 직후에는 자동 표시 억제 (2초)
                                     let suppress_hide = LAST_HIDE_AT
                                         .get_or_init(|| Mutex::new(None))

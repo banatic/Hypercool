@@ -58,6 +58,7 @@ pub fn read_udb_messages(
 
 #[tauri::command]
 pub fn search_messages(
+    app: tauri::AppHandle,
     db_path: String,
     search_term: String,
     cache: State<'_, CacheState>,
@@ -74,27 +75,38 @@ pub fn search_messages(
         }
     }
 
-    // 2. Cache miss, proceed with DB query
-    let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
-    let pattern = format!("%{}%", search_term);
-    let mut stmt = conn.prepare(
-        "SELECT MessageKey, Sender, substr(MessageText, 1, 100) FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT 100"
-    ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
+    // 2. Try FTS5 search from search_db first
+    let fts_result = crate::search_db::search_fts_internal(&app, search_term.clone(), 20);
+    
+    let results = match fts_result {
+        Ok(fts_results) if !fts_results.is_empty() => {
+            // FTS search succeeded
+            fts_results
+        }
+        _ => {
+            // 3. Fallback to direct UDB query (LIKE pattern)
+            let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
+            let pattern = format!("%{}%", search_term);
+            let mut stmt = conn.prepare(
+                "SELECT MessageKey, Sender, substr(MessageText, 1, 100) FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT 100"
+            ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
 
-    let iter = stmt
-        .query_map([&pattern], |row| {
-            Ok(SearchResultItem {
-                id: row.get(0)?,
-                sender: row.get(1)?,
-                snippet: row.get(2)?,
-            })
-        })
-        .map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;
+            let iter = stmt
+                .query_map([&pattern], |row| {
+                    Ok(SearchResultItem {
+                        id: row.get(0)?,
+                        sender: row.get(1)?,
+                        snippet: row.get(2)?,
+                    })
+                })
+                .map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;
 
-    let results: Result<Vec<_>, _> = iter.collect();
-    let results = results.map_err(|e| format!("검색 결과 처리 실패: {}", e))?;
+            let fallback_results: Result<Vec<_>, _> = iter.collect();
+            fallback_results.map_err(|e| format!("검색 결과 처리 실패: {}", e))?
+        }
+    };
 
-    // 3. Store result in cache before returning
+    // 4. Store result in cache before returning
     {
         let mut search_cache = cache.search_cache.lock().unwrap();
         search_cache.put(search_term, results.clone());
@@ -104,7 +116,19 @@ pub fn search_messages(
 }
 
 #[tauri::command]
-pub fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
+pub fn get_message_by_id(app: tauri::AppHandle, db_path: String, id: i64) -> Result<Message, String> {
+    // 1. Try to get from cached search DB first (fast path)
+    if let Ok(Some(cached)) = crate::search_db::get_cached_message(app.clone(), id) {
+        return Ok(Message {
+            id: cached.id,
+            sender: cached.sender,
+            content: cached.content,
+            receive_date: cached.receive_date,
+            file_paths: cached.file_paths,
+        });
+    }
+    
+    // 2. Fallback to UDB (slow path - only if not in cache)
     let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
     conn.query_row(
         "SELECT MessageKey, Sender, MessageText, MessageBody, ReceiveDate, FilePath FROM tbl_recv WHERE MessageKey = ?1",
@@ -146,6 +170,7 @@ pub fn get_message_by_id(db_path: String, id: i64) -> Result<Message, String> {
             let file_paths = parse_file_paths(&file_path.unwrap_or_default());
             Ok(Message { id, sender, content, receive_date, file_paths })
         }
+
     ).map_err(|e| format!("ID로 메시지 조회 실패: {}", e))
 }
 
