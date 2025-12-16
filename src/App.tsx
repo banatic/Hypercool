@@ -43,7 +43,7 @@ function App() {
   } = useSchedules();
 
   const { 
-    allMessages, classified, saveClassified, isLoading: isLoadingMessages, 
+    allMessages, totalMessageCount, classified, saveClassified, isLoading: isLoadingMessages, 
     loadUdbFile, searchResults, setSearchResults, 
     activeSearchMessage, 
     searchMessages, loadMessageById, 
@@ -71,6 +71,17 @@ function App() {
   }, [pendingIndexes, visiblePairStart]);
 
   const visibleMessages = useMemo(() => visibleIndexes.map(i => allMessages[i]).filter(Boolean), [visibleIndexes, allMessages]);
+
+  // Memoize expensive schedule-based calculations
+  const deadlines = useMemo(() => 
+    Object.fromEntries(
+      Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.startDate || null])
+    ), [messageSchedulesMap]);
+
+  const calendarTitles = useMemo(() => 
+    Object.fromEntries(
+      Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.title])
+    ), [messageSchedulesMap]);
 
   const ensureVisiblePairProgress = useCallback(() => {
     setVisiblePairStart((prev) => {
@@ -210,14 +221,12 @@ function App() {
     return () => clearTimeout(handler);
   }, [historySearchTerm, udbPath, searchMessages, setSearchResults]);
 
-  // Auto-select first search result
-  useEffect(() => {
-    if (searchResults && searchResults.length > 0) {
-      loadMessageById(searchResults[0].id);
-      // We don't use activeSearchMessage here, but loadMessageById updates it.
-      // And we might want to ensure we don't loop.
-    }
-  }, [searchResults, loadMessageById]);
+  // Auto-select first search result - DISABLED FOR DEBUGGING
+  // useEffect(() => {
+  //   if (searchResults && searchResults.length > 0) {
+  //     loadMessageById(searchResults[0].id);
+  //   }
+  // }, [searchResults, loadMessageById]);
 
   // Use unused variables to silence TS (or remove them if truly unused)
   // schedules, manualTodos, periodSchedules are used in ScheduleModal via useSchedules hook indirectly?
@@ -249,12 +258,8 @@ function App() {
             statusText={statusText}
             isLoading={isLoadingMessages}
             loadUdbFile={loadUdbFile}
-            deadlines={Object.fromEntries(
-              Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.startDate || null])
-            )}
-            calendarTitles={Object.fromEntries(
-              Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.title])
-            )}
+            deadlines={deadlines}
+            calendarTitles={calendarTitles}
             isSyncing={isSyncing}
             syncProgress={syncProgress}
             syncError={syncError}
@@ -266,7 +271,7 @@ function App() {
             allMessages={allMessages}
             historyIndex={historyIndex}
             setHistoryIndex={setHistoryIndex}
-            totalMessageCount={allMessages.length}
+            totalMessageCount={totalMessageCount}
             searchTerm={historySearchTerm}
             setSearchTerm={setHistorySearchTerm}
             searchResults={searchResults}
@@ -276,12 +281,8 @@ function App() {
             onSearchResultClick={(id) => loadMessageById(id)}
             loadUdbFile={loadUdbFile}
             udbPath={udbPath}
-            deadlines={Object.fromEntries(
-              Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.startDate || null])
-            )}
-            calendarTitles={Object.fromEntries(
-              Object.values(messageSchedulesMap).map(s => [s.referenceId!, s.title])
-            )}
+            deadlines={deadlines}
+            calendarTitles={calendarTitles}
             setScheduleModal={setScheduleModal}
             classified={classified}
           />
@@ -321,7 +322,7 @@ function App() {
             handleSync(true);
           }}
           udbPath={udbPath}
-          allMessages={allMessages}
+          allMessages={[]}  // Empty - ScheduleModal loads content on demand
           schedules={schedules}
         />
       )}

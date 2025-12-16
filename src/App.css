@@ -327,9 +327,6 @@
   background: #f3f4f6;
 }
 
-cursor: not-allowed;
-}
-
 .icon-btn {
   background: transparent;
   border: none;
@@ -869,6 +866,9 @@ cursor: not-allowed;
   position: relative;
   flex: 1;
   min-height: 0;
+  /* Performance optimizations */
+  contain: strict;
+  will-change: transform;
 }
 
 .result-item {

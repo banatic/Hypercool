@@ -1,8 +1,86 @@
 import React, { useCallback, useRef, useEffect } from 'react';
-import { Message, SearchResultItem } from '../types';
+import { Message, MessageMeta, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
 import { decodeEntities, formatDate, formatReceiveDate } from '../utils/dateUtils';
+
+// Performance logging helper
+const logPerf = (label: string, startTime?: number) => {
+    const now = performance.now();
+    const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+    if (startTime !== undefined) {
+        console.log(`[PERF ${timestamp}] ${label}: ${(now - startTime).toFixed(1)}ms`);
+    } else {
+        console.log(`[PERF ${timestamp}] ${label}`);
+    }
+    return now;
+};
+
+// Truncate HTML content to prevent UI blocking
+const MAX_CONTENT_LENGTH = 2000;
+const truncateHtml = (html: string): string => {
+    if (html.length <= MAX_CONTENT_LENGTH) return html;
+    // Find a safe cut point (not in the middle of a tag)
+    let cutPoint = MAX_CONTENT_LENGTH;
+    const lastOpenTag = html.lastIndexOf('<', cutPoint);
+    const lastCloseTag = html.lastIndexOf('>', cutPoint);
+    if (lastOpenTag > lastCloseTag) {
+        // We're inside a tag, move cut point before the tag
+        cutPoint = lastOpenTag;
+    }
+    return html.slice(0, cutPoint) + '... <span style="color: var(--text-secondary); font-style: italic;">(내용이 잘렸습니다)</span>';
+};
+
+// Memoized search result item to prevent re-renders
+const SearchResultItemMemo = React.memo(({ 
+    item, 
+    isActive, 
+    onClick 
+}: { 
+    item: SearchResultItem; 
+    isActive: boolean; 
+    onClick: () => void;
+}) => {
+    return (
+        <div
+            className={`result-item ${isActive ? 'active' : ''}`}
+            onClick={onClick}
+        >
+            <div className="result-sender">{item.sender}</div>
+            <div className="result-snippet">{item.snippet}</div>
+        </div>
+    );
+}, (prevProps, nextProps) => {
+    return prevProps.isActive === nextProps.isActive && 
+           prevProps.item.id === nextProps.item.id;
+});
+
+// Simple fixed list - backend now limits to 20 results
+const VirtualizedSearchResults = React.memo(({ 
+    searchResults, 
+    activeSearchMessage, 
+    onSearchResultClick 
+}: { 
+    searchResults: SearchResultItem[];
+    activeSearchMessage: Message | null;
+    onSearchResultClick: (id: number) => void;
+}) => {
+    return (
+        <div className="results-list" style={{ height: 400, overflowY: 'auto' }}>
+            {searchResults.map((item) => (
+                <SearchResultItemMemo
+                    key={item.id}
+                    item={item}
+                    isActive={activeSearchMessage?.id === item.id}
+                    onClick={() => {
+                        logPerf(`CLICK search result id=${item.id}`);
+                        onSearchResultClick(item.id);
+                    }}
+                />
+            ))}
+        </div>
+    );
+});
 
 interface HistoryPageProps {
   totalMessageCount: number;
@@ -10,7 +88,7 @@ interface HistoryPageProps {
   setSearchTerm: (term: string) => void;
   historyIndex: number;
   setHistoryIndex: (index: number) => void;
-  allMessages: Message[];
+  allMessages: MessageMeta[];  // Now uses lightweight MessageMeta
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
   isLoading?: boolean;
@@ -260,7 +338,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                           </button>
                         )}
                       </div>
-                      <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.content) }} />
+                      <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.preview) }} />
                       {msg.file_paths && msg.file_paths.length > 0 && (
                         <AttachmentList filePaths={msg.file_paths} />
                       )}
@@ -306,7 +384,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                       </button>
                     )}
                   </div>
-                  <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
+                  <div className="history-card-content" dangerouslySetInnerHTML={{ __html: truncateHtml(decodeEntities(activeSearchMessage.content)) }} />
                   {activeSearchMessage.file_paths && activeSearchMessage.file_paths.length > 0 && (
                     <AttachmentList filePaths={activeSearchMessage.file_paths} />
                   )}
@@ -321,19 +399,12 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           </div>
           <div className="history-results-pane">
             {isLoadingSearch && <div className="empty">검색 중...</div>}
-            {!isLoadingSearch && searchResults && (
-              <div className="results-list">
-                {searchResults.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`result-item ${activeSearchMessage?.id === item.id ? 'active' : ''}`}
-                    onClick={() => onSearchResultClick(item.id)}
-                  >
-                    <div className="result-sender">{item.sender}</div>
-                    <div className="result-snippet">{item.snippet}</div>
-                  </div>
-                ))}
-              </div>
+            {!isLoadingSearch && searchResults && searchResults.length > 0 && (
+              <VirtualizedSearchResults 
+                searchResults={searchResults}
+                activeSearchMessage={activeSearchMessage}
+                onSearchResultClick={onSearchResultClick}
+              />
             )}
           </div>
         </div>
