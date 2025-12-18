@@ -223,8 +223,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             syncProgress={syncProgress}
             syncError={syncError}
           />
-
         </div>
+      </div>
+      <div className="field-description" style={{ textAlign: 'right', marginTop: '-8px', marginBottom: '16px' }}>
+        동기화가 완료된 일정과 메시지는 <a href="https://hypercool-fe1fa.web.app/" target="_blank" rel="noopener noreferrer">hypercool-fe1fa.web.app</a>에서 확인할 수 있습니다.
       </div>
 
       <div className="field">

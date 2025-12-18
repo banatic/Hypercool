@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useEffect } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Message, MessageMeta, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
@@ -16,21 +17,6 @@ const logPerf = (label: string, startTime?: number) => {
     return now;
 };
 
-// Truncate HTML content to prevent UI blocking
-const MAX_CONTENT_LENGTH = 2000;
-const truncateHtml = (html: string): string => {
-    if (html.length <= MAX_CONTENT_LENGTH) return html;
-    // Find a safe cut point (not in the middle of a tag)
-    let cutPoint = MAX_CONTENT_LENGTH;
-    const lastOpenTag = html.lastIndexOf('<', cutPoint);
-    const lastCloseTag = html.lastIndexOf('>', cutPoint);
-    if (lastOpenTag > lastCloseTag) {
-        // We're inside a tag, move cut point before the tag
-        cutPoint = lastOpenTag;
-    }
-    return html.slice(0, cutPoint) + '... <span style="color: var(--text-secondary); font-style: italic;">(내용이 잘렸습니다)</span>';
-};
-
 // Memoized search result item to prevent re-renders
 const SearchResultItemMemo = React.memo(({ 
     item, 
@@ -41,12 +27,30 @@ const SearchResultItemMemo = React.memo(({
     isActive: boolean; 
     onClick: () => void;
 }) => {
+    // Format date for display (e.g., "12/16 08:43")
+    const formatDate = (dateStr?: string | null) => {
+        if (!dateStr) return '';
+        try {
+            const d = new Date(dateStr);
+            const month = d.getMonth() + 1;
+            const day = d.getDate();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins = String(d.getMinutes()).padStart(2, '0');
+            return `${month}/${day} ${hours}:${mins}`;
+        } catch {
+            return '';
+        }
+    };
+
     return (
         <div
             className={`result-item ${isActive ? 'active' : ''}`}
             onClick={onClick}
         >
-            <div className="result-sender">{item.sender}</div>
+            <div className="result-header">
+                <div className="result-sender">{item.sender}</div>
+                <div className="result-date">{formatDate(item.receive_date)}</div>
+            </div>
             <div className="result-snippet">{item.snippet}</div>
         </div>
     );
@@ -55,7 +59,9 @@ const SearchResultItemMemo = React.memo(({
            prevProps.item.id === nextProps.item.id;
 });
 
-// Simple fixed list - backend now limits to 20 results
+// Virtualized search results using @tanstack/react-virtual
+const ITEM_HEIGHT = 100; // Must match .result-item CSS height
+
 const VirtualizedSearchResults = React.memo(({ 
     searchResults, 
     activeSearchMessage, 
@@ -65,19 +71,54 @@ const VirtualizedSearchResults = React.memo(({
     activeSearchMessage: Message | null;
     onSearchResultClick: (id: number) => void;
 }) => {
+    const parentRef = useRef<HTMLDivElement>(null);
+
+    const virtualizer = useVirtualizer({
+        count: searchResults.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => ITEM_HEIGHT,
+        overscan: 3, // Render 3 extra items above/below viewport
+    });
+
     return (
-        <div className="results-list" style={{ height: 400, overflowY: 'auto' }}>
-            {searchResults.map((item) => (
-                <SearchResultItemMemo
-                    key={item.id}
-                    item={item}
-                    isActive={activeSearchMessage?.id === item.id}
-                    onClick={() => {
-                        logPerf(`CLICK search result id=${item.id}`);
-                        onSearchResultClick(item.id);
-                    }}
-                />
-            ))}
+        <div
+            ref={parentRef}
+            className="results-list"
+            style={{ height: 400, overflowY: 'auto' }}
+        >
+            <div
+                style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                }}
+            >
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const item = searchResults[virtualItem.index];
+                    return (
+                        <div
+                            key={item.id}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: `${virtualItem.size}px`,
+                                transform: `translateY(${virtualItem.start}px)`,
+                            }}
+                        >
+                            <SearchResultItemMemo
+                                item={item}
+                                isActive={activeSearchMessage?.id === item.id}
+                                onClick={() => {
+                                    logPerf(`CLICK search result id=${item.id}`);
+                                    onSearchResultClick(item.id);
+                                }}
+                            />
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 });
@@ -384,7 +425,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                       </button>
                     )}
                   </div>
-                  <div className="history-card-content" dangerouslySetInnerHTML={{ __html: truncateHtml(decodeEntities(activeSearchMessage.content)) }} />
+                  <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(activeSearchMessage.content) }} />
                   {activeSearchMessage.file_paths && activeSearchMessage.file_paths.length > 0 && (
                     <AttachmentList filePaths={activeSearchMessage.file_paths} />
                   )}

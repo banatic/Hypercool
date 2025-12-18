@@ -22,6 +22,7 @@ pub struct SearchResultItem {
     pub id: i64,
     pub sender: String,
     pub snippet: String,
+    pub receive_date: Option<String>,
 }
 
 pub struct CacheState {

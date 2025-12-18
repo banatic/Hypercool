@@ -76,7 +76,7 @@ pub fn search_messages(
     }
 
     // 2. Try FTS5 search from search_db first
-    let fts_result = crate::search_db::search_fts_internal(&app, search_term.clone(), 20);
+    let fts_result = crate::search_db::search_fts_internal(&app, search_term.clone(), 1000);
     
     let results = match fts_result {
         Ok(fts_results) if !fts_results.is_empty() => {
@@ -88,7 +88,7 @@ pub fn search_messages(
             let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
             let pattern = format!("%{}%", search_term);
             let mut stmt = conn.prepare(
-                "SELECT MessageKey, Sender, substr(MessageText, 1, 100) FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT 100"
+                "SELECT MessageKey, Sender, substr(MessageText, 1, 100), ReceiveDate FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT 100"
             ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
 
             let iter = stmt
@@ -97,6 +97,7 @@ pub fn search_messages(
                         id: row.get(0)?,
                         sender: row.get(1)?,
                         snippet: row.get(2)?,
+                        receive_date: row.get(3)?,
                     })
                 })
                 .map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;

@@ -510,8 +510,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.4.5",
-        notes="기능추가 : 검색 기능 속도 개선중",
+        version="0.4.8",
+        notes="검색 기능 속도 개선 완료(Virtualization)",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

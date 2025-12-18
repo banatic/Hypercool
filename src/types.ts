@@ -19,6 +19,7 @@ export interface SearchResultItem {
   id: number;
   sender: string;
   snippet: string;
+  receive_date?: string | null;
 }
 
 export interface ManualTodo {

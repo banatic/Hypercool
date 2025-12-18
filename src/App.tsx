@@ -51,7 +51,7 @@ function App() {
   } = useMessages(udbPath);
 
   const { 
-    handleSync, isSyncing, syncProgress, syncError 
+    handleSync, isSyncing, syncProgress, syncError, lastSyncTime 
   } = useSync(udbPath, loadSchedules);
 
   const { deepLinkUrl } = useDeepLink();
@@ -307,7 +307,7 @@ function App() {
             syncProgress={syncProgress}
             syncError={syncError}
             onSync={() => handleSync()}
-            lastSyncTime={null} // useSync doesn't expose lastSyncTime yet? It does.
+            lastSyncTime={lastSyncTime}
           />
         )}
       </div>

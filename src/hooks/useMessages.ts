@@ -110,12 +110,12 @@ export function useMessages(udbPath: string) {
                 });
                 logPerf('read_cached_messages DONE', t2);
 
-                // Only use preview, NOT full content - THIS IS THE KEY OPTIMIZATION
+                // Use full content (not truncated preview) for better UX
                 const t3 = logPerf('map to MessageMeta START');
                 const metas: MessageMeta[] = result.messages.map(m => ({
                     id: m.id,
                     sender: m.sender,
-                    preview: m.content_preview || m.content.slice(0, 200), // Use preview, fallback to truncated content
+                    preview: m.content, // Full content - decodeEntities is optimized now
                     receive_date: m.receive_date,
                     file_paths: m.file_paths
                 }));
@@ -138,11 +138,11 @@ export function useMessages(udbPath: string) {
                 });
                 logPerf('read_udb_messages DONE', t2);
 
-                // Convert to MessageMeta with truncated preview
+                // Convert to MessageMeta with full content
                 const metas: MessageMeta[] = result.messages.map(m => ({
                     id: m.id,
                     sender: m.sender,
-                    preview: m.content.slice(0, 200),
+                    preview: m.content, // Full content
                     receive_date: m.receive_date,
                     file_paths: m.file_paths
                 }));

@@ -64,8 +64,9 @@ export const AttachmentList: React.FC<AttachmentListProps> = ({ filePaths }) => 
   return (
     <div className="attachment-list" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>
-        첨부파일
+        첨부파일 ({filePaths.length})
       </div>
+      <div style={{ maxHeight: '120px', overflowY: 'auto' }}>
       {filePaths.map((fileName, index) => {
         const exists = fileStatuses[fileName] ?? false;
         return (
@@ -112,6 +113,7 @@ export const AttachmentList: React.FC<AttachmentListProps> = ({ filePaths }) => 
           </div>
         );
       })}
+      </div>
     </div>
   );
 };
