@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ClassifyIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon } from './icons';
 import { Page } from '../types';
 import { invoke } from '@tauri-apps/api/core';
@@ -12,12 +12,30 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapsed, setSidebarCollapsed }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnter = () => {
+    // Cancel any pending leave timeout
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    // Debounce leave to prevent flicker
+    leaveTimeoutRef.current = setTimeout(() => {
+      setIsHovered(false);
+      leaveTimeoutRef.current = null;
+    }, 50);
+  };
 
   return (
     <aside 
       className={`sidebar ${sidebarCollapsed && !isHovered ? 'collapsed' : ''}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="sidebar-top">
         <h1><span className='icon'></span><span className="label">HyperCool</span></h1>

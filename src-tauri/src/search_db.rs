@@ -377,6 +377,47 @@ pub fn search_messages_fts(
     search_fts_internal(&app, query, limit.unwrap_or(100))
 }
 
+/// Strip HTML tags from text, including truncated tags at start/end
+fn strip_html_tags(input: &str) -> String {
+    use regex::Regex;
+    
+    // Skip JSON-like content (shouldn't be displayed as snippet)
+    let trimmed = input.trim();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') || 
+       trimmed.contains("\":") || trimmed.contains("\":[") ||
+       trimmed.contains("\"cp\":") || trimmed.contains("\"ru\":") {
+        return String::new();
+    }
+    
+    // Remove complete HTML tags
+    let tag_regex = Regex::new(r"<[^>]*>").unwrap();
+    let mut result = tag_regex.replace_all(input, "").to_string();
+    
+    // Remove truncated tag at the END: "<div style=..."
+    if let Some(last_open) = result.rfind('<') {
+        if result[last_open..].find('>').is_none() {
+            result = result[..last_open].to_string();
+        }
+    }
+    
+    // Remove truncated tag at the START: '...rgb(0,0,0);">'
+    if let Some(first_close) = result.find('>') {
+        if result[..first_close].find('<').is_none() {
+            result = result[first_close + 1..].to_string();
+        }
+    }
+    
+    // Decode common HTML entities
+    result
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .trim()
+        .to_string()
+}
+
 /// Internal FTS search function
 pub fn search_fts_internal(
     app: &AppHandle,
@@ -395,14 +436,15 @@ pub fn search_fts_internal(
         .replace("*", "")
         .replace(":", " ");
     
-    // Use MATCH for FTS5 search with highlighting
+    // Use MATCH for FTS5 search, but show beginning of message (not matched portion)
     let mut stmt = conn.prepare(
         "SELECT m.id, m.sender, 
-                snippet(messages_fts, 1, '', '', '...', 50) AS snippet
+                substr(m.content, 1, 150) AS snippet,
+                m.receive_date
          FROM messages_fts 
          JOIN messages m ON m.id = messages_fts.rowid
          WHERE messages_fts MATCH ?1
-         ORDER BY rank
+         ORDER BY m.receive_date DESC
          LIMIT ?2"
     ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
     
@@ -411,10 +453,12 @@ pub fn search_fts_internal(
     
     let results: Vec<SearchResultItem> = stmt
         .query_map(params![fts_query, limit as i64], |row| {
+            let raw_snippet: String = row.get(2)?;
             Ok(SearchResultItem {
                 id: row.get(0)?,
                 sender: row.get(1)?,
-                snippet: row.get(2)?,
+                snippet: strip_html_tags(&raw_snippet),
+                receive_date: row.get(3)?,
             })
         })
         .map_err(|e| format!("검색 실행 실패: {}", e))?
@@ -426,10 +470,12 @@ pub fn search_fts_internal(
         let fallback_query = format!("\"{}\"", escaped_query);
         let results: Vec<SearchResultItem> = stmt
             .query_map(params![fallback_query, limit as i64], |row| {
+                let raw_snippet: String = row.get(2)?;
                 Ok(SearchResultItem {
                     id: row.get(0)?,
                     sender: row.get(1)?,
-                    snippet: row.get(2)?,
+                    snippet: strip_html_tags(&raw_snippet),
+                    receive_date: row.get(3)?,
                 })
             })
             .map_err(|e| format!("폴백 검색 실행 실패: {}", e))?
