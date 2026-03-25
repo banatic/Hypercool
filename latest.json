@@ -1,11 +1,11 @@
 {
-    "version": "0.4.9",
-    "notes": "업데이트 환경 변경",
-    "pub_date": "2026-03-04T02:46:17.143Z",
+    "version": "0.5.0",
+    "notes": "압핀 시간표 지원 / API키 교체",
+    "pub_date": "2026-03-25T01:14:18.648Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkRtS3BKUERqRXhXOGdTWDc4TDFoQUhDaklhMU15ZVJNRVdFZ1JpSUN4b3N0ZzU2MS8vczNIQmlhSXVWU21xRTNVWDAzVW9kVHkzblNiZE51VS9KbkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcyNTkyNTAzCWZpbGU6SHlwZXJDb29sXzAuNC45X3g2NF9lbi1VUy5tc2kKRmhXUStITFFnVzh1dks4UnMycWxMRENUV1k2ZnF1aDduK2F2WE5NS2ZSaTJicnplNWVVeGlTL1RwOGRaa3pGb21zeFgrOHl1dUJhbEJyNUpZdnBJREE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.4.9/HyperCool_0.4.9_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkgveXhQZFNqekpkUU1DZUNpZ244a2RQK1BMUzVnU2NibEozK0xkdzRsUlFuUkFWMU9Xa1RCTUMvWkt4d1lHYUpCcTNNUnJ0aEZoeDhKb09KbVkyTUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NDAxNDEwCWZpbGU6SHlwZXJDb29sXzAuNS4wX3g2NF9lbi1VUy5tc2kKUmt2dXRXdFpuekR3ZnVYSGtmU3VjUCtEaHhqbGJGRFh4TU5PTUQzdWlsUThWYm45WEdrOGNqQWdjQjFOdzVWdzhhQW5PMFo1UkI0K3Vyb3QrYkM0Q2c9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.0/HyperCool_0.5.0_x64_en-US.msi"
         }
     }
 }
