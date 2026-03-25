@@ -456,3 +456,4 @@ pub fn get_attendance_data(grade: String, class: String) -> Result<(Vec<Latecome
 pub fn get_points_data(grade: String, class: String) -> Result<(Vec<PointsData>, String), String> {
     fetch_points_data(&grade, &class)
 }
+
