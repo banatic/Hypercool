@@ -1,4 +1,4 @@
-export type ScheduleType = 'manual_todo' | 'period_schedule' | 'message_task';
+export type ScheduleType = 'manual_todo' | 'period_schedule' | 'message_task' | 'desktopcal_memo' | 'desktopcal_event';
 
 export interface ScheduleItem {
     id: string;              // UUID for local generation

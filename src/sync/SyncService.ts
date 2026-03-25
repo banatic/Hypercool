@@ -23,7 +23,7 @@ export const SyncService = {
         // Or better: Fetch all from local DB.
         const start = new Date('2000-01-01');
         const end = new Date('2100-12-31');
-        const localItems = await ScheduleService.getSchedules({ start, end });
+        const localItems = await ScheduleService.getSchedules({ start, end }, true);
 
         // 2. Get Remote Data
         const eventsRef = collection(db, "users", user.uid, COLLECTION_EVENTS);
@@ -213,17 +213,19 @@ export const SyncService = {
             const messages = chunkResult.messages;
             if (messages.length === 0) break;
 
-            // Upload chunk to Firestore
-            const batch = writeBatch(db);
-            for (const msg of messages) {
-                const docRef = doc(messagesRef, msg.id.toString());
-                batch.set(docRef, msg);
-            }
-
             // Retry logic for batch commit
             let retries = 3;
             while (retries > 0) {
                 try {
+                    const batch = writeBatch(db);
+                    for (const msg of messages) {
+                        const docRef = doc(messagesRef, msg.id.toString());
+                        // Truncate size to avoid Firebase 1MB limit for document
+                        if (msg.content && msg.content.length > 800000) {
+                            msg.content = msg.content.substring(0, 800000) + "\n... [내용이 너무 길어 동기화 과정에서 생략되었습니다]";
+                        }
+                        batch.set(docRef, msg);
+                    }
                     await batch.commit();
                     break; // Success
                 } catch (e: any) {

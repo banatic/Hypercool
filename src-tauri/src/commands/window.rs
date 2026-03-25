@@ -156,7 +156,15 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
     // 저장된 위치와 크기 불러오기
     let saved_bounds: Option<WindowBounds> = match get_registry_value("CalendarWidgetBounds".to_string()) {
         Ok(Some(json_str)) => {
-            serde_json::from_str(&json_str).ok()
+            if let Ok(bounds) = serde_json::from_str::<WindowBounds>(&json_str) {
+                if bounds.x < -10000.0 || bounds.y < -10000.0 {
+                    Some(WindowBounds { x: 0.0, y: 0.0, width: 300.0, height: 300.0 })
+                } else {
+                    Some(bounds)
+                }
+            } else {
+                None
+            }
         }
         _ => None
     };
@@ -257,6 +265,10 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
             let width = size.width as f64;
             let height = size.height as f64;
             
+            if x < -10000.0 || y < -10000.0 {
+                return;
+            }
+            
             let bounds = WindowBounds { x, y, width, height };
             if let Ok(json) = serde_json::to_string(&bounds) {
                 let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
@@ -310,7 +322,15 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     // 저장된 위치와 크기 불러오기
     let saved_bounds: Option<WindowBounds> = match get_registry_value("SchoolWidgetBounds".to_string()) {
         Ok(Some(json_str)) => {
-            serde_json::from_str(&json_str).ok()
+            if let Ok(bounds) = serde_json::from_str::<WindowBounds>(&json_str) {
+                if bounds.x < -10000.0 || bounds.y < -10000.0 {
+                    Some(WindowBounds { x: 0.0, y: 0.0, width: 300.0, height: 300.0 })
+                } else {
+                    Some(bounds)
+                }
+            } else {
+                None
+            }
         }
         _ => None
     };
@@ -409,6 +429,10 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
             let y = position.y as f64;
             let width = size.width as f64;
             let height = size.height as f64;
+            
+            if x < -10000.0 || y < -10000.0 {
+                return;
+            }
             
             let bounds = WindowBounds { x, y, width, height };
             if let Ok(json) = serde_json::to_string(&bounds) {
