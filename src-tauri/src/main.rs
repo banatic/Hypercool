@@ -7,6 +7,7 @@ use hypercool::models::CacheState;
 use hypercool::school_data;
 use hypercool::search_db;
 use hypercool::timetable_parser;
+use hypercool::appin_parser;
 use hypercool::utils::is_class_time;
 use hypercool::commands::window::LAST_HIDE_AT;
 use hypercool::commands::messages::{read_udb_messages_internal, get_latest_message_id_internal};
@@ -82,6 +83,10 @@ fn main() {
             db::update_schedule,
             db::delete_schedule,
             db::migrate_registry_to_db_command,
+            db::detect_desktopcal,
+            db::import_desktopcal_db,
+            db::export_desktopcal_db,
+            db::sync_to_desktopcal,
             
             search_db::sync_search_db,
             search_db::search_messages_fts,
@@ -92,6 +97,7 @@ fn main() {
             search_db::is_cache_ready,
             
             timetable_parser::get_timetable_data,
+            appin_parser::get_appin_timetable_data,
             school_data::get_meal_data,
             school_data::get_attendance_data,
             school_data::get_points_data,
@@ -375,6 +381,29 @@ fn main() {
                 if auto_start_school {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     let _ = window::open_school_widget(app_handle_for_auto_start.clone()).await;
+                }
+
+                // 탁상달력 자동 동기화 (양방향)
+                if let Ok(Some(dkcal_path)) = db::detect_desktopcal() {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    // 1) DeskTopCal → Hypercool (가져오기)
+                    match db::import_desktopcal_db(app_handle_for_auto_start.clone(), dkcal_path.clone()) {
+                        Ok(result) => {
+                            if result.imported > 0 {
+                                eprintln!("탁상달력 가져오기 완료: {}개 가져옴, {}개 건너뜀", result.imported, result.skipped);
+                            }
+                        }
+                        Err(e) => eprintln!("탁상달력 가져오기 실패: {}", e),
+                    }
+                    // 2) Hypercool → DeskTopCal (내보내기)
+                    match db::sync_to_desktopcal(app_handle_for_auto_start.clone(), dkcal_path) {
+                        Ok(result) => {
+                            if result.exported > 0 {
+                                eprintln!("탁상달력 내보내기 완료: {}개 내보냄", result.exported);
+                            }
+                        }
+                        Err(e) => eprintln!("탁상달력 내보내기 실패: {}", e),
+                    }
                 }
             });
 

@@ -1,6 +1,6 @@
 {
   "productName": "HyperCool",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "identifier": "com.hypercool.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJCRkMyOTJFMDg1M0JFODAKUldTQXZsTUlMaW44dTZveGJaNk9tYkxzdVMyWU1GZitkaXd6Zk1aR3JzTmJ6SzFyZ3cxR0JzM1kK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4REFGNzA1ODFEQjdFQ0YKUldUUGZ0dUJCZmZhMkpGc0M0VzdJMmEyZU54RFlJSnpOR3VwS29HenBrQ3NQLzNRdzJVY3NhdncK",
       "endpoints": [
         "https://raw.githubusercontent.com/banatic/Hypercool/refs/heads/main/latest.json"
       ],

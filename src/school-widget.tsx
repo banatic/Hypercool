@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, KeyboardEvent } from 'react';
 import ReactDOM from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import './SchoolWidget.css';
+import { ScheduleItem } from './types/schedule';
 
 // Types
 interface TimetableData {
@@ -29,7 +30,7 @@ interface PointStatus {
   total: number;
 }
 
-type Tab = 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
+type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
 
 // 고양이 종류 정의 (rows: 스프라이트 시트 행 수, 보라/하양이/까망이는 더미 9행 포함)
 const CAT_TYPES = [
@@ -90,19 +91,54 @@ interface CatState {
 export default function SchoolWidget() {
   const [activeTab, setActiveTab] = useState<Tab>('meal');
   const [timetableData, setTimetableData] = useState<TimetableData | null>(null);
+  const [timetableSource, setTimetableSource] = useState<'comcigan' | 'appin'>(() => localStorage.getItem('schoolTimetableSource') as 'comcigan' | 'appin' || 'comcigan');
+  const [appinData, setAppinData] = useState<any>(null);
+  const [appinWeekOffset, setAppinWeekOffset] = useState(0);
+
+  useEffect(() => {
+    if (appinWeekOffset !== 0) {
+      const timer = setTimeout(() => {
+        setAppinWeekOffset(0);
+      }, 10 * 60 * 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [appinWeekOffset]);
+
+  const appinWeekRange = useMemo(() => {
+    const now = new Date();
+    const currentDayOfWeek = now.getDay() || 7;
+    const mondayDate = new Date(now);
+    mondayDate.setDate(now.getDate() - currentDayOfWeek + 1 + (appinWeekOffset * 7));
+    const fridayDate = new Date(mondayDate);
+    fridayDate.setDate(mondayDate.getDate() + 4);
+    
+    const dStr = [];
+    for (let i = 0; i < 5; i++) {
+        const date = new Date(mondayDate);
+        date.setDate(mondayDate.getDate() + i);
+        dStr.push(`${['월', '화', '수', '목', '금'][i]}(${date.getMonth() + 1}/${date.getDate()})`);
+    }
+    
+    const weekText = `${mondayDate.getMonth() + 1}/${mondayDate.getDate()} ~ ${fridayDate.getMonth() + 1}/${fridayDate.getDate()}`;
+    return { mondayDate, days: dStr, weekText };
+  }, [appinWeekOffset]);
+
   const [selectedTeacher, setSelectedTeacher] = useState<string>('');
   const [teacherSearch, setTeacherSearch] = useState('');
   const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });
   const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
   const [points, setPoints] = useState<PointStatus[]>([]);
-  
+  const [todos, setTodos] = useState<ScheduleItem[]>([]);
+  const [newTodoText, setNewTodoText] = useState('');
+
   // 여러 고양이 상태 관리 - useRef로 성능 최적화
   const catStatesRef = useRef<Map<CatTypeId, CatState>>(new Map());
   const catElementsRef = useRef<Map<CatTypeId, HTMLDivElement | null>>(new Map());
   const [visibleCats, setVisibleCats] = useState<Set<CatTypeId>>(new Set()); // 렌더링 트리거용
   const targetPosRef = useRef<{ x: number; y: number } | null>(null); // 목표 위치 (마우스 위치)
-  
+
   const [loadingStates, setLoadingStates] = useState({
+    todo: false,
     timetable: false,
     meal: false,
     attendance: false,
@@ -111,13 +147,13 @@ export default function SchoolWidget() {
 
   const [grade, setGrade] = useState(() => localStorage.getItem('schoolGrade') || '1');
   const [classNum, setClassNum] = useState(() => localStorage.getItem('schoolClass') || '8');
-  
+
   // 설정 상태
   const [schoolWidgetPinned, setSchoolWidgetPinned] = useState(false);
   const [defaultTeacher, setDefaultTeacher] = useState('');
   const [regionCode, setRegionCode] = useState(() => localStorage.getItem('schoolRegionCode') || 'C10');
   const [schoolCode, setSchoolCode] = useState(() => localStorage.getItem('schoolCode') || '7150451');
-  
+
   // 활성화된 고양이 목록 (여러 고양이 지원)
   const [enabledCats, setEnabledCats] = useState<CatTypeId[]>(() => {
     const saved = localStorage.getItem('schoolEnabledCats');
@@ -135,16 +171,18 @@ export default function SchoolWidget() {
     }
     return ['default'];
   });
-  
+
   const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10));
-  
+
   // 픽셀 데이터 캐싱을 위한 ref (고양이 종류별로 캐싱)
   const spritePixelDataRef = useRef<Map<string, Map<string, ImageData>>>(new Map());
   const spriteImagesRef = useRef<Map<CatTypeId, HTMLImageElement>>(new Map());
 
   // 캐싱 상태 관리
   const [dataLoaded, setDataLoaded] = useState({
+    todo: false,
     timetable: false,
+    appin: false,
     meal: false,
     attendance: false,
     points: false
@@ -154,12 +192,67 @@ export default function SchoolWidget() {
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const filteredTeachers = useMemo(() => {
-    if (!timetableData) return [];
-    if (!teacherSearch) return timetableData.teachers;
-    return timetableData.teachers.filter(t => 
+    const teachersList = timetableSource === 'appin' && appinData ? appinData.teachers : (timetableData ? timetableData.teachers : []);
+    if (!teacherSearch) return teachersList;
+    return teachersList.filter((t: string) =>
       t.toLowerCase().includes(teacherSearch.toLowerCase())
     );
-  }, [timetableData, teacherSearch]);
+  }, [timetableData, appinData, timetableSource, teacherSearch]);
+
+  const parsedAppinTeachers = useMemo(() => {
+    if (!appinData) return {};
+    const result: Record<string, Record<string, Record<string, { subject: string, className: string }>>> = {};
+    appinData.teachers.forEach((t: string) => { result[t] = {}; });
+    
+    Object.entries(appinData.days).forEach(([dateStr, classMap]: [string, any]) => {
+      Object.entries(classMap).forEach(([className, periodMap]: [string, any]) => {
+        Object.entries(periodMap).forEach(([period, slot]: [string, any]) => {
+          if (slot.teacher !== null && slot.teacher !== undefined) {
+             const tName = appinData.teachers[slot.teacher];
+             if (tName) {
+                 if (!result[tName]) result[tName] = {};
+                 if (!result[tName][dateStr]) result[tName][dateStr] = {};
+                 const subjName = slot.subject != null ? appinData.subjects[slot.subject] : '';
+                 result[tName][dateStr][period] = { subject: subjName, className };
+             }
+          }
+        });
+      });
+    });
+    return result;
+  }, [appinData]);
+
+  const baseAppinTimetable = useMemo(() => {
+     if (!selectedTeacher || !appinData || !parsedAppinTeachers[selectedTeacher]) return null;
+     const dailyData = parsedAppinTeachers[selectedTeacher];
+     
+     const base: Record<number, Record<number, { subject: string, className: string } | null>> = {};
+     for(let d=1; d<=5; d++) {
+         base[d] = {};
+         for(let p=1; p<=7; p++) {
+             const counts: Record<string, { count: number, data: { subject: string, className: string } }> = {};
+             
+             Object.entries(dailyData).forEach(([dateStr, periodMap]) => {
+                 const dateObj = new Date(dateStr);
+                 if (dateObj.getDay() === d) {
+                     const slot = periodMap[p.toString()];
+                     if (slot) {
+                         const key = `${slot.subject}|${slot.className}`;
+                         if (!counts[key]) counts[key] = { count: 0, data: slot };
+                         counts[key].count++;
+                     }
+                 }
+             });
+             
+             let best: { count: number, data: { subject: string, className: string } } | null = null;
+             Object.values(counts).forEach(c => {
+                 if (!best || c.count > best.count) best = c as any;
+             });
+             base[d][p] = best ? (best as { count: number, data: { subject: string, className: string } }).data : null;
+         }
+     }
+     return base;
+  }, [selectedTeacher, appinData, parsedAppinTeachers]);
 
   // 고양이 스프라이트 행 번호 계산 (새로운 타입 시스템 사용)
   const getCatSpriteRow = (direction: CatDirection, behaviorType: CatBehavior['type']): number => {
@@ -187,21 +280,21 @@ export default function SchoolWidget() {
       img.src = new URL(`./asset/${catType.sprite}`, import.meta.url).href;
       img.onload = () => {
         spriteImagesRef.current.set(catType.id, img);
-        
+
         // 캔버스 생성 및 픽셀 데이터 추출
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        
+
         // 스프라이트 시트 크기: rows행 4열, 각 프레임 32x32
         const frameWidth = 32;
         const frameHeight = 32;
         const cols = 4;
         const rows = catType.rows; // 고양이별 행 수 사용
-        
+
         canvas.width = frameWidth;
         canvas.height = frameHeight;
-        
+
         // 각 프레임의 픽셀 데이터 캐싱
         const catPixelData = new Map<string, ImageData>();
         for (let row = 0; row < rows; row++) {
@@ -212,7 +305,7 @@ export default function SchoolWidget() {
               col * frameWidth, row * frameHeight, frameWidth, frameHeight,
               0, 0, frameWidth, frameHeight
             );
-            
+
             const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
             const key = `${row}-${col}`;
             catPixelData.set(key, imageData);
@@ -224,7 +317,7 @@ export default function SchoolWidget() {
         console.error(`Failed to load cat sprite image: ${catType.sprite}`);
       };
     };
-    
+
     // 모든 고양이 스프라이트 로드
     CAT_TYPES.forEach(catType => loadSpriteImage(catType));
   }, []);
@@ -250,23 +343,23 @@ export default function SchoolWidget() {
     ) {
       return false;
     }
-    
+
     // 스프라이트 이미지가 아직 로드되지 않았으면 기본 히트 테스트 (사각형)
     const catPixelData = spritePixelDataRef.current.get(catTypeId);
     if (!catPixelData || catPixelData.size === 0) {
       return true;
     }
-    
+
     // 클릭 위치를 고양이 로컬 좌표로 변환
     const localX = clickX - catX;
     const localY = clickY - catY;
-    
+
     // 원본 프레임 크기(32x32)로 스케일링
     const originalFrameSize = 32;
     const scale = size / originalFrameSize;
     const originalX = Math.floor(localX / scale);
     const originalY = Math.floor(localY / scale);
-    
+
     // 범위 체크
     if (
       originalX < 0 ||
@@ -276,21 +369,21 @@ export default function SchoolWidget() {
     ) {
       return false;
     }
-    
+
     // 해당 프레임의 픽셀 데이터 가져오기
     const row = getCatSpriteRow(direction, behaviorType);
     const col = frame;
     const key = `${row}-${col}`;
     const pixelData = catPixelData.get(key);
-    
+
     if (!pixelData) {
       return true; // 픽셀 데이터가 없으면 기본 히트 테스트
     }
-    
+
     // 해당 위치의 픽셀 알파값 확인
     const pixelIndex = (originalY * originalFrameSize + originalX) * 4;
     const alpha = pixelData.data[pixelIndex + 3];
-    
+
     // 알파값이 0보다 크면 실제 고양이 영역
     return alpha > 0;
   };
@@ -309,10 +402,10 @@ export default function SchoolWidget() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!showTeacherDropdown || filteredTeachers.length === 0) return;
-    
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex(prev => 
+      setHighlightedIndex(prev =>
         prev < filteredTeachers.length - 1 ? prev + 1 : prev
       );
     } else if (e.key === 'ArrowUp') {
@@ -344,22 +437,41 @@ export default function SchoolWidget() {
 
   // Fetch functions
   const fetchTimetable = async () => {
-    if (dataLoaded.timetable && timetableData) return; // Already loaded
-    setLoadingStates(prev => ({ ...prev, timetable: true }));
-    try {
-      const data = await invoke<TimetableData>('get_timetable_data');
-      setTimetableData(data);
-      setDataLoaded(prev => ({ ...prev, timetable: true }));
-      if (data.teachers.length > 0) {
-        const savedTeacher = localStorage.getItem('lastSelectedTeacher');
-        setSelectedTeacher(
-          (savedTeacher && data.teachers.includes(savedTeacher)) ? savedTeacher : data.teachers[0]
-        );
+    if (timetableSource === 'appin') {
+      if (dataLoaded.appin && appinData) return;
+      setLoadingStates(prev => ({ ...prev, timetable: true }));
+      try {
+        const data = await invoke<any>('get_appin_timetable_data');
+        setAppinData(data);
+        setDataLoaded(prev => ({ ...prev, appin: true }));
+        if (data.teachers && data.teachers.length > 0) {
+          const savedTeacher = localStorage.getItem('lastSelectedTeacher');
+          setSelectedTeacher(
+            (savedTeacher && data.teachers.includes(savedTeacher)) ? savedTeacher : data.teachers[0]
+          );
+        }
+      } catch (error) {
+        console.error('Appin fetch error', error);
+      } finally {
+        setLoadingStates(prev => ({ ...prev, timetable: false }));
       }
-    } catch (error) {
-      // Failed to fetch timetable
-    } finally {
-      setLoadingStates(prev => ({ ...prev, timetable: false }));
+    } else {
+      if (dataLoaded.timetable && timetableData) return;
+      setLoadingStates(prev => ({ ...prev, timetable: true }));
+      try {
+        const data = await invoke<TimetableData>('get_timetable_data');
+        setTimetableData(data);
+        setDataLoaded(prev => ({ ...prev, timetable: true }));
+        if (data.teachers.length > 0) {
+          const savedTeacher = localStorage.getItem('lastSelectedTeacher');
+          setSelectedTeacher(
+            (savedTeacher && data.teachers.includes(savedTeacher)) ? savedTeacher : data.teachers[0]
+          );
+        }
+      } catch (error) {
+      } finally {
+        setLoadingStates(prev => ({ ...prev, timetable: false }));
+      }
     }
   };
 
@@ -376,7 +488,7 @@ export default function SchoolWidget() {
       const month = String(kstDate.getMonth() + 1).padStart(2, '0');
       const day = String(kstDate.getDate()).padStart(2, '0');
       const date = `${year}${month}${day}`;
-      const data = await invoke<MealInfo>('get_meal_data', { 
+      const data = await invoke<MealInfo>('get_meal_data', {
         date,
         atptCode: regionCode,
         schoolCode: schoolCode
@@ -426,17 +538,116 @@ export default function SchoolWidget() {
     }
   };
 
+  const fetchTodos = () => {
+    if (dataLoaded.todo && todos.length > 0) return;
+    setLoadingStates(prev => ({ ...prev, todo: true }));
+    try {
+      const saved = localStorage.getItem('schoolWidgetTodos');
+      if (saved) {
+        const parsed: ScheduleItem[] = JSON.parse(saved);
+        // sort by created date descending or completed status
+        parsed.sort((a, b) => {
+          if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+        setTodos(parsed);
+      } else {
+        setTodos([]);
+      }
+      setDataLoaded(prev => ({ ...prev, todo: true }));
+    } catch (error) {
+      console.error('Failed to load todos', error);
+      setTodos([]);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, todo: false }));
+    }
+  };
+
+  const handleAddTodo = () => {
+    if (!newTodoText.trim()) return;
+    try {
+      const now = new Date().toISOString();
+      const id = 'todo-' + Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+      const newTodo: ScheduleItem = {
+        id,
+        type: 'manual_todo',
+        title: newTodoText.trim(),
+        content: '',
+        startDate: now,
+        endDate: now,
+        isAllDay: true,
+        isCompleted: false,
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false
+      };
+
+      const updatedTodos = [newTodo, ...todos];
+      // Resort
+      updatedTodos.sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      setTodos(updatedTodos);
+      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
+      setNewTodoText('');
+    } catch (error) {
+      console.error('Failed to add todo', error);
+      alert('할 일 추가에 실패했습니다.');
+    }
+  };
+
+  const handleToggleTodo = (todo: ScheduleItem) => {
+    try {
+      const updatedItem = {
+        ...todo,
+        isCompleted: !todo.isCompleted,
+        updatedAt: new Date().toISOString()
+      };
+
+      const updatedTodos = todos.map(t => t.id === todo.id ? updatedItem : t);
+      updatedTodos.sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      setTodos(updatedTodos);
+      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
+    } catch (error) {
+      console.error('Failed to update todo', error);
+    }
+  };
+
+  const handleDeleteTodo = (todoId: string) => {
+    try {
+      const updatedTodos = todos.filter(t => t.id !== todoId);
+      setTodos(updatedTodos);
+      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
+    } catch (error) {
+      console.error('Failed to delete todo', error);
+    }
+  };
+
   // Load data based on active tab (only on initial load)
   useEffect(() => {
     switch (activeTab) {
+      case 'todo':
+        if (!dataLoaded.todo) {
+          fetchTodos();
+        }
+        break;
       case 'meal':
         if (!dataLoaded.meal) {
           fetchMeal();
         }
         break;
       case 'timetable':
-        if (!dataLoaded.timetable) {
-          fetchTimetable();
+        if (timetableSource === 'appin') {
+          if (!dataLoaded.appin) fetchTimetable();
+        } else {
+          if (!dataLoaded.timetable) fetchTimetable();
         }
         break;
       case 'attendance':
@@ -466,26 +677,26 @@ export default function SchoolWidget() {
         // 학교 위젯 핀 상태
         const pinned = await invoke<boolean>('get_school_widget_pinned');
         setSchoolWidgetPinned(pinned);
-        
+
         // 기본 선생님
         const savedDefaultTeacher = await invoke<string | null>('get_registry_value', { key: 'SchoolDefaultTeacher' });
         if (savedDefaultTeacher) {
           setDefaultTeacher(savedDefaultTeacher);
         }
-        
+
         // 지역 코드와 학교 코드
         const savedRegionCode = await invoke<string | null>('get_registry_value', { key: 'SchoolRegionCode' });
         if (savedRegionCode) {
           setRegionCode(savedRegionCode);
           localStorage.setItem('schoolRegionCode', savedRegionCode);
         }
-        
+
         const savedSchoolCode = await invoke<string | null>('get_registry_value', { key: 'SchoolCode' });
         if (savedSchoolCode) {
           setSchoolCode(savedSchoolCode);
           localStorage.setItem('schoolCode', savedSchoolCode);
         }
-        
+
       } catch (error) {
         // Failed to load settings
       }
@@ -495,7 +706,7 @@ export default function SchoolWidget() {
 
   // 시간표 데이터 로드 시 기본 선생님 설정
   useEffect(() => {
-    if (timetableData && timetableData.teachers.length > 0) {
+    if (timetableData && timetableData.teachers.length > 0 && timetableSource === 'comcigan') {
       if (defaultTeacher && timetableData.teachers.includes(defaultTeacher)) {
         setSelectedTeacher(defaultTeacher);
       } else {
@@ -504,34 +715,43 @@ export default function SchoolWidget() {
           (savedTeacher && timetableData.teachers.includes(savedTeacher)) ? savedTeacher : timetableData.teachers[0]
         );
       }
+    } else if (appinData && appinData.teachers && appinData.teachers.length > 0 && timetableSource === 'appin') {
+      if (defaultTeacher && appinData.teachers.includes(defaultTeacher)) {
+        setSelectedTeacher(defaultTeacher);
+      } else {
+        const savedTeacher = localStorage.getItem('lastSelectedTeacher');
+        setSelectedTeacher(
+          (savedTeacher && appinData.teachers.includes(savedTeacher)) ? savedTeacher : appinData.teachers[0]
+        );
+      }
     }
-  }, [timetableData, defaultTeacher]);
+  }, [timetableData, appinData, defaultTeacher, timetableSource]);
 
   // 설정 저장 함수
   const saveSettings = async () => {
     try {
       // 학교 위젯 핀 상태
       await invoke('set_school_widget_pinned', { pinned: schoolWidgetPinned });
-      
+
       // 기본 선생님
       if (defaultTeacher) {
         await invoke('set_registry_value', { key: 'SchoolDefaultTeacher', value: defaultTeacher });
       }
-      
+
       // 학년/반
       await invoke('set_registry_value', { key: 'SchoolGrade', value: grade });
       await invoke('set_registry_value', { key: 'SchoolClass', value: classNum });
-      
+
       // 지역 코드와 학교 코드
       await invoke('set_registry_value', { key: 'SchoolRegionCode', value: regionCode });
       await invoke('set_registry_value', { key: 'SchoolCode', value: schoolCode });
       localStorage.setItem('schoolRegionCode', regionCode);
       localStorage.setItem('schoolCode', schoolCode);
-      
+
       // 급식 데이터 캐시 초기화 (코드가 변경되었으므로)
       setDataLoaded(prev => ({ ...prev, meal: false }));
-      
-      
+
+
       alert('설정이 저장되었습니다.');
     } catch (error) {
       alert('설정 저장에 실패했습니다.');
@@ -541,39 +761,133 @@ export default function SchoolWidget() {
   // 교과목 이름을 기반으로 색상 생성
   const getSubjectColor = (subjectName: string): string => {
     if (!subjectName) return '';
-  
+
     // 간단한 해시 생성
     let hash = 0;
     for (let i = 0; i < subjectName.length; i++) {
       hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
     }
-  
+
     // 기본 RGB 추출 (0~255)
     let r = (hash & 0xFF0000) >> 16;
     let g = (hash & 0x00FF00) >> 8;
     let b = (hash & 0x0000FF);
-  
+
     // 파스텔톤: 흰색(255)을 일정 비율로 섞어 밝게 만들기
     const mix = 0.3; // 0~1. 값이 클수록 더 파스텔톤
     r = Math.round(r * (1 - mix) + 255 * mix);
     g = Math.round(g * (1 - mix) + 255 * mix);
     b = Math.round(b * (1 - mix) + 255 * mix);
-  
+
     const transparent = 0.15;
-  
+
     return `rgba(${r}, ${g}, ${b}, ${transparent})`;
   };
-  
+
+  const renderTodo = () => {
+    if (loadingStates.todo && todos.length === 0) return <div className="loading">Loading...</div>;
+
+    return (
+      <div className="todo-container">
+        <div className="todo-input-group">
+          <input
+            type="text"
+            className="todo-input"
+            placeholder="새로운 할 일을 입력하세요..."
+            value={newTodoText}
+            onChange={(e) => setNewTodoText(e.target.value)}
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                handleAddTodo();
+              }
+            }}
+          />
+          <button className="todo-add-btn" onClick={handleAddTodo}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+        <div className="todo-list">
+          {todos.length === 0 ? (
+            <div className="todo-empty">할 일이 없습니다.</div>
+          ) : (
+            todos.map(todo => (
+              <div key={todo.id} className={`todo-item ${todo.isCompleted ? 'completed' : ''}`}>
+                <button
+                  className={`todo-checkbox ${todo.isCompleted ? 'checked' : ''}`}
+                  onClick={() => handleToggleTodo(todo)}
+                >
+                  {todo.isCompleted && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  )}
+                </button>
+                <div className="todo-content" onClick={() => handleToggleTodo(todo)}>
+                  {todo.title}
+                </div>
+                <button
+                  className="todo-delete-btn"
+                  onClick={() => handleDeleteTodo(todo.id)}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  };
+
 
   const renderTimetable = () => {
     if (loadingStates.timetable) return <div className="loading">Loading...</div>;
-    if (!timetableData || !selectedTeacher) return <div className="error-message">No Data</div>;
 
-    const schedule = timetableData.timetables[selectedTeacher];
-    if (!schedule) return <div className="error-message">No Schedule for {selectedTeacher}</div>;
-
-
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    let schedule: any[][][] = []; // [periodIdx][dayIdx][subject, room, isDiff]
+    if (timetableSource === 'appin') {
+        if (!appinData || !selectedTeacher || !parsedAppinTeachers[selectedTeacher] || !baseAppinTimetable) return <div className="error-message">No Data</div>;
+        
+        const teacherData = parsedAppinTeachers[selectedTeacher];
+        const { mondayDate } = appinWeekRange;
+        
+        schedule = Array(8).fill(null).map(() => Array(5).fill(null)) as any;
+        for(let dIdx = 0; dIdx < 5; dIdx++) {
+            const targetDate = new Date(mondayDate);
+            targetDate.setDate(mondayDate.getDate() + dIdx);
+            const year = targetDate.getFullYear();
+            const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+            const day = String(targetDate.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
+            
+            for(let pIdx = 0; pIdx < 7; pIdx++) {
+               const pStr = (pIdx + 1).toString();
+               const slot = teacherData[dateStr]?.[pStr];
+               const baseSlot = baseAppinTimetable[dIdx + 1]?.[pIdx + 1];
+               
+               if (slot) {
+                 const isDiff = !baseSlot || baseSlot.subject !== slot.subject || baseSlot.className !== slot.className;
+                 schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff];
+               } else if (baseSlot) {
+                 schedule[pIdx][dIdx] = ['', '', true];
+               } else {
+                 schedule[pIdx][dIdx] = null as any;
+               }
+            }
+        }
+    } else {
+        if (!timetableData || !selectedTeacher) return <div className="error-message">No Data</div>;
+        const s = timetableData.timetables[selectedTeacher];
+        if (!s) return <div className="error-message">No Schedule for {selectedTeacher}</div>;
+        schedule = s as any;
+    }
+    
+    const days = timetableSource === 'appin' ? appinWeekRange.days : ['월', '화', '수', '목', '금'];
     const periods = [1, 2, 3, 4, 5, 6, 7]; // 8교시 제거
 
     // 현재 시간 계산
@@ -599,7 +913,7 @@ export default function SchoolWidget() {
     // 현재 시간의 Y 위치 계산
     const getCurrentTimeY = () => {
       if (currentDay < 1 || currentDay > 5) return null; // 월~금만
-      
+
       for (let i = 0; i < periodTimes.length; i++) {
         const period = periodTimes[i];
         if (currentTime >= period.start && currentTime <= period.end) {
@@ -607,27 +921,27 @@ export default function SchoolWidget() {
           const totalMinutes = period.end - period.start;
           const passedMinutes = currentTime - period.start;
           const progress = totalMinutes > 0 ? passedMinutes / totalMinutes : 0;
-          
+
           // Y 위치 반환 (행 인덱스와 진행률)
           return { rowIndex: i, progress };
         }
       }
-      
+
       // 교시 사이의 시간 처리
       for (let i = 0; i < periodTimes.length - 1; i++) {
         const periodEnd = periodTimes[i].end;
         const nextPeriodStart = periodTimes[i + 1].start;
-        
+
         if (currentTime > periodEnd && currentTime < nextPeriodStart) {
           // 쉬는 시간의 진행률 계산
           const totalBreakMinutes = nextPeriodStart - periodEnd;
           const passedBreakMinutes = currentTime - periodEnd;
           const breakProgress = totalBreakMinutes > 0 ? passedBreakMinutes / totalBreakMinutes : 0;
-          
+
           return { rowIndex: i, progress: 1 + breakProgress }; // 1.0 이상은 교시 사이
         }
       }
-      
+
       return null;
     };
 
@@ -635,6 +949,12 @@ export default function SchoolWidget() {
 
     return (
       <div className="timetable-grid">
+        <div className="timetable-cell header-empty" style={{ background: 'transparent' }}></div>
+        {days.map((dayLabel, index) => (
+          <div key={`header-${index}`} className="timetable-cell timetable-header">
+            {dayLabel}
+          </div>
+        ))}
         {periods.map((p, pIdx) => {
           // 점심시간은 4교시(pIdx === 3) 다음에 삽입
           if (pIdx === 3) {
@@ -646,16 +966,18 @@ export default function SchoolWidget() {
                   const lesson = schedule[3]?.[dIdx]; // 4교시는 인덱스 3
                   const isCurrentTimeCell = timeY && timeY.rowIndex === 3 && (currentDay - 1 === dIdx);
                   const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
+                  const isDiff = lesson && lesson[2] === true;
                   return (
-                    <div 
-                      key={`4-${dIdx}`} 
+                    <div
+                      key={`4-${dIdx}`}
                       className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
                       style={{
                         ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
                           position: 'relative',
                           '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
                         } : {}),
-                        ...(subjectColor ? { backgroundColor: subjectColor } : {})
+                        ...(subjectColor ? { backgroundColor: subjectColor } : {}),
+                        ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                       } as React.CSSProperties}
                     >
                       {lesson ? (
@@ -672,8 +994,8 @@ export default function SchoolWidget() {
                 {days.map((_, dIdx) => {
                   const isCurrentTimeCell = timeY && timeY.rowIndex === 4 && (currentDay - 1 === dIdx);
                   return (
-                    <div 
-                      key={`lunch-${dIdx}`} 
+                    <div
+                      key={`lunch-${dIdx}`}
                       className={`timetable-cell lunch-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
                       style={isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
                         position: 'relative',
@@ -690,16 +1012,18 @@ export default function SchoolWidget() {
                   const lesson = schedule[4]?.[dIdx]; // 5교시는 인덱스 4
                   const isCurrentTimeCell = timeY && timeY.rowIndex === 5 && (currentDay - 1 === dIdx);
                   const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
+                  const isDiff = lesson && lesson[2] === true;
                   return (
-                    <div 
-                      key={`5-${dIdx}`} 
+                    <div
+                      key={`5-${dIdx}`}
                       className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
                       style={{
                         ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
                           position: 'relative',
                           '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
                         } : {}),
-                        ...(subjectColor ? { backgroundColor: subjectColor } : {})
+                        ...(subjectColor ? { backgroundColor: subjectColor } : {}),
+                        ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                       } as React.CSSProperties}
                     >
                       {lesson ? (
@@ -714,10 +1038,10 @@ export default function SchoolWidget() {
               </React.Fragment>
             );
           }
-          
+
           // 4교시와 5교시는 이미 처리됨
           if (pIdx === 3 || pIdx === 4) return null;
-          
+
           // 점심시간 이후 교시는 인덱스 조정
           // 원래 데이터: schedule[0]=1교시, [1]=2교시, [2]=3교시, [3]=4교시, [4]=5교시, [5]=6교시, [6]=7교시, [7]=8교시
           // 표시할 교시: 1, 2, 3, 4, 점심, 5, 6, 7
@@ -726,12 +1050,12 @@ export default function SchoolWidget() {
           // 2교시(pIdx=1) -> schedule[1] ✓
           // 3교시(pIdx=2) -> schedule[2] ✓
           // 4교시(pIdx=3) -> schedule[3] ✓ (특별 처리)
-          // 점심시간 (특별 처리)
-          // 5교시(pIdx=4) -> schedule[4] ✓ (특별 처리)
+          // 점심시간 -> rowIndex 4 (특별 처리됨)
+          // 5교시(pIdx=4) -> schedule[4] ✓ (특별 처리됨)
           // 6교시(pIdx=5) -> schedule[5] (원래 6교시 데이터)
           // 7교시(pIdx=6) -> schedule[6] (원래 7교시 데이터)
           const scheduleIdx = pIdx;
-          
+
           // pIdx에 따른 실제 rowIndex 매핑
           // 실제 렌더링 순서: 1, 2, 3, 4, 점심, 5, 6, 7
           // 1교시(pIdx=0) -> rowIndex 0
@@ -744,7 +1068,7 @@ export default function SchoolWidget() {
           // 7교시(pIdx=6) -> rowIndex 7
           // pIdx 0,1,2는 그대로, pIdx 5,6은 점심시간 때문에 +1
           const actualRowIndex = pIdx < 3 ? pIdx : pIdx + 1;
-          
+
           return (
             <React.Fragment key={p}>
               <div className="timetable-cell period">{p}</div>
@@ -752,16 +1076,18 @@ export default function SchoolWidget() {
                 const lesson = schedule[scheduleIdx]?.[dIdx];
                 const isCurrentTimeCell = timeY && timeY.rowIndex === actualRowIndex && (currentDay - 1 === dIdx);
                 const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
+                const isDiff = lesson && lesson[2] === true;
                 return (
-                  <div 
-                    key={`${p}-${dIdx}`} 
+                  <div
+                    key={`${p}-${dIdx}`}
                     className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
                     style={{
                       ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
                         position: 'relative',
                         '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
                       } : {}),
-                      ...(subjectColor ? { backgroundColor: subjectColor } : {})
+                      ...(subjectColor ? { backgroundColor: subjectColor } : {}),
+                      ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                     } as React.CSSProperties}
                   >
                     {lesson ? (
@@ -803,7 +1129,7 @@ export default function SchoolWidget() {
       const mouseEvent = e as MouseEvent;
       const container = document.querySelector('.school-widget-container');
       if (!container) return;
-      
+
       const rect = container.getBoundingClientRect();
       targetPosRef.current = {
         x: mouseEvent.clientX - rect.left,
@@ -907,7 +1233,7 @@ export default function SchoolWidget() {
       // 각 고양이가 다른 위치에서 시작하도록 오프셋 적용
       const offsetX = (index % 3) * 50;
       const offsetY = Math.floor(index / 3) * 50;
-      
+
       const centerX = Math.min(
         bounds.maxX,
         Math.max(bounds.minX, bounds.minX + offsetX + Math.random() * 100)
@@ -926,7 +1252,7 @@ export default function SchoolWidget() {
         behavior: { type: 'walking', target: getRandomTarget() },
         frame: 0,
       });
-      
+
       setVisibleCats(prev => new Set([...prev, catId]));
     };
 
@@ -934,7 +1260,7 @@ export default function SchoolWidget() {
     const getFrameForPhase = (phase: CatActionPhase, phaseStartTime: number, currentTime: number): number => {
       const elapsed = currentTime - phaseStartTime;
       const frameIndex = Math.floor(elapsed / CAT_CONFIG.FRAME_DELAY);
-      
+
       if (phase === 'enter') {
         return Math.min(frameIndex, 3);
       } else if (phase === 'hold') {
@@ -949,7 +1275,7 @@ export default function SchoolWidget() {
       const absDx = Math.abs(dx);
       const absDy = Math.abs(dy);
       const isHorizontal = currentDir === 'left' || currentDir === 'right';
-      
+
       if (isHorizontal) {
         if (absDy > absDx * 1.5) {
           return dy > 0 ? 'down' : 'up';
@@ -1020,10 +1346,10 @@ export default function SchoolWidget() {
           } else {
             const moveX = (dx / distance) * moveDistance;
             const moveY = (dy / distance) * moveDistance;
-            
+
             const newCenterX = Math.max(bounds.minX, Math.min(bounds.maxX, catCenterX + moveX));
             const newCenterY = Math.max(bounds.minY, Math.min(bounds.maxY, catCenterY + moveY));
-            
+
             cat.x = newCenterX - halfSize;
             cat.y = newCenterY - halfSize;
             cat.direction = getDirectionToTarget(dx, dy, cat.direction);
@@ -1037,7 +1363,7 @@ export default function SchoolWidget() {
           const behavior = cat.behavior as CatBehaviorSitting | CatBehaviorLying;
           const elapsed = currentTime - behavior.phaseStartTime;
           const totalActionTime = currentTime - behavior.actionStartTime;
-          
+
           // 최소 유지 시간이 지난 후에만 마우스에 반응
           if (mousePos && totalActionTime >= CAT_CONFIG.MIN_ACTION_DURATION) {
             const dx = mousePos.x - catCenterX;
@@ -1102,7 +1428,7 @@ export default function SchoolWidget() {
         if (el) {
           el.style.left = `${cat.x}px`;
           el.style.top = `${cat.y}px`;
-          
+
           const row = getCatSpriteRow(cat.direction, cat.behavior.type);
           el.style.backgroundPosition = `-${cat.frame * catSize}px -${row * catSize}px`;
         }
@@ -1112,10 +1438,10 @@ export default function SchoolWidget() {
     };
 
     // 활성화된 고양이들 초기화 (지연 시간 적용)
-    const initTimeouts = enabledCats.map((catId, index) => 
+    const initTimeouts = enabledCats.map((catId, index) =>
       setTimeout(() => initCat(catId, index), CAT_CONFIG.INIT_DELAY + index * 500)
     );
-    
+
     animationFrameId = requestAnimationFrame(animate);
 
     return () => {
@@ -1128,31 +1454,37 @@ export default function SchoolWidget() {
   return (
     <div className="school-widget-container">
       <div className="tab-bar">
-        <button 
+        <button
+          className={activeTab === 'todo' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('todo')}
+        >
+          할 일
+        </button>
+        <button
           className={activeTab === 'meal' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('meal')}
         >
           급식
         </button>
-        <button 
+        <button
           className={activeTab === 'timetable' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('timetable')}
         >
           시간표
         </button>
-        <button 
+        <button
           className={activeTab === 'attendance' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('attendance')}
         >
           출결
         </button>
-        <button 
+        <button
           className={activeTab === 'points' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('points')}
         >
           상벌점
         </button>
-        <button 
+        <button
           className={activeTab === 'settings' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('settings')}
         >
@@ -1161,6 +1493,7 @@ export default function SchoolWidget() {
       </div>
 
       <div className="tab-content">
+        {activeTab === 'todo' && renderTodo()}
         {activeTab === 'meal' && (
           <div className="meal-section">
             <div className="section-header">
@@ -1188,12 +1521,26 @@ export default function SchoolWidget() {
         {activeTab === 'timetable' && (
           <div className="timetable-section">
             {renderTimetable()}
+            
+            {timetableSource === 'appin' && (
+              <>
+                <div className="timetable-top-hover-area"></div>
+                <div className="timetable-top-hover">
+                  <div className="appin-week-controls" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px' }}>
+                    <button onClick={() => setAppinWeekOffset(o => o - 1)} className="refresh-btn-small" style={{ borderRadius: '50%', width: '25px', height: '25px', padding: 0 }}>&lt;</button>
+                    <span style={{ fontWeight: 'bold', color: 'white', fontSize: '0.9rem' }}>{appinWeekRange.weekText}</span>
+                    <button onClick={() => setAppinWeekOffset(o => o + 1)} className="refresh-btn-small" style={{ borderRadius: '50%', width: '25px', height: '25px', padding: 0 }}>&gt;</button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="timetable-hover-area"></div>
-            <div className="timetable-search-hover">
-              <div className="teacher-search-container">
-                <input 
-                  type="text" 
-                  value={teacherSearch} 
+            <div className="timetable-search-hover" style={{ flexDirection: 'column', gap: '10px' }}>
+              <div className="teacher-search-container" style={{ width: '100%' }}>
+                <input
+                  type="text"
+                  value={teacherSearch}
                   onChange={(e) => handleTeacherSearchChange(e.target.value)}
                   onFocus={() => setShowTeacherDropdown(true)}
                   onKeyDown={handleKeyDown}
@@ -1202,7 +1549,7 @@ export default function SchoolWidget() {
                 />
                 {showTeacherDropdown && filteredTeachers.length > 0 && (
                   <div className="teacher-dropdown">
-                    {filteredTeachers.map((teacher, index) => (
+                    {filteredTeachers.map((teacher: any, index: number) => (
                       <div
                         key={teacher}
                         className={`teacher-dropdown-item ${index === highlightedIndex ? 'highlighted' : ''} ${teacher === selectedTeacher ? 'selected' : ''}`}
@@ -1302,9 +1649,38 @@ export default function SchoolWidget() {
             <div className="section-header">
               <h2>설정</h2>
             </div>
-            
+
             <div className="settings-group">
               <h3>위젯 설정</h3>
+              <div className="setting-item">
+                <label style={{ marginBottom: '8px', display: 'block', fontWeight: 500 }}>
+                  시간표 데이터 소스
+                </label>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="timetableSource"
+                      value="comcigan"
+                      checked={timetableSource === 'comcigan'}
+                      onChange={() => { setTimetableSource('comcigan'); localStorage.setItem('schoolTimetableSource', 'comcigan'); }}
+                      style={{ marginRight: '6px', width: '16px', height: '16px' }}
+                    />
+                    <span>컴시간 알리미</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="timetableSource"
+                      value="appin"
+                      checked={timetableSource === 'appin'}
+                      onChange={() => { setTimetableSource('appin'); localStorage.setItem('schoolTimetableSource', 'appin'); }}
+                      style={{ marginRight: '6px', width: '16px', height: '16px' }}
+                    />
+                    <span>압핀 (Appin)</span>
+                  </label>
+                </div>
+              </div>
               <div className="setting-item">
                 <label>
                   <input
@@ -1412,7 +1788,7 @@ export default function SchoolWidget() {
                   className="setting-select"
                 >
                   <option value="">선택 안 함</option>
-                  {timetableData?.teachers.map(t => (
+                  {(timetableSource === 'appin' ? (appinData?.teachers || []) : (timetableData?.teachers || [])).map((t: string) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
@@ -1497,72 +1873,74 @@ export default function SchoolWidget() {
       </div>
 
       {/* 고양이 스프라이트들 - tab-content 바깥에서 모든 탭에 표시 */}
-      {Array.from(visibleCats).map(catId => {
-        const catType = CAT_TYPES.find(t => t.id === catId);
-        if (!catType) return null;
-        
-        return (
-          <div 
-            key={catId}
-            ref={(el) => catElementsRef.current.set(catId, el)}
-            className="cat-sprite"
-            onClick={(e) => {
-              const cat = catStatesRef.current.get(catId);
-              if (!cat) return;
-              
-              const container = document.querySelector('.school-widget-container');
-              if (!container) return;
-              
-              const rect = container.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              const clickY = e.clientY - rect.top;
-              
-              const isHit = isPixelHit(
-                catId,
-                clickX,
-                clickY,
-                cat.x,
-                cat.y,
-                catSize,
-                cat.direction,
-                cat.behavior.type,
-                cat.frame
-              );
-              
-              if (!isHit) return;
-              
-              // 클릭 시 1픽셀씩 커지기
-              const newSize = catSize + 1;
-              setCatSize(newSize);
-              localStorage.setItem('schoolCatSize', newSize.toString());
-              
-              // 클릭 시 앉거나 눕기 (50% 확률)
-              const currentTime = performance.now();
-              if (Math.random() < 0.5) {
-                cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-              } else {
-                cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-              }
-              cat.frame = 0;
-            }}
-            style={{
-              position: 'absolute',
-              left: '0px',
-              top: '0px',
-              width: `${catSize}px`,
-              height: `${catSize}px`,
-              backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
-              backgroundSize: `${catSize * 4}px ${catSize * catType.rows}px`,
-              backgroundPosition: '0px 0px',
-              imageRendering: 'pixelated',
-              zIndex: 1000,
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-            }}
-          />
-        );
-      })}
-    </div>
+      {
+        Array.from(visibleCats).map(catId => {
+          const catType = CAT_TYPES.find(t => t.id === catId);
+          if (!catType) return null;
+
+          return (
+            <div
+              key={catId}
+              ref={(el) => catElementsRef.current.set(catId, el)}
+              className="cat-sprite"
+              onClick={(e) => {
+                const cat = catStatesRef.current.get(catId);
+                if (!cat) return;
+
+                const container = document.querySelector('.school-widget-container');
+                if (!container) return;
+
+                const rect = container.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+
+                const isHit = isPixelHit(
+                  catId,
+                  clickX,
+                  clickY,
+                  cat.x,
+                  cat.y,
+                  catSize,
+                  cat.direction,
+                  cat.behavior.type,
+                  cat.frame
+                );
+
+                if (!isHit) return;
+
+                // 클릭 시 1픽셀씩 커지기
+                const newSize = catSize + 1;
+                setCatSize(newSize);
+                localStorage.setItem('schoolCatSize', newSize.toString());
+
+                // 클릭 시 앉거나 눕기 (50% 확률)
+                const currentTime = performance.now();
+                if (Math.random() < 0.5) {
+                  cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
+                } else {
+                  cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
+                }
+                cat.frame = 0;
+              }}
+              style={{
+                position: 'absolute',
+                left: '0px',
+                top: '0px',
+                width: `${catSize}px`,
+                height: `${catSize}px`,
+                backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
+                backgroundSize: `${catSize * 4}px ${catSize * catType.rows}px`,
+                backgroundPosition: '0px 0px',
+                imageRendering: 'pixelated',
+                zIndex: 1000,
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+              }}
+            />
+          );
+        })
+      }
+    </div >
   );
 }
 

@@ -176,6 +176,17 @@ def update_cargo_toml(path: Path, new_version: str) -> str:
 
 
 def run_build(root: Path) -> None:
+    import os
+    env_file = root / ".env"
+    if env_file.exists():
+        content = env_file.read_text(encoding="utf-8-sig")
+        for match in re.finditer(r'^([A-Za-z0-9_]+)=(?:"([^"]*)"|([^\n]*))', content, re.MULTILINE):
+            key = match.group(1)
+            val = match.group(2) if match.group(2) is not None else match.group(3)
+            val = val.replace('\\n', '\n')
+            os.environ[key] = val
+            print(f"[info] Loaded environment variable from .env: {key}")
+
     npm_exec = shutil.which("npm") or shutil.which("npm.cmd") or shutil.which("npm.exe")
     if not npm_exec:
         raise SystemExit("[error] Could not find `npm` executable. Ensure Node.js/npm is installed and on PATH.")
@@ -510,8 +521,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.4.8",
-        notes="검색 기능 속도 개선 완료(Virtualization)",
+        version="0.5.0",
+        notes="압핀 시간표 지원 / API키 교체",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

@@ -4,6 +4,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { PageHeader } from './PageHeader';
 import { AuthLanding } from './AuthLanding';
 import { invoke } from '@tauri-apps/api/core';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 interface SettingsPageProps {
   udbPath: string;
@@ -50,26 +51,33 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isInstalling, setIsInstalling] = useState(false);
   const [isLatestVersion, setIsLatestVersion] = useState(false);
   const [updateLogs, setUpdateLogs] = useState<Array<{ time: string; message: string; type: 'info' | 'error' | 'success' }>>([]);
-  
+
   // 자동 실행 설정 상태
   const [autoStart, setAutoStart] = useState(false);
   const [autoStartHideMain, setAutoStartHideMain] = useState(false);
   const [autoStartCalendar, setAutoStartCalendar] = useState(false);
   const [autoStartSchool, setAutoStartSchool] = useState(false);
-  
+
+  // 탁상달력 동기화 상태
+  const [desktopcalPath, setDesktopcalPath] = useState<string | null>(null);
+  const [desktopcalLoading, setDesktopcalLoading] = useState(false);
+  const [desktopcalResult, setDesktopcalResult] = useState<{ imported: number; skipped: number; conflicts: number } | null>(null);
+  const [desktopcalError, setDesktopcalError] = useState<string | null>(null);
+  const [desktopcalExportLoading, setDesktopcalExportLoading] = useState(false);
+
   // 설정 불러오기
   useEffect(() => {
     const loadAutoStartSettings = async () => {
       try {
         const autoStartValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START });
         setAutoStart(autoStartValue === 'true');
-        
+
         const hideMainValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_HIDE_MAIN });
         setAutoStartHideMain(hideMainValue === 'true');
-        
+
         const calendarValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_CALENDAR });
         setAutoStartCalendar(calendarValue === 'true');
-        
+
         const schoolValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START_SCHOOL });
         setAutoStartSchool(schoolValue === 'true');
       } catch (error) {
@@ -77,6 +85,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       }
     };
     loadAutoStartSettings();
+
+    // 탁상달력 자동 감지
+    const detectDesktopcal = async () => {
+      try {
+        const path = await invoke<string | null>('detect_desktopcal');
+        setDesktopcalPath(path);
+      } catch (error) {
+        console.error('탁상달력 감지 실패:', error);
+      }
+    };
+    detectDesktopcal();
   }, []);
 
   const addClassTime = () => {
@@ -96,6 +115,58 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const saveClassTimes = () => {
     saveToRegistry(REG_KEY_CLASS_TIMES, JSON.stringify(classTimes));
+  };
+
+  // 탁상달력 동기화 핸들러 (양방향)
+  const handleDesktopcalSync = async (customPath?: string) => {
+    const dbPath = customPath || desktopcalPath;
+    if (!dbPath) return;
+
+    setDesktopcalLoading(true);
+    setDesktopcalResult(null);
+    setDesktopcalError(null);
+    try {
+      // 1) DeskTopCal → Hypercool
+      const result = await invoke<{ imported: number; skipped: number; conflicts: number }>('import_desktopcal_db', { dbPath });
+      // 2) Hypercool → DeskTopCal
+      const exportResult = await invoke<{ exported: number }>('sync_to_desktopcal', { dbPath });
+      setDesktopcalResult({ ...result, exported: exportResult.exported } as any);
+    } catch (error: any) {
+      setDesktopcalError(error?.toString() || '알 수 없는 오류');
+    } finally {
+      setDesktopcalLoading(false);
+    }
+  };
+
+  const handleDesktopcalImportFile = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: '탁상달력 DB', extensions: ['db'] }]
+    });
+    if (selected) {
+      await handleDesktopcalSync(selected as string);
+    }
+  };
+
+  const handleDesktopcalExport = async () => {
+    const savePath = await save({
+      filters: [{ name: '탁상달력 DB', extensions: ['db'] }],
+      defaultPath: 'calendar-export.db'
+    });
+    if (!savePath) return;
+
+    setDesktopcalExportLoading(true);
+    setDesktopcalError(null);
+    try {
+      const result = await invoke<{ exported: number }>('export_desktopcal_db', { dbPath: savePath });
+      setDesktopcalResult({ imported: 0, skipped: 0, conflicts: 0 });
+      setDesktopcalError(null);
+      alert(`${result.exported}개 일정을 내보냈습니다.`);
+    } catch (error: any) {
+      setDesktopcalError(error?.toString() || '내보내기 실패');
+    } finally {
+      setDesktopcalExportLoading(false);
+    }
   };
 
 
@@ -152,11 +223,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const downloadAndInstallUpdate = async () => {
     if (!updateInfo) return;
-    
+
     setIsInstalling(true);
     setUpdateProgress({ downloaded: 0, total: 0 });
     addUpdateLog('업데이트 다운로드 시작...', 'info');
-    
+
     try {
       const update = await check();
       if (!update) {
@@ -212,12 +283,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   return (
     <div className="settings page-content">
       <PageHeader title="설정" />
-      
+
       <div className="field field-horizontal">
         <label>계정 및 동기화</label>
         <div className="auth-landing-container">
-          <AuthLanding 
-            onSync={() => onSync()} 
+          <AuthLanding
+            onSync={() => onSync()}
             lastSyncTime={lastSyncTime}
             isLoadingSync={isLoadingSync}
             syncProgress={syncProgress}
@@ -233,8 +304,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <label>업데이트</label>
         <div className="update-container">
           <div className="row" style={{ marginBottom: isLatestVersion || updateInfo ? '12px' : '0' }}>
-            <button 
-              onClick={checkForUpdates} 
+            <button
+              onClick={checkForUpdates}
               disabled={isCheckingUpdate || isInstalling}
               className="check-update-btn"
             >
@@ -250,7 +321,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </span>
             )}
           </div>
-          
+
           {updateInfo && (
             <div className="update-info-box">
               <div className="update-info-header">
@@ -263,7 +334,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <pre>{updateInfo.body}</pre>
                 </div>
               )}
-              
+
               {updateProgress ? (
                 <div className="update-progress-container">
                   <div className="update-progress-info">
@@ -271,17 +342,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <span>{Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%</span>
                   </div>
                   <div className="update-progress-bar">
-                    <div 
+                    <div
                       className="update-progress-fill"
-                      style={{ 
+                      style={{
                         width: `${(updateProgress.downloaded / updateProgress.total) * 100}%`
-                      }} 
+                      }}
                     />
                   </div>
                 </div>
               ) : (
                 !isInstalling && (
-                  <button 
+                  <button
                     className="update-install-btn"
                     onClick={downloadAndInstallUpdate}
                     disabled={isCheckingUpdate}
@@ -290,7 +361,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </button>
                 )
               )}
-              
+
               {isInstalling && (
                 <div className="update-installing-text">
                   설치 중... 완료 후 자동으로 재시작됩니다.
@@ -298,7 +369,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               )}
             </div>
           )}
-          
+
           {updateLogs.length > 0 && (
             <div className="update-logs">
               <div className="update-logs-header">
@@ -393,13 +464,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="field">
         <label htmlFor="uiScaleInput">UI 배율</label>
         <div className="row">
-          <input 
-            id="uiScaleInput" 
-            type="range" 
-            min="0.5" 
-            max="2.0" 
-            step="0.1" 
-            value={uiScale} 
+          <input
+            id="uiScaleInput"
+            type="range"
+            min="0.5"
+            max="2.0"
+            step="0.1"
+            value={uiScale}
             onChange={(e) => {
               const newScale = parseFloat(e.target.value);
               setUiScale(newScale);
@@ -485,7 +556,70 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
       </div>
 
+      <div className="field">
+        <label>탁상달력 동기화</label>
+        <div className="update-container">
+          <div className="field-description" style={{ marginBottom: '12px' }}>
+            탁상달력(DesktopCal) 앱과 일정 데이터를 동기화합니다. iOS 앱에서 일정을 확인할 수 있습니다.
+          </div>
 
+          {desktopcalPath ? (
+            <div className="update-status-text success" style={{ marginBottom: '12px' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+              탁상달력이 설치되어 있습니다.
+            </div>
+          ) : (
+            <div className="update-status-text" style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>
+              탁상달력이 감지되지 않았습니다. 수동으로 DB 파일을 가져올 수 있습니다.
+            </div>
+          )}
+
+          <div className="row" style={{ gap: '8px', marginBottom: '8px' }}>
+            <button
+              onClick={() => handleDesktopcalSync()}
+              disabled={!desktopcalPath || desktopcalLoading}
+              className="check-update-btn"
+            >
+              {desktopcalLoading ? '동기화 중...' : '동기화'}
+            </button>
+            <button
+              onClick={handleDesktopcalImportFile}
+              disabled={desktopcalLoading}
+              className="check-update-btn"
+            >
+              파일에서 가져오기
+            </button>
+            <button
+              onClick={handleDesktopcalExport}
+              disabled={desktopcalExportLoading}
+              className="check-update-btn"
+            >
+              {desktopcalExportLoading ? '내보내기 중...' : '내보내기'}
+            </button>
+          </div>
+
+          {desktopcalResult && (
+            <div className="update-info-box" style={{ marginTop: '8px' }}>
+              <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                <span>✅ 가져옴: <strong>{desktopcalResult.imported}</strong></span>
+                <span>⏭️ 건너뜀: <strong>{desktopcalResult.skipped}</strong></span>
+                {desktopcalResult.conflicts > 0 && (
+                  <span>⚠️ 충돌: <strong>{desktopcalResult.conflicts}</strong></span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {desktopcalError && (
+            <div className="update-info-box" style={{ marginTop: '8px', borderColor: 'var(--error)' }}>
+              <span style={{ color: 'var(--error)', fontSize: '13px' }}>❌ {desktopcalError}</span>
+            </div>
+          )}
+        </div>
+      </div>
 
     </div>
   );

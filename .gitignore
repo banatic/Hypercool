@@ -37,6 +37,16 @@ AIOWidget/*
 AIOWidget
 바탕화면 위젯/*
 바탕화면 위젯
+desktopcal-sync/*
+desktopcal-sync
 
 # Firebase
 firestore.rules
+
+
+# .env
+.env
+
+# 압핀
+src-appin/*
+src-appin

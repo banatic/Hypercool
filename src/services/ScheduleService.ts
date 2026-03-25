@@ -5,10 +5,11 @@ export const ScheduleService = {
     /**
      * Get schedules within a date range.
      */
-    async getSchedules(range: { start: Date; end: Date }): Promise<ScheduleItem[]> {
+    async getSchedules(range: { start: Date; end: Date }, includeDeleted: boolean = false): Promise<ScheduleItem[]> {
         return invoke('get_schedules', {
             start: range.start.toISOString(),
-            end: range.end.toISOString()
+            end: range.end.toISOString(),
+            includeDeleted
         });
     },
 

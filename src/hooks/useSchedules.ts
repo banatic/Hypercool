@@ -26,7 +26,7 @@ export function useSchedules() {
     }, []);
 
     const manualTodos = schedules
-        .filter(s => s.type === 'manual_todo')
+        .filter(s => s.type === 'manual_todo' || s.type === 'desktopcal_memo')
         .map(s => ({
             id: s.id,
             content: s.content || '',
@@ -38,7 +38,7 @@ export function useSchedules() {
         } as ManualTodo));
 
     const periodSchedules = schedules
-        .filter(s => s.type === 'period_schedule')
+        .filter(s => s.type === 'period_schedule' || s.type === 'desktopcal_event')
         .map(s => ({
             id: s.id,
             content: s.content || '',
