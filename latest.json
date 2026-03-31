@@ -1,11 +1,11 @@
 {
-    "version": "0.5.1",
-    "notes": "버그 수정",
-    "pub_date": "2026-03-26T01:53:59.971Z",
+    "version": "0.5.2",
+    "notes": "시간표 즐겨찾기 기능 추가",
+    "pub_date": "2026-03-31T03:27:10.148Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkFBb2hCdlNiZXJ5dGc1d3V4S2N4dWdYUlVFajFLSVVSOVFad1BsQkR0MnZSN0diOGZKSjFrZXhBSW1vNEE2Z2R4TkFMcmpUTEpwSklKM2JPVWtTTEFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NDkwMjE0CWZpbGU6SHlwZXJDb29sXzAuNS4xX3g2NF9lbi1VUy5tc2kKZm1GakJyWkRPTG5IeVUxckd5MlRUckNTOG53ZmwrNmZHaml3dFh5NGkrNTFkRGVIbTRnbmtoUERyKzB2Rk5sb2NGNy9KK3Y2K2RhdmFNSENsR3VuRGc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.1/HyperCool_0.5.1_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk1tRFNteER1R0FkWlREeDdBN2tpd00yNEdFUTY4WGt6UDZoU1hNUXZOSW5hYXVzOW95eWRFSDNRaCtPaHIwaCtUcCtkWUFHTVl1cHJVQzg2WThxb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0OTI3ODAxCWZpbGU6SHlwZXJDb29sXzAuNS4yX3g2NF9lbi1VUy5tc2kKSkVpUFhIWkVzdjA4Z1lmM09VQ09KNWtjSjNGSG01dVBpck13cis5c2dncmZUUUZVTjFDdDhaT25Pamw2bEpoUWU0eVhCU1NHb1M5ajVsc1phZXhlRFE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.2/HyperCool_0.5.2_x64_en-US.msi"
         }
     }
 }
