@@ -521,9 +521,9 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.0",
-        notes="압핀 시간표 지원 / API키 교체",
-        pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
+        version="0.5.2",
+        notes="시간표 즐겨찾기 기능 추가",
+        pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다. 
         skip_build=False,
         msi_path=None,
         bundle_dir=Path("src-tauri/target/release/bundle/msi"),

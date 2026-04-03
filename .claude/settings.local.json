@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find D:devHypercool -maxdepth 2 -type f -name README* -o -name readme*)",
+      "Bash(npm run:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
