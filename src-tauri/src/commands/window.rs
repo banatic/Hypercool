@@ -19,6 +19,27 @@ use crate::dummy_window::DUMMY_OWNER_HWND;
 pub static LAST_HIDE_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
 #[tauri::command]
+pub async fn send_window_to_bottom(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let hwnd_ptr: *mut std::ffi::c_void = hwnd.0;
+                let hwnd_addr = hwnd_ptr as usize;
+                let winapi_hwnd = hwnd_addr as *mut winapi::ctypes::c_void;
+                SetWindowPos(
+                    winapi_hwnd as _,
+                    HWND_BOTTOM,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn notify_hidden() {
     let cell = LAST_HIDE_AT.get_or_init(|| Mutex::new(None));
     if let Ok(mut slot) = cell.lock() {

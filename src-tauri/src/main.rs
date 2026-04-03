@@ -77,6 +77,7 @@ fn main() {
             window::open_school_widget,
             window::set_school_widget_pinned,
             window::get_school_widget_pinned,
+            window::send_window_to_bottom,
             
             db::get_schedules,
             db::create_schedule,

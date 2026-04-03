@@ -11,6 +11,8 @@ import './styles.css';
 import './CalendarWidget.css';
 
 const REG_KEY_TODO_ORDER = 'TodoOrderMap';
+const CALENDAR_DAYS = 42; // 6주 × 7일
+const DRAG_THRESHOLD_PX = 5; // 드래그 시작 임계값 (CSS 픽셀)
 
 
 
@@ -64,6 +66,24 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [editPeriodModalOpen, setEditPeriodModalOpen] = useState(false);
   const [selectedPeriodSchedule, setSelectedPeriodSchedule] = useState<PeriodSchedule | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; todo?: TodoItem; schedule?: PeriodSchedule } | null>(null);
+
+  useEffect(() => {
+    let lastCall = 0;
+    const sendToBottom = () => {
+      const now = Date.now();
+      if (now - lastCall < 500) return;
+      lastCall = now;
+      invoke('send_window_to_bottom').catch(console.error);
+    };
+
+    window.addEventListener('mousedown', sendToBottom);
+    window.addEventListener('focus', sendToBottom);
+
+    return () => {
+      window.removeEventListener('mousedown', sendToBottom);
+      window.removeEventListener('focus', sendToBottom);
+    };
+  }, []);
 
   // 모든 할일 목록 (메모이제이션)
   const allTodos = useMemo(() => {
@@ -193,7 +213,11 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       // TodoOrder is strictly UI preference, maybe keep in registry?
       const savedTodoOrder = await invoke<string | null>('get_registry_value', { key: REG_KEY_TODO_ORDER });
       if (savedTodoOrder) {
-        setTodoOrder(JSON.parse(savedTodoOrder) || {});
+        try {
+          setTodoOrder(JSON.parse(savedTodoOrder) || {});
+        } catch {
+          console.error('Failed to parse TodoOrderMap from registry');
+        }
       }
 
       // Load Messages for "Kept" list
@@ -304,7 +328,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
     const days: Date[] = [];
     const current = new Date(startDate);
-    while (days.length < 42) { // 6주 * 7일
+    while (days.length < CALENDAR_DAYS) {
       days.push(new Date(current));
       current.setDate(current.getDate() + 1);
     }
@@ -607,7 +631,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
       // 일정 거리 이상 움직였을 때만 드래그 시작 (클릭 미스 방지)
       const dx = e.clientX - startPosRef.current.x;
       const dy = e.clientY - startPosRef.current.y;
-      if (Math.hypot(dx, dy) > 5) {
+      if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
         isDraggingRef.current = true;
         setIsDragging(true);
         setDraggedTodoId(draggedTodoIdRef.current); // 드래그가 확실시될 때 상태 업데이트

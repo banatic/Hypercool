@@ -30,6 +30,18 @@ interface PointStatus {
   total: number;
 }
 
+interface AppinTimetableSlot {
+  subject: number | null;
+  teacher: number | null;
+  classroom?: string;
+}
+
+interface AppinData {
+  teachers: string[];
+  subjects: string[];
+  days: Record<string, Record<string, Record<string, AppinTimetableSlot>>>;
+}
+
 type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
 
 // 고양이 종류 정의 (rows: 스프라이트 시트 행 수, 보라/하양이/까망이는 더미 9행 포함)
@@ -92,8 +104,33 @@ export default function SchoolWidget() {
   const [activeTab, setActiveTab] = useState<Tab>('meal');
   const [timetableData, setTimetableData] = useState<TimetableData | null>(null);
   const [timetableSource, setTimetableSource] = useState<'comcigan' | 'appin'>(() => localStorage.getItem('schoolTimetableSource') as 'comcigan' | 'appin' || 'comcigan');
-  const [appinData, setAppinData] = useState<any>(null);
+  const [appinData, setAppinData] = useState<AppinData | null>(null);
   const [appinWeekOffset, setAppinWeekOffset] = useState(0);
+  const [currentNow, setCurrentNow] = useState(() => new Date()); // 시간표 현재 시간줄 갱신용
+
+  useEffect(() => {
+    let lastCall = 0;
+    const sendToBottom = () => {
+      const now = Date.now();
+      if (now - lastCall < 500) return;
+      lastCall = now;
+      invoke('send_window_to_bottom').catch(console.error);
+    };
+
+    window.addEventListener('mousedown', sendToBottom);
+    window.addEventListener('focus', sendToBottom);
+
+    return () => {
+      window.removeEventListener('mousedown', sendToBottom);
+      window.removeEventListener('focus', sendToBottom);
+    };
+  }, []);
+
+  // 시간표 현재 시간줄 1분마다 갱신
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (appinWeekOffset !== 0) {
@@ -125,6 +162,33 @@ export default function SchoolWidget() {
 
   const [selectedTeacher, setSelectedTeacher] = useState<string>('');
   const [teacherSearch, setTeacherSearch] = useState('');
+  
+  const [favoriteTeachers, setFavoriteTeachers] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('schoolFavoriteTeachers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleFavoriteTeacher = (teacher: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setFavoriteTeachers(prev => {
+      const isFav = prev.includes(teacher);
+      const next = isFav ? prev.filter(t => t !== teacher) : [...prev, teacher];
+      localStorage.setItem('schoolFavoriteTeachers', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleWheelScroll = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY !== 0) {
+      e.currentTarget.scrollLeft += e.deltaY;
+    }
+  };
   const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });
   const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
   const [points, setPoints] = useState<PointStatus[]>([]);
@@ -143,6 +207,13 @@ export default function SchoolWidget() {
     meal: false,
     attendance: false,
     points: false
+  });
+
+  const [errorStates, setErrorStates] = useState({
+    timetable: false,
+    meal: false,
+    attendance: false,
+    points: false,
   });
 
   const [grade, setGrade] = useState(() => localStorage.getItem('schoolGrade') || '1');
@@ -190,31 +261,41 @@ export default function SchoolWidget() {
 
   const [showTeacherDropdown, setShowTeacherDropdown] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [debouncedTeacherSearch, setDebouncedTeacherSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTeacherSearch(teacherSearch), 150);
+    return () => clearTimeout(timer);
+  }, [teacherSearch]);
 
   const filteredTeachers = useMemo(() => {
     const teachersList = timetableSource === 'appin' && appinData ? appinData.teachers : (timetableData ? timetableData.teachers : []);
-    if (!teacherSearch) return teachersList;
+    if (!debouncedTeacherSearch) return teachersList;
     return teachersList.filter((t: string) =>
-      t.toLowerCase().includes(teacherSearch.toLowerCase())
+      t.toLowerCase().includes(debouncedTeacherSearch.toLowerCase())
     );
-  }, [timetableData, appinData, timetableSource, teacherSearch]);
+  }, [timetableData, appinData, timetableSource, debouncedTeacherSearch]);
 
   const parsedAppinTeachers = useMemo(() => {
     if (!appinData) return {};
     const result: Record<string, Record<string, Record<string, { subject: string, className: string }>>> = {};
     appinData.teachers.forEach((t: string) => { result[t] = {}; });
-    
-    Object.entries(appinData.days).forEach(([dateStr, classMap]: [string, any]) => {
-      Object.entries(classMap).forEach(([className, periodMap]: [string, any]) => {
-        Object.entries(periodMap).forEach(([period, slot]: [string, any]) => {
-          if (slot.teacher !== null && slot.teacher !== undefined) {
-             const tName = appinData.teachers[slot.teacher];
-             if (tName) {
-                 if (!result[tName]) result[tName] = {};
-                 if (!result[tName][dateStr]) result[tName][dateStr] = {};
-                 const subjName = slot.subject != null ? appinData.subjects[slot.subject] : '';
-                 result[tName][dateStr][period] = { subject: subjName, className };
-             }
+
+    Object.entries(appinData.days).forEach(([dateStr, classMap]) => {
+      Object.entries(classMap).forEach(([className, periodMap]) => {
+        Object.entries(periodMap).forEach(([period, slot]) => {
+          // subject도 non-null인 경우만 저장:
+          // 교환/대체 시 해제된 슬롯은 teacher는 남아 있지만 subject=null로 기록되는 경우가 있어,
+          // 이를 포함하면 유효한 슬롯을 덮어쓰는 문제가 발생함
+          if (slot.teacher !== null && slot.teacher !== undefined &&
+              slot.subject !== null && slot.subject !== undefined) {
+            const tName = appinData.teachers[slot.teacher!];
+            if (tName) {
+              if (!result[tName]) result[tName] = {};
+              if (!result[tName][dateStr]) result[tName][dateStr] = {};
+              const subjName = appinData.subjects[slot.subject!];
+              result[tName][dateStr][period] = { subject: subjName, className };
+            }
           }
         });
       });
@@ -440,8 +521,9 @@ export default function SchoolWidget() {
     if (timetableSource === 'appin') {
       if (dataLoaded.appin && appinData) return;
       setLoadingStates(prev => ({ ...prev, timetable: true }));
+      setErrorStates(prev => ({ ...prev, timetable: false }));
       try {
-        const data = await invoke<any>('get_appin_timetable_data');
+        const data = await invoke<AppinData>('get_appin_timetable_data');
         setAppinData(data);
         setDataLoaded(prev => ({ ...prev, appin: true }));
         if (data.teachers && data.teachers.length > 0) {
@@ -452,12 +534,14 @@ export default function SchoolWidget() {
         }
       } catch (error) {
         console.error('Appin fetch error', error);
+        setErrorStates(prev => ({ ...prev, timetable: true }));
       } finally {
         setLoadingStates(prev => ({ ...prev, timetable: false }));
       }
     } else {
       if (dataLoaded.timetable && timetableData) return;
       setLoadingStates(prev => ({ ...prev, timetable: true }));
+      setErrorStates(prev => ({ ...prev, timetable: false }));
       try {
         const data = await invoke<TimetableData>('get_timetable_data');
         setTimetableData(data);
@@ -469,6 +553,8 @@ export default function SchoolWidget() {
           );
         }
       } catch (error) {
+        console.error('Comcigan fetch error', error);
+        setErrorStates(prev => ({ ...prev, timetable: true }));
       } finally {
         setLoadingStates(prev => ({ ...prev, timetable: false }));
       }
@@ -478,6 +564,7 @@ export default function SchoolWidget() {
   const fetchMeal = async () => {
     if (dataLoaded.meal) return; // Already loaded
     setLoadingStates(prev => ({ ...prev, meal: true }));
+    setErrorStates(prev => ({ ...prev, meal: false }));
     try {
       // 한국 시간대(KST, UTC+9) 기준으로 오늘 날짜 가져오기
       const now = new Date();
@@ -496,7 +583,9 @@ export default function SchoolWidget() {
       setMealInfo(data);
       setDataLoaded(prev => ({ ...prev, meal: true }));
     } catch (error) {
+      console.error('Meal fetch error', error);
       setMealInfo({ lunch: '급식 정보를 불러올 수 없습니다', dinner: '석식 정보를 불러올 수 없습니다' });
+      setErrorStates(prev => ({ ...prev, meal: true }));
     } finally {
       setLoadingStates(prev => ({ ...prev, meal: false }));
     }
@@ -758,30 +847,18 @@ export default function SchoolWidget() {
     }
   };
 
-  // 교과목 이름을 기반으로 색상 생성
+  // 교과목 이름을 기반으로 파스텔 색상 생성 (HSL 방식)
   const getSubjectColor = (subjectName: string): string => {
     if (!subjectName) return '';
 
-    // 간단한 해시 생성
     let hash = 0;
     for (let i = 0; i < subjectName.length; i++) {
       hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
     }
 
-    // 기본 RGB 추출 (0~255)
-    let r = (hash & 0xFF0000) >> 16;
-    let g = (hash & 0x00FF00) >> 8;
-    let b = (hash & 0x0000FF);
-
-    // 파스텔톤: 흰색(255)을 일정 비율로 섞어 밝게 만들기
-    const mix = 0.3; // 0~1. 값이 클수록 더 파스텔톤
-    r = Math.round(r * (1 - mix) + 255 * mix);
-    g = Math.round(g * (1 - mix) + 255 * mix);
-    b = Math.round(b * (1 - mix) + 255 * mix);
-
-    const transparent = 0.15;
-
-    return `rgba(${r}, ${g}, ${b}, ${transparent})`;
+    // hue 0~359도 결정, 채도 45% + 명도 72% = 파스텔 계열
+    const hue = Math.abs(hash) % 360;
+    return `hsla(${hue}, 45%, 72%, 0.42)`;
   };
 
   const renderTodo = () => {
@@ -847,12 +924,18 @@ export default function SchoolWidget() {
 
 
   const renderTimetable = () => {
-    if (loadingStates.timetable) return <div className="loading">Loading...</div>;
+    if (loadingStates.timetable) return <div className="loading">로딩 중...</div>;
+    if (errorStates.timetable) return (
+      <div className="error-message" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
+        <span>시간표를 불러오는데 실패했습니다.</span>
+        <button className="refresh-btn-small" onClick={() => { setDataLoaded(prev => ({ ...prev, timetable: false, appin: false })); fetchTimetable(); }}>다시 시도</button>
+      </div>
+    );
 
     let schedule: any[][][] = []; // [periodIdx][dayIdx][subject, room, isDiff]
     if (timetableSource === 'appin') {
         if (!appinData || !selectedTeacher || !parsedAppinTeachers[selectedTeacher] || !baseAppinTimetable) return <div className="error-message">No Data</div>;
-        
+
         const teacherData = parsedAppinTeachers[selectedTeacher];
         const { mondayDate } = appinWeekRange;
         
@@ -870,11 +953,16 @@ export default function SchoolWidget() {
                const slot = teacherData[dateStr]?.[pStr];
                const baseSlot = baseAppinTimetable[dIdx + 1]?.[pIdx + 1];
                
+               const dateHasData = !!teacherData[dateStr];
                if (slot) {
                  const isDiff = !baseSlot || baseSlot.subject !== slot.subject || baseSlot.className !== slot.className;
                  schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff];
-               } else if (baseSlot) {
+               } else if (baseSlot && dateHasData) {
+                 // 날짜 데이터는 있지만 해당 교시가 없음 → 수업 없음(변경됨)
                  schedule[pIdx][dIdx] = ['', '', true];
+               } else if (baseSlot) {
+                 // 날짜 데이터 자체가 없음 → 기본 시간표 그대로 표시
+                 schedule[pIdx][dIdx] = [baseSlot.subject, baseSlot.className, false];
                } else {
                  schedule[pIdx][dIdx] = null as any;
                }
@@ -889,10 +977,15 @@ export default function SchoolWidget() {
     
     const days = timetableSource === 'appin' ? appinWeekRange.days : ['월', '화', '수', '목', '금'];
     const periods = [1, 2, 3, 4, 5, 6, 7]; // 8교시 제거
+    const periodStartTimes: Record<number, string> = {
+      1: '08:30', 2: '09:30', 3: '10:30', 4: '11:30',
+      5: '13:20', 6: '14:20', 7: '15:20'
+    };
 
-    // 현재 시간 계산
-    const now = new Date();
-    const currentDay = now.getDay(); // 0=일요일, 1=월요일, ..., 5=금요일
+    // 현재 시간 계산 (currentNow 상태로 1분마다 갱신됨)
+    const now = currentNow;
+    const currentDay = now.getDay();
+    const isWeekday = currentDay >= 1 && currentDay <= 5; // 0=일요일, 1=월요일, ..., 5=금요일
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentTime = currentHour * 60 + currentMinute; // 분 단위로 변환
@@ -951,7 +1044,7 @@ export default function SchoolWidget() {
       <div className="timetable-grid">
         <div className="timetable-cell header-empty" style={{ background: 'transparent' }}></div>
         {days.map((dayLabel, index) => (
-          <div key={`header-${index}`} className="timetable-cell timetable-header">
+          <div key={`header-${index}`} className={`timetable-cell timetable-header${isWeekday && index === currentDay - 1 ? ' is-today' : ''}`}>
             {dayLabel}
           </div>
         ))}
@@ -961,21 +1054,23 @@ export default function SchoolWidget() {
             return (
               <React.Fragment key={`period-group-${p}`}>
                 {/* 4교시 행 */}
-                <div className="timetable-cell period">4</div>
+                <div className="timetable-cell period">
+                  <span className="period-label">4</span>
+                  <span className="period-time">11:30</span>
+                </div>
                 {days.map((_, dIdx) => {
-                  const lesson = schedule[3]?.[dIdx]; // 4교시는 인덱스 3
-                  const isCurrentTimeCell = timeY && timeY.rowIndex === 3 && (currentDay - 1 === dIdx);
+                  const lesson = schedule[3]?.[dIdx];
+                  const isToday = isWeekday && dIdx === currentDay - 1;
+                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 3;
+                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
                   const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
                   const isDiff = lesson && lesson[2] === true;
                   return (
                     <div
                       key={`4-${dIdx}`}
-                      className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
+                      className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
                       style={{
-                        ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
-                          position: 'relative',
-                          '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
-                        } : {}),
+                        ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
                         ...(subjectColor ? { backgroundColor: subjectColor } : {}),
                         ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                       } as React.CSSProperties}
@@ -990,38 +1085,42 @@ export default function SchoolWidget() {
                   );
                 })}
                 {/* 점심시간 행 */}
-                <div className="timetable-cell period lunch">점심</div>
+                <div className="timetable-cell period lunch">
+                  <span className="period-label">점심</span>
+                  <span className="period-time">12:20</span>
+                </div>
                 {days.map((_, dIdx) => {
-                  const isCurrentTimeCell = timeY && timeY.rowIndex === 4 && (currentDay - 1 === dIdx);
+                  const isToday = isWeekday && dIdx === currentDay - 1;
+                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 4;
+                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
                   return (
                     <div
                       key={`lunch-${dIdx}`}
-                      className={`timetable-cell lunch-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
-                      style={isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
-                        position: 'relative',
-                        '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
-                      } as React.CSSProperties : undefined}
+                      className={`timetable-cell lunch-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
+                      style={timeProgress !== undefined ? { '--time-progress': timeProgress } as React.CSSProperties : undefined}
                     >
                       점심시간
                     </div>
                   );
                 })}
                 {/* 5교시 행 */}
-                <div className="timetable-cell period">5</div>
+                <div className="timetable-cell period">
+                  <span className="period-label">5</span>
+                  <span className="period-time">13:20</span>
+                </div>
                 {days.map((_, dIdx) => {
-                  const lesson = schedule[4]?.[dIdx]; // 5교시는 인덱스 4
-                  const isCurrentTimeCell = timeY && timeY.rowIndex === 5 && (currentDay - 1 === dIdx);
+                  const lesson = schedule[4]?.[dIdx];
+                  const isToday = isWeekday && dIdx === currentDay - 1;
+                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 5;
+                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
                   const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
                   const isDiff = lesson && lesson[2] === true;
                   return (
                     <div
                       key={`5-${dIdx}`}
-                      className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
+                      className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
                       style={{
-                        ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
-                          position: 'relative',
-                          '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
-                        } : {}),
+                        ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
                         ...(subjectColor ? { backgroundColor: subjectColor } : {}),
                         ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                       } as React.CSSProperties}
@@ -1071,21 +1170,23 @@ export default function SchoolWidget() {
 
           return (
             <React.Fragment key={p}>
-              <div className="timetable-cell period">{p}</div>
+              <div className="timetable-cell period">
+                <span className="period-label">{p}</span>
+                <span className="period-time">{periodStartTimes[p]}</span>
+              </div>
               {days.map((_, dIdx) => {
                 const lesson = schedule[scheduleIdx]?.[dIdx];
-                const isCurrentTimeCell = timeY && timeY.rowIndex === actualRowIndex && (currentDay - 1 === dIdx);
+                const isToday = isWeekday && dIdx === currentDay - 1;
+                const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === actualRowIndex;
+                const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
                 const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
                 const isDiff = lesson && lesson[2] === true;
                 return (
                   <div
                     key={`${p}-${dIdx}`}
-                    className={`timetable-cell ${isCurrentTimeCell ? 'current-time-cell' : ''}`}
+                    className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
                     style={{
-                      ...(isCurrentTimeCell && timeY && timeY.progress !== undefined ? {
-                        position: 'relative',
-                        '--time-progress': timeY.progress < 1 ? timeY.progress : timeY.progress - 1
-                      } : {}),
+                      ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
                       ...(subjectColor ? { backgroundColor: subjectColor } : {}),
                       ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
                     } as React.CSSProperties}
@@ -1537,30 +1638,88 @@ export default function SchoolWidget() {
 
             <div className="timetable-hover-area"></div>
             <div className="timetable-search-hover" style={{ flexDirection: 'column', gap: '10px' }}>
-              <div className="teacher-search-container" style={{ width: '100%' }}>
-                <input
-                  type="text"
-                  value={teacherSearch}
-                  onChange={(e) => handleTeacherSearchChange(e.target.value)}
-                  onFocus={() => setShowTeacherDropdown(true)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="선생님 검색..."
-                  className="search-input"
-                />
-                {showTeacherDropdown && filteredTeachers.length > 0 && (
-                  <div className="teacher-dropdown">
-                    {filteredTeachers.map((teacher: any, index: number) => (
-                      <div
-                        key={teacher}
-                        className={`teacher-dropdown-item ${index === highlightedIndex ? 'highlighted' : ''} ${teacher === selectedTeacher ? 'selected' : ''}`}
-                        onClick={() => handleTeacherSelect(teacher)}
-                        onMouseEnter={() => setHighlightedIndex(index)}
-                      >
-                        {teacher}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '8px' }}>
+                <div className="teacher-search-container" style={{ flex: '0 0 auto', position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={teacherSearch}
+                    onChange={(e) => handleTeacherSearchChange(e.target.value)}
+                    onFocus={() => setShowTeacherDropdown(true)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="선생님 검색..."
+                    className="search-input"
+                    style={{ width: '140px' }}
+                  />
+                  {showTeacherDropdown && filteredTeachers.length > 0 && (
+                    <div className="teacher-dropdown">
+                      {filteredTeachers.map((teacher: any, index: number) => (
+                        <div
+                          key={teacher}
+                          className={`teacher-dropdown-item ${index === highlightedIndex ? 'highlighted' : ''} ${teacher === selectedTeacher ? 'selected' : ''}`}
+                          onClick={() => handleTeacherSelect(teacher)}
+                          onMouseEnter={() => setHighlightedIndex(index)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <span>{teacher}</span>
+                          <button
+                            onClick={(e) => toggleFavoriteTeacher(teacher, e)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: favoriteTeachers.includes(teacher) ? '#ffd700' : 'rgba(255,255,255,0.3)',
+                              fontSize: '1rem',
+                              padding: '0 4px',
+                              marginLeft: '8px'
+                            }}
+                            title="즐겨찾기"
+                          >
+                            {favoriteTeachers.includes(teacher) ? '★' : '☆'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(() => {
+                  const displayTeachers = Array.from(new Set([defaultTeacher, ...favoriteTeachers].filter(Boolean)));
+                  if (displayTeachers.length === 0) return null;
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flex: 1,
+                        overflowX: 'auto',
+                        gap: '6px',
+                        padding: '4px 0',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
+                      }}
+                      onWheel={handleWheelScroll}
+                    >
+                      {displayTeachers.map(t => (
+                        <button
+                          key={t}
+                          onClick={() => handleTeacherSelect(t)}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            background: selectedTeacher === t ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
+                            color: t === defaultTeacher ? '#ffd700' : 'white',
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            flex: '0 0 auto'
+                          }}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1646,228 +1805,184 @@ export default function SchoolWidget() {
 
         {activeTab === 'settings' && (
           <div className="settings-section">
-            <div className="section-header">
-              <h2>설정</h2>
-            </div>
 
-            <div className="settings-group">
-              <h3>위젯 설정</h3>
-              <div className="setting-item">
-                <label style={{ marginBottom: '8px', display: 'block', fontWeight: 500 }}>
-                  시간표 데이터 소스
-                </label>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="radio"
-                      name="timetableSource"
-                      value="comcigan"
-                      checked={timetableSource === 'comcigan'}
-                      onChange={() => { setTimetableSource('comcigan'); localStorage.setItem('schoolTimetableSource', 'comcigan'); }}
-                      style={{ marginRight: '6px', width: '16px', height: '16px' }}
-                    />
-                    <span>컴시간 알리미</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="radio"
-                      name="timetableSource"
-                      value="appin"
-                      checked={timetableSource === 'appin'}
-                      onChange={() => { setTimetableSource('appin'); localStorage.setItem('schoolTimetableSource', 'appin'); }}
-                      style={{ marginRight: '6px', width: '16px', height: '16px' }}
-                    />
-                    <span>압핀 (Appin)</span>
-                  </label>
+            {/* 위젯 */}
+            <div className="settings-card">
+              <div className="settings-card-title">위젯</div>
+              <div className="settings-row">
+                <span className="settings-label">시간표 소스</span>
+                <div className="segment-control">
+                  <button
+                    className={`segment-btn ${timetableSource === 'comcigan' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTimetableSource('comcigan');
+                      localStorage.setItem('schoolTimetableSource', 'comcigan');
+                      if (timetableData?.teachers.length) {
+                        const saved = localStorage.getItem('lastSelectedTeacher');
+                        setSelectedTeacher(saved && timetableData.teachers.includes(saved) ? saved : timetableData.teachers[0]);
+                      } else {
+                        setSelectedTeacher('');
+                      }
+                    }}
+                  >컴시간</button>
+                  <button
+                    className={`segment-btn ${timetableSource === 'appin' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTimetableSource('appin');
+                      localStorage.setItem('schoolTimetableSource', 'appin');
+                      if (appinData?.teachers.length) {
+                        const saved = localStorage.getItem('lastSelectedTeacher');
+                        setSelectedTeacher(saved && appinData.teachers.includes(saved) ? saved : appinData.teachers[0]);
+                      } else {
+                        setSelectedTeacher('');
+                      }
+                    }}
+                  >압핀</button>
                 </div>
               </div>
-              <div className="setting-item">
-                <label>
+              <div className="settings-row">
+                <span className="settings-label">위젯 고정</span>
+                <label className="toggle">
                   <input
                     type="checkbox"
                     checked={schoolWidgetPinned}
                     onChange={(e) => setSchoolWidgetPinned(e.target.checked)}
                   />
-                  <span>학교 위젯 고정 (핀)</span>
+                  <span className="toggle-track"><span className="toggle-thumb" /></span>
                 </label>
-                <div className="setting-description">
-                  학교 위젯을 고정하면 크기 조절이 가능합니다.
-                </div>
               </div>
-              <div className="setting-item">
-                <label style={{ marginBottom: '8px', display: 'block', fontWeight: 500 }}>
-                  고양이 선택
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-                  {CAT_TYPES.map(catType => (
-                    <label
-                      key={catType.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
-                        backgroundColor: enabledCats.includes(catType.id) ? 'rgba(100, 200, 100, 0.3)' : 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        border: enabledCats.includes(catType.id) ? '1px solid rgba(100, 200, 100, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={enabledCats.includes(catType.id)}
-                        onChange={(e) => {
-                          let newEnabledCats: CatTypeId[];
-                          if (e.target.checked) {
-                            newEnabledCats = [...enabledCats, catType.id];
-                          } else {
-                            newEnabledCats = enabledCats.filter(id => id !== catType.id);
-                            // 비활성화된 고양이 상태 제거
+            </div>
+
+            {/* 고양이 */}
+            <div className="settings-card">
+              <div className="settings-card-title">고양이</div>
+              <div className="settings-row" style={{ alignItems: 'flex-start', paddingTop: '12px', paddingBottom: '12px' }}>
+                <span className="settings-label" style={{ paddingTop: '2px' }}>종류</span>
+                <div className="cat-chips">
+                  {CAT_TYPES.map(catType => {
+                    const isActive = enabledCats.includes(catType.id);
+                    return (
+                      <button
+                        key={catType.id}
+                        className={`cat-chip ${isActive ? 'active' : ''}`}
+                        onClick={() => {
+                          let newCats: CatTypeId[];
+                          if (isActive) {
+                            newCats = enabledCats.filter(id => id !== catType.id);
                             catStatesRef.current.delete(catType.id);
                             setVisibleCats(prev => {
                               const next = new Set(prev);
                               next.delete(catType.id);
                               return next;
                             });
+                          } else {
+                            newCats = [...enabledCats, catType.id];
                           }
-                          setEnabledCats(newEnabledCats);
-                          localStorage.setItem('schoolEnabledCats', JSON.stringify(newEnabledCats));
+                          setEnabledCats(newCats);
+                          localStorage.setItem('schoolEnabledCats', JSON.stringify(newCats));
                         }}
-                        style={{ display: 'none' }}
-                      />
-                      <span
-                        style={{
-                          width: '16px',
-                          height: '16px',
-                          backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
-                          backgroundSize: `64px ${16 * catType.rows}px`,
-                          backgroundPosition: '-32px 0',
-                          imageRendering: 'pixelated',
-                        }}
-                      />
-                      <span style={{ fontSize: '13px' }}>{catType.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="setting-description">
-                  여러 고양이를 선택하면 함께 돌아다닙니다.
+                      >
+                        <span
+                          style={{
+                            width: '14px',
+                            height: '14px',
+                            backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
+                            backgroundSize: `56px ${14 * catType.rows}px`,
+                            backgroundPosition: '-28px 0',
+                            imageRendering: 'pixelated',
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}
+                        />
+                        {catType.name}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="setting-item">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span>고양이 크기: {catSize}px</span>
-                  <button
-                    onClick={() => {
-                      setCatSize(32);
-                      localStorage.setItem('schoolCatSize', '32');
-                    }}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: '12px',
-                      backgroundColor: '#f0f0f0',
-                      border: '1px solid #ccc',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    크기 초기화
-                  </button>
-                </div>
+              <div className="settings-row">
+                <span className="settings-label">크기</span>
+                <span className="settings-value-text">{catSize}px</span>
+                <button
+                  className="settings-reset-btn"
+                  onClick={() => { setCatSize(32); localStorage.setItem('schoolCatSize', '32'); }}
+                >초기화</button>
               </div>
             </div>
 
-            <div className="settings-group">
-              <h3>시간표</h3>
-              <div className="setting-item">
-                <label htmlFor="default-teacher">기본 선생님</label>
+            {/* 시간표 */}
+            <div className="settings-card">
+              <div className="settings-card-title">시간표</div>
+              <div className="settings-row">
+                <span className="settings-label">기본 선생님</span>
                 <select
-                  id="default-teacher"
                   value={defaultTeacher}
                   onChange={(e) => setDefaultTeacher(e.target.value)}
-                  className="setting-select"
+                  className="settings-select-inline"
                 >
-                  <option value="">선택 안 함</option>
+                  <option value="">없음</option>
                   {(timetableSource === 'appin' ? (appinData?.teachers || []) : (timetableData?.teachers || [])).map((t: string) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
-                <div className="setting-description">
-                  시간표 탭을 열 때 기본으로 표시할 선생님을 선택합니다.
-                </div>
               </div>
             </div>
 
-            <div className="settings-group">
-              <h3>학년/반</h3>
-              <div className="setting-item setting-item-row">
-                <div className="setting-input-group">
-                  <label htmlFor="settings-grade">학년</label>
-                  <input
-                    id="settings-grade"
-                    type="number"
-                    value={grade}
-                    onChange={(e) => setGrade(e.target.value)}
-                    min="1"
-                    max="3"
-                    className="setting-input"
-                  />
-                </div>
-                <div className="setting-input-group">
-                  <label htmlFor="settings-class">반</label>
-                  <input
-                    id="settings-class"
-                    type="number"
-                    value={classNum}
-                    onChange={(e) => setClassNum(e.target.value)}
-                    min="1"
-                    max="20"
-                    className="setting-input"
-                  />
-                </div>
-                <div className="setting-description">
-                  출결 및 상벌점 조회에 사용되는 학년과 반입니다.
-                </div>
-              </div>
-            </div>
-
-            <div className="settings-group">
-              <h3>학교 정보</h3>
-              <div className="setting-item">
-                <label htmlFor="settings-region-code">지역 코드</label>
+            {/* 학년 · 반 */}
+            <div className="settings-card">
+              <div className="settings-card-title">학년 · 반</div>
+              <div className="settings-row">
+                <span className="settings-label">학년</span>
                 <input
-                  id="settings-region-code"
+                  type="number"
+                  value={grade}
+                  onChange={(e) => setGrade(e.target.value)}
+                  min="1"
+                  max="3"
+                  className="settings-number-input"
+                />
+              </div>
+              <div className="settings-row">
+                <span className="settings-label">반</span>
+                <input
+                  type="number"
+                  value={classNum}
+                  onChange={(e) => setClassNum(e.target.value)}
+                  min="1"
+                  max="20"
+                  className="settings-number-input"
+                />
+              </div>
+            </div>
+
+            {/* 학교 정보 */}
+            <div className="settings-card">
+              <div className="settings-card-title">학교 정보</div>
+              <div className="settings-row">
+                <span className="settings-label">지역 코드</span>
+                <input
                   type="text"
                   value={regionCode}
                   onChange={(e) => setRegionCode(e.target.value)}
                   placeholder="예: C10"
-                  className="setting-input"
-                  style={{ maxWidth: '200px' }}
+                  className="settings-text-input"
                 />
-                <div className="setting-description">
-                  NEIS API에서 사용하는 지역 교육청 코드입니다. (예: 서울 C10, 경기 J10)
-                </div>
               </div>
-              <div className="setting-item">
-                <label htmlFor="settings-school-code">학교 코드</label>
+              <div className="settings-hint">서울 C10 · 경기 J10 · 부산 B10</div>
+              <div className="settings-row">
+                <span className="settings-label">학교 코드</span>
                 <input
-                  id="settings-school-code"
                   type="text"
                   value={schoolCode}
                   onChange={(e) => setSchoolCode(e.target.value)}
                   placeholder="예: 7150451"
-                  className="setting-input"
-                  style={{ maxWidth: '200px' }}
+                  className="settings-text-input"
                 />
-                <div className="setting-description">
-                  NEIS API에서 사용하는 학교 코드입니다. 학교 정보 검색을 통해 확인할 수 있습니다.
-                </div>
               </div>
+              <div className="settings-hint">NEIS 학교 정보 검색에서 확인 가능</div>
             </div>
 
-            <div className="settings-actions">
-              <button onClick={saveSettings} className="save-btn">설정 저장</button>
-            </div>
+            <button onClick={saveSettings} className="save-btn">저장</button>
           </div>
         )}
       </div>
