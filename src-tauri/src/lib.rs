@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod mcp_server;
 pub mod models;
 pub mod school_data;
 pub mod search_db;

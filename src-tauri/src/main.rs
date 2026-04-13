@@ -124,6 +124,12 @@ fn main() {
                 // Don't return error - search is optional
             }
 
+            // Start MCP server (read-only access to messages via HTTP)
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                let db_path = app_data_dir.join("hypercool_search.db");
+                hypercool::mcp_server::start(db_path, 3737);
+            }
+
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)
             if let Some(win) = app.get_webview_window("main") {
                 // apply_vibrancy_effect(&win); // Removed for performance
