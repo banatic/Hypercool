@@ -1,0 +1,214 @@
+.help-page {
+  padding: 28px 32px 48px;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.help-header {
+  margin-bottom: 32px;
+}
+
+.help-header h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-primary, #fff);
+}
+
+.help-subtitle {
+  font-size: 0.92rem;
+  color: var(--text-secondary, #aaa);
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* Steps */
+.help-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.help-step {
+  display: flex;
+  gap: 18px;
+  padding: 20px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.help-step:last-child {
+  border-bottom: none;
+}
+
+.step-number {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(99, 179, 237, 0.18);
+  color: #63b3ed;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.help-step-result .step-number {
+  background: rgba(72, 187, 120, 0.18);
+  color: #48bb78;
+  font-size: 1rem;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-content h3 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  color: var(--text-primary, #fff);
+}
+
+.step-content p {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #bbb);
+  line-height: 1.75;
+  margin: 0 0 10px 0;
+}
+
+.step-content p:last-child {
+  margin-bottom: 0;
+}
+
+.step-content strong {
+  color: var(--text-primary, #e8e8e8);
+  font-weight: 600;
+}
+
+.step-content code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.82rem;
+  background: #1e2a3a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #7ec8f0;
+}
+
+/* URL 박스 */
+.help-url-box {
+  display: inline-flex;
+  align-items: center;
+  background: #1a2535;
+  border: 1px solid #2d4060;
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin: 6px 0 10px;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.82rem;
+  color: #7ec8f0;
+  user-select: all;
+}
+
+/* 코드 블록 */
+.help-code-block {
+  position: relative;
+  background: #141e2b;
+  border: 1px solid #2d4060;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 8px 0 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.help-code-block code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85rem;
+  color: #7ec8f0;
+  flex: 1;
+}
+
+.config-block {
+  align-items: flex-start;
+}
+
+.config-block pre {
+  margin: 0;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.82rem;
+  color: #7dbb8a;
+  line-height: 1.6;
+  flex: 1;
+  white-space: pre;
+}
+
+.help-copy-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  color: #ccc;
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.help-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.help-copy-btn.copied {
+  background: rgba(72, 187, 120, 0.2);
+  border-color: rgba(72, 187, 120, 0.4);
+  color: #48bb78;
+}
+
+/* 팁 */
+.help-tip {
+  font-size: 0.82rem !important;
+  color: rgba(255, 200, 80, 0.8) !important;
+  margin-top: 4px !important;
+}
+
+/* 예시 질문들 */
+.help-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+
+.help-example {
+  background: rgba(99, 179, 237, 0.08);
+  border-left: 3px solid rgba(99, 179, 237, 0.5);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #90cdf4;
+  font-style: italic;
+}
+
+/* 스크린샷 */
+.help-screenshot {
+  margin-top: 16px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.help-screenshot img {
+  width: 100%;
+  display: block;
+}
+
+.help-screenshot-hero {
+  margin-top: 16px;
+  margin-bottom: 4px;
+}

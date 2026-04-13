@@ -7,6 +7,7 @@ import { Sidebar } from './components/Sidebar';
 import { ClassifierPage } from './components/ClassifierPage';
 import { HistoryPage } from './components/HistoryPage';
 import { SettingsPage } from './components/SettingsPage';
+import { HelpPage } from './components/HelpPage';
 import { ScheduleModal } from './components/ScheduleModal';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { AuthService } from './auth/AuthService';
@@ -287,6 +288,7 @@ function App() {
             classified={classified}
           />
         )}
+        {page === 'help' && <HelpPage />}
         {page === 'settings' && (
           <SettingsPage
             udbPath={udbPath}

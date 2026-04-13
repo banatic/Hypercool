@@ -215,7 +215,8 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.content:has(.settings) {
+.content:has(.settings),
+.content:has(.help-page) {
   -webkit-app-region: no-drag;
 }
 

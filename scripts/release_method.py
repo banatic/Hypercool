@@ -521,8 +521,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.2",
-        notes="시간표 즐겨찾기 기능 추가",
+        version="0.5.4",
+        notes="MCP 지원 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다. 
         skip_build=False,
         msi_path=None,

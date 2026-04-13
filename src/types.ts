@@ -43,4 +43,4 @@ export interface PeriodSchedule {
   isDeleted?: boolean;
 }
 
-export type Page = 'classify' | 'todos' | 'history' | 'settings';
+export type Page = 'classify' | 'todos' | 'history' | 'settings' | 'help';
