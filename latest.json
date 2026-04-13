@@ -1,11 +1,11 @@
 {
-    "version": "0.5.3",
-    "notes": "시간표 디자인 개선",
-    "pub_date": "2026-04-10T03:06:17.510Z",
+    "version": "0.5.4",
+    "notes": "MCP 지원 추가",
+    "pub_date": "2026-04-13T02:12:34.615Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkdPZFNXd1VoV1pJMUZvTnFSK2xEcnprczh1OFh2ZThUZnZRbDlsR2pFY3ZPYmNnYXFVNFE2ZXNBVC8vdkhmSXlUQ2licWVYVW5ObW53aFhscGFLN2dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1NzkwNTA0CWZpbGU6SHlwZXJDb29sXzAuNS4zX3g2NF9lbi1VUy5tc2kKakZDUmFQbGlQV1BHSDVCSUZyMVdjRHNrMnBDajQ4dno4ck5BVXN1QnNoV0NCb3NZUjRBZzg4WW1MRzNjRVdmVnRTNVVRTUU3NVJkQm5YbnBXMzFnQnc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.3/HyperCool_0.5.3_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMlBlRkVRdmdkK0w0QnJhaGNFMVBBa3libHNMb1F1KzF2bG1LYm00K2lDMk9TNElubE0ydW15Ty9wRE1KZDZldXBGeWY0ZDB4cVRvdzVvTTc0ZHlMVUFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MDQ2NTEzCWZpbGU6SHlwZXJDb29sXzAuNS40X3g2NF9lbi1VUy5tc2kKUzlVN1NpQjU2bS9pak1kSXRNSHlqSEFEWkZOYVBFRzVCUUZGdGVwVkl4aWZLR0c4WVZING9WRjFoMTFEKzhTanF4elQxSnl0dWFJMndyWXRIR3lhQkE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.4/HyperCool_0.5.4_x64_en-US.msi"
         }
     }
 }
