@@ -1,11 +1,11 @@
 {
-    "version": "0.5.6",
-    "notes": "MCP 지원 추가",
-    "pub_date": "2026-04-13T03:54:13.570Z",
+    "version": "0.5.7",
+    "notes": "Claude MCP 자동 설정 기능 추가, Node.js 설치 감지",
+    "pub_date": "2026-04-13T08:28:31.025Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkZWbnNDSkpiWE9zcVlMemRrZ3E2UmhPZDZzeWtqVkpoSXEzVG0ycGFWQkFZRG5WM1haQU42Si9XYjRMeWREbmV3V2d1ZC81WUxqWFlLTHpja1dHalFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MDUyNTQ2CWZpbGU6SHlwZXJDb29sXzAuNS42X3g2NF9lbi1VUy5tc2kKU0ZqeFpaSXQ1OSszWXhVdGxKY0RScmI0SmpuZVQ1TzQyamFNRUo1c3l3WUszWDhtMlRGc2JjZ2c0U0JjcVd4c1ExR1QvQ0hZclVzY0laSHJpZ3BoQVE9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.6/HyperCool_0.5.6_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk5MbjN1amVaRmNLYzBNa2YrenlPcHpCWTMvRWpWYXBrK2xMUGdPNXprWEp1RGNLYlMvaTA2M0NPZElURHkxb1p6TnVuTE1WYkw2NEc1bUZ1elpEMFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MDY5MDIxCWZpbGU6SHlwZXJDb29sXzAuNS43X3g2NF9lbi1VUy5tc2kKYnNXMmxyUU4xTE9YR2RHTjVsZG51eWdtZWw1MitsdWNnWmZySG1zWTdoZUZBc0tHeU43SmhEYTMycW1HMHpRajRkRERnMU1VdmZKU3pmMEx3U2pFQWc9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.7/HyperCool_0.5.7_x64_en-US.msi"
         }
     }
 }
