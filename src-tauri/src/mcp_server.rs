@@ -83,13 +83,16 @@ async fn handle_mcp(
                         }
                     },
                     {
-                        "name": "get_recent_messages",
-                        "description": "최근 수신된 쿨메신저 메시지를 가져옵니다.",
+                        "name": "get_messages",
+                        "description": "쿨메신저 수신 메시지를 조회합니다. 발신자·날짜 범위 필터를 선택적으로 조합할 수 있습니다. 필터 없이 호출하면 최근 메시지를 반환합니다.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "limit": { "type": "number", "description": "가져올 메시지 수 (기본값: 20, 최대: 100)" },
-                                "offset": { "type": "number", "description": "건너뛸 메시지 수 (페이지네이션, 기본값: 0)" }
+                                "sender":    { "type": "string", "description": "발신자 이름 필터 (부분 일치, 생략 가능)" },
+                                "date_from": { "type": "string", "description": "시작 날짜 (YYYY-MM-DD, 생략 가능)" },
+                                "date_to":   { "type": "string", "description": "종료 날짜 (YYYY-MM-DD, 생략 가능)" },
+                                "limit":     { "type": "number", "description": "최대 결과 수 (기본값: 50, 최대: 200)" },
+                                "offset":    { "type": "number", "description": "건너뛸 메시지 수 (기본값: 0)" }
                             }
                         }
                     },
@@ -149,10 +152,13 @@ fn call_tool(db_path: &PathBuf, name: &str, args: &Value) -> Result<Value, Strin
             let limit = args["limit"].as_i64().unwrap_or(20).clamp(1, 100);
             tool_search_messages(db_path, query, limit)
         }
-        "get_recent_messages" => {
-            let limit = args["limit"].as_i64().unwrap_or(20).clamp(1, 100);
+        "get_messages" => {
+            let sender    = args["sender"].as_str();
+            let date_from = args["date_from"].as_str();
+            let date_to   = args["date_to"].as_str();
+            let limit  = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
             let offset = args["offset"].as_i64().unwrap_or(0).max(0);
-            tool_get_recent_messages(db_path, limit, offset)
+            tool_get_messages(db_path, sender, date_from, date_to, limit, offset)
         }
         "get_message_by_id" => {
             let id = args["id"].as_i64().ok_or("id required")?;
@@ -212,24 +218,56 @@ fn tool_search_messages(db_path: &PathBuf, query: &str, limit: i64) -> Result<Va
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
-fn tool_get_recent_messages(db_path: &PathBuf, limit: i64, offset: i64) -> Result<Value, String> {
+fn tool_get_messages(
+    db_path: &PathBuf,
+    sender: Option<&str>,
+    date_from: Option<&str>,
+    date_to: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> Result<Value, String> {
     let conn = open_db(db_path)?;
 
+    // 동적 WHERE 절 구성
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params_desc: Vec<String> = Vec::new();
+
+    if let Some(s) = sender {
+        conditions.push(format!("sender LIKE '%{}%'", s.replace('\'', "''")));
+        params_desc.push(format!("발신: \"{}\"", s));
+    }
+    if let Some(from) = date_from {
+        conditions.push(format!("receive_date >= '{} 00:00:00'", from.replace('\'', "''")));
+        params_desc.push(format!("{}부터", from));
+    }
+    if let Some(to) = date_to {
+        conditions.push(format!("receive_date <= '{} 23:59:59'", to.replace('\'', "''")));
+        params_desc.push(format!("{}까지", to));
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    let count_sql = format!("SELECT COUNT(*) FROM messages {}", where_clause);
     let total: i64 = conn
-        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .query_row(&count_sql, [], |row| row.get(0))
         .unwrap_or(0);
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, sender, content_preview, receive_date
-             FROM messages
-             ORDER BY receive_date DESC, id DESC
-             LIMIT ?1 OFFSET ?2",
-        )
-        .map_err(|e| format!("쿼리 준비 실패: {}", e))?;
+    let query_sql = format!(
+        "SELECT id, sender, content_preview, receive_date
+         FROM messages {}
+         ORDER BY receive_date DESC, id DESC
+         LIMIT {} OFFSET {}",
+        where_clause, limit, offset
+    );
+
+    let mut stmt = conn.prepare(&query_sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
 
     let rows: Vec<(i64, String, String, Option<String>)> = stmt
-        .query_map(rusqlite::params![limit, offset], |row| {
+        .query_map([], |row| {
             Ok((
                 row.get(0)?,
                 row.get(1)?,
@@ -241,21 +279,37 @@ fn tool_get_recent_messages(db_path: &PathBuf, limit: i64, offset: i64) -> Resul
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut text = format!(
-        "최근 메시지 (전체 {}개 중 {}~{}):\n\n",
-        total,
-        offset + 1,
-        offset + rows.len() as i64
-    );
-    for (id, sender, preview, date) in &rows {
-        text.push_str(&format!(
-            "ID: {} | 발신: {} | 날짜: {}\n{}\n\n",
-            id,
-            sender,
-            date.as_deref().unwrap_or("날짜 없음"),
-            preview.trim()
-        ));
-    }
+    let header = if params_desc.is_empty() {
+        format!("메시지 (전체 {}개 중 {}~{}):\n\n", total, offset + 1, offset + rows.len() as i64)
+    } else {
+        format!(
+            "메시지 [{}] (전체 {}개 중 {}~{}):\n\n",
+            params_desc.join(", "),
+            total,
+            offset + 1,
+            offset + rows.len() as i64
+        )
+    };
+
+    let text = if rows.is_empty() {
+        if params_desc.is_empty() {
+            "메시지가 없습니다.".to_string()
+        } else {
+            format!("[{}] 조건에 맞는 메시지가 없습니다.", params_desc.join(", "))
+        }
+    } else {
+        let mut out = header;
+        for (id, sndr, preview, date) in &rows {
+            out.push_str(&format!(
+                "ID: {} | 발신: {} | 날짜: {}\n{}\n\n",
+                id,
+                sndr,
+                date.as_deref().unwrap_or("날짜 없음"),
+                preview.trim()
+            ));
+        }
+        out
+    };
 
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }

@@ -5,7 +5,8 @@
       "Bash(npm run:*)",
       "Bash(python:*)",
       "Bash(cp /tmp/hypercool.key.bak D:/dev/Hypercool/src-tauri/hypercool.key)",
-      "Bash(cp /tmp/hypercool.plain.key.bak D:/dev/Hypercool/src-tauri/hypercool.plain.key)"
+      "Bash(cp /tmp/hypercool.plain.key.bak D:/dev/Hypercool/src-tauri/hypercool.plain.key)",
+      "Bash(cargo check:*)"
     ]
   }
 }

@@ -2204,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "hypercool"
-version = "0.5.4"
+version = "0.5.6"
 dependencies = [
  "axum",
  "base64 0.22.1",

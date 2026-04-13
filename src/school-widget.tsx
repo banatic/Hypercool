@@ -1,132 +1,57 @@
-import React, { useState, useEffect, useMemo, useRef, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import './SchoolWidget.css';
 import { ScheduleItem } from './types/schedule';
 
-// Types
-interface TimetableData {
-  teachers: string[];
-  subjects: string[];
-  timetables: Record<string, string[][][]>;
-}
-
-interface MealInfo {
-  lunch: string;
-  dinner: string;
-}
-
-interface Latecomer {
-  student_info: string;
-  arrival_time: string;
-  attendance_status: string;
-}
-
-interface PointStatus {
-  student_info: string;
-  reward: number;
-  penalty: number;
-  offset: number;
-  total: number;
-}
-
-interface AppinTimetableSlot {
-  subject: number | null;
-  teacher: number | null;
-  classroom?: string;
-}
-
-interface AppinData {
-  teachers: string[];
-  subjects: string[];
-  days: Record<string, Record<string, Record<string, AppinTimetableSlot>>>;
-}
-
-type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
-
-// 고양이 종류 정의 (rows: 스프라이트 시트 행 수, 보라/하양이/까망이는 더미 9행 포함)
-const CAT_TYPES = [
-  { id: 'default', name: '기본', sprite: 'stardew-cat.png', rows: 8 },
-  { id: 'orange', name: '주황이', sprite: 'stardew-cat-orange.png', rows: 8 },
-  { id: 'gray', name: '회색이', sprite: 'stardew-cat-gray.png', rows: 8 },
-  { id: 'black', name: '까망이', sprite: 'stardew-cat-black.png', rows: 9 },
-  { id: 'white', name: '하양이', sprite: 'stardew-cat-white.png', rows: 9 },
-  { id: 'purple', name: '보라', sprite: 'stardew-cat-purple.png', rows: 9 },
-] as const;
-
-type CatTypeId = typeof CAT_TYPES[number]['id'];
-
-// 고양이 행동 상태 타입 (State Machine)
-type CatDirection = 'down' | 'right' | 'up' | 'left';
-type CatActionPhase = 'enter' | 'hold' | 'exit';
-
-interface CatBehaviorIdle {
-  type: 'idle';
-}
-
-interface CatBehaviorWalking {
-  type: 'walking';
-  target: { x: number; y: number } | null; // null이면 마우스 따라가기
-}
-
-interface CatBehaviorSitting {
-  type: 'sitting';
-  phase: CatActionPhase;
-  phaseStartTime: number;
-  actionStartTime: number; // 액션 시작 시간 (최소 유지 시간 체크용)
-}
-
-interface CatBehaviorLicking {
-  type: 'licking';
-  startTime: number;
-  duration: number; // 핥기 지속 시간 (ms)
-}
-
-interface CatBehaviorLying {
-  type: 'lying';
-  phase: CatActionPhase;
-  phaseStartTime: number;
-  actionStartTime: number; // 액션 시작 시간 (최소 유지 시간 체크용)
-}
-
-type CatBehavior = CatBehaviorIdle | CatBehaviorWalking | CatBehaviorSitting | CatBehaviorLicking | CatBehaviorLying;
-
-interface CatState {
-  id: CatTypeId;
-  x: number;
-  y: number;
-  direction: CatDirection;
-  behavior: CatBehavior;
-  frame: number;
-}
+import {
+  Tab, TimetableData, MealInfo, Latecomer, PointStatus,
+  AppinData, CatTypeId, CAT_TYPES,
+} from './school-widget/types';
+import TabBar from './school-widget/TabBar';
+import TodoTab from './school-widget/tabs/TodoTab';
+import MealTab from './school-widget/tabs/MealTab';
+import TimetableTab from './school-widget/tabs/TimetableTab';
+import AttendanceTab from './school-widget/tabs/AttendanceTab';
+import PointsTab from './school-widget/tabs/PointsTab';
+import SettingsTab from './school-widget/tabs/SettingsTab';
+import { useCatAnimation } from './school-widget/hooks/useCatAnimation';
 
 export default function SchoolWidget() {
-  const [activeTab, setActiveTab] = useState<Tab>('meal');
+  // ── Tab state ──────────────────────────────────────────────────────────────
+  const [enabledTabs, setEnabledTabs] = useState<Tab[]>(() => {
+    try {
+      const saved = localStorage.getItem('schoolEnabledTabs');
+      return saved ? JSON.parse(saved) : ['todo', 'meal', 'timetable', 'attendance', 'points'];
+    } catch { return ['todo', 'meal', 'timetable', 'attendance', 'points']; }
+  });
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const saved = localStorage.getItem('schoolActiveTab') as Tab | null;
+    return saved ?? 'meal';
+  });
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    localStorage.setItem('schoolActiveTab', tab);
+  };
+
+  // If active tab gets disabled, switch to first available enabled tab
+  useEffect(() => {
+    if (activeTab !== 'settings' && !enabledTabs.includes(activeTab)) {
+      const first = enabledTabs[0] ?? 'settings';
+      handleTabChange(first as Tab);
+    }
+  }, [enabledTabs]);
+
+  // ── Timetable ──────────────────────────────────────────────────────────────
   const [timetableData, setTimetableData] = useState<TimetableData | null>(null);
-  const [timetableSource, setTimetableSource] = useState<'comcigan' | 'appin'>(() => localStorage.getItem('schoolTimetableSource') as 'comcigan' | 'appin' || 'comcigan');
+  const [timetableSource, setTimetableSource] = useState<'comcigan' | 'appin'>(
+    () => localStorage.getItem('schoolTimetableSource') as 'comcigan' | 'appin' || 'comcigan'
+  );
   const [appinData, setAppinData] = useState<AppinData | null>(null);
   const [appinWeekOffset, setAppinWeekOffset] = useState(0);
-  const [currentNow, setCurrentNow] = useState(() => new Date()); // 시간표 현재 시간줄 갱신용
+  const [currentNow, setCurrentNow] = useState(() => new Date());
 
-  useEffect(() => {
-    let lastCall = 0;
-    const sendToBottom = () => {
-      const now = Date.now();
-      if (now - lastCall < 500) return;
-      lastCall = now;
-      invoke('send_window_to_bottom').catch(console.error);
-    };
-
-    window.addEventListener('mousedown', sendToBottom);
-    window.addEventListener('focus', sendToBottom);
-
-    return () => {
-      window.removeEventListener('mousedown', sendToBottom);
-      window.removeEventListener('focus', sendToBottom);
-    };
-  }, []);
-
-  // 시간표 현재 시간줄 1분마다 갱신
   useEffect(() => {
     const interval = setInterval(() => setCurrentNow(new Date()), 60_000);
     return () => clearInterval(interval);
@@ -134,9 +59,7 @@ export default function SchoolWidget() {
 
   useEffect(() => {
     if (appinWeekOffset !== 0) {
-      const timer = setTimeout(() => {
-        setAppinWeekOffset(0);
-      }, 10 * 60 * 1000);
+      const timer = setTimeout(() => setAppinWeekOffset(0), 10 * 60 * 1000);
       return () => clearTimeout(timer);
     }
   }, [appinWeekOffset]);
@@ -145,120 +68,21 @@ export default function SchoolWidget() {
     const now = new Date();
     const currentDayOfWeek = now.getDay() || 7;
     const mondayDate = new Date(now);
-    mondayDate.setDate(now.getDate() - currentDayOfWeek + 1 + (appinWeekOffset * 7));
+    mondayDate.setDate(now.getDate() - currentDayOfWeek + 1 + appinWeekOffset * 7);
     const fridayDate = new Date(mondayDate);
     fridayDate.setDate(mondayDate.getDate() + 4);
-    
     const dStr = [];
     for (let i = 0; i < 5; i++) {
-        const date = new Date(mondayDate);
-        date.setDate(mondayDate.getDate() + i);
-        dStr.push(`${['월', '화', '수', '목', '금'][i]}(${date.getMonth() + 1}/${date.getDate()})`);
+      const date = new Date(mondayDate);
+      date.setDate(mondayDate.getDate() + i);
+      dStr.push(`${['월', '화', '수', '목', '금'][i]}(${date.getMonth() + 1}/${date.getDate()})`);
     }
-    
     const weekText = `${mondayDate.getMonth() + 1}/${mondayDate.getDate()} ~ ${fridayDate.getMonth() + 1}/${fridayDate.getDate()}`;
     return { mondayDate, days: dStr, weekText };
   }, [appinWeekOffset]);
 
-  const [selectedTeacher, setSelectedTeacher] = useState<string>('');
+  const [selectedTeacher, setSelectedTeacher] = useState('');
   const [teacherSearch, setTeacherSearch] = useState('');
-  
-  const [favoriteTeachers, setFavoriteTeachers] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('schoolFavoriteTeachers');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const toggleFavoriteTeacher = (teacher: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-    setFavoriteTeachers(prev => {
-      const isFav = prev.includes(teacher);
-      const next = isFav ? prev.filter(t => t !== teacher) : [...prev, teacher];
-      localStorage.setItem('schoolFavoriteTeachers', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const handleWheelScroll = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.deltaY !== 0) {
-      e.currentTarget.scrollLeft += e.deltaY;
-    }
-  };
-  const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });
-  const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
-  const [points, setPoints] = useState<PointStatus[]>([]);
-  const [todos, setTodos] = useState<ScheduleItem[]>([]);
-  const [newTodoText, setNewTodoText] = useState('');
-
-  // 여러 고양이 상태 관리 - useRef로 성능 최적화
-  const catStatesRef = useRef<Map<CatTypeId, CatState>>(new Map());
-  const catElementsRef = useRef<Map<CatTypeId, HTMLDivElement | null>>(new Map());
-  const [visibleCats, setVisibleCats] = useState<Set<CatTypeId>>(new Set()); // 렌더링 트리거용
-  const targetPosRef = useRef<{ x: number; y: number } | null>(null); // 목표 위치 (마우스 위치)
-
-  const [loadingStates, setLoadingStates] = useState({
-    todo: false,
-    timetable: false,
-    meal: false,
-    attendance: false,
-    points: false
-  });
-
-  const [errorStates, setErrorStates] = useState({
-    timetable: false,
-    meal: false,
-    attendance: false,
-    points: false,
-  });
-
-  const [grade, setGrade] = useState(() => localStorage.getItem('schoolGrade') || '1');
-  const [classNum, setClassNum] = useState(() => localStorage.getItem('schoolClass') || '8');
-
-  // 설정 상태
-  const [schoolWidgetPinned, setSchoolWidgetPinned] = useState(false);
-  const [defaultTeacher, setDefaultTeacher] = useState('');
-  const [regionCode, setRegionCode] = useState(() => localStorage.getItem('schoolRegionCode') || 'C10');
-  const [schoolCode, setSchoolCode] = useState(() => localStorage.getItem('schoolCode') || '7150451');
-
-  // 활성화된 고양이 목록 (여러 고양이 지원)
-  const [enabledCats, setEnabledCats] = useState<CatTypeId[]>(() => {
-    const saved = localStorage.getItem('schoolEnabledCats');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return ['default'];
-      }
-    }
-    // 기존 catEnabled 설정이 있으면 마이그레이션
-    const oldEnabled = localStorage.getItem('schoolCatEnabled');
-    if (oldEnabled === 'false') {
-      return [];
-    }
-    return ['default'];
-  });
-
-  const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10));
-
-  // 픽셀 데이터 캐싱을 위한 ref (고양이 종류별로 캐싱)
-  const spritePixelDataRef = useRef<Map<string, Map<string, ImageData>>>(new Map());
-  const spriteImagesRef = useRef<Map<CatTypeId, HTMLImageElement>>(new Map());
-
-  // 캐싱 상태 관리
-  const [dataLoaded, setDataLoaded] = useState({
-    todo: false,
-    timetable: false,
-    appin: false,
-    meal: false,
-    attendance: false,
-    points: false
-  });
-
   const [showTeacherDropdown, setShowTeacherDropdown] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [debouncedTeacherSearch, setDebouncedTeacherSearch] = useState('');
@@ -268,33 +92,31 @@ export default function SchoolWidget() {
     return () => clearTimeout(timer);
   }, [teacherSearch]);
 
+  const [favoriteTeachers, setFavoriteTeachers] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('schoolFavoriteTeachers') || '[]'); } catch { return []; }
+  });
+
   const filteredTeachers = useMemo(() => {
-    const teachersList = timetableSource === 'appin' && appinData ? appinData.teachers : (timetableData ? timetableData.teachers : []);
-    if (!debouncedTeacherSearch) return teachersList;
-    return teachersList.filter((t: string) =>
-      t.toLowerCase().includes(debouncedTeacherSearch.toLowerCase())
-    );
+    const list = timetableSource === 'appin' && appinData
+      ? appinData.teachers
+      : (timetableData?.teachers ?? []);
+    if (!debouncedTeacherSearch) return list;
+    return list.filter((t: string) => t.toLowerCase().includes(debouncedTeacherSearch.toLowerCase()));
   }, [timetableData, appinData, timetableSource, debouncedTeacherSearch]);
 
   const parsedAppinTeachers = useMemo(() => {
     if (!appinData) return {};
-    const result: Record<string, Record<string, Record<string, { subject: string, className: string }>>> = {};
+    const result: Record<string, Record<string, Record<string, { subject: string; className: string }>>> = {};
     appinData.teachers.forEach((t: string) => { result[t] = {}; });
-
     Object.entries(appinData.days).forEach(([dateStr, classMap]) => {
       Object.entries(classMap).forEach(([className, periodMap]) => {
         Object.entries(periodMap).forEach(([period, slot]) => {
-          // subject도 non-null인 경우만 저장:
-          // 교환/대체 시 해제된 슬롯은 teacher는 남아 있지만 subject=null로 기록되는 경우가 있어,
-          // 이를 포함하면 유효한 슬롯을 덮어쓰는 문제가 발생함
-          if (slot.teacher !== null && slot.teacher !== undefined &&
-              slot.subject !== null && slot.subject !== undefined) {
+          if (slot.teacher !== null && slot.teacher !== undefined && slot.subject !== null && slot.subject !== undefined) {
             const tName = appinData.teachers[slot.teacher!];
             if (tName) {
               if (!result[tName]) result[tName] = {};
               if (!result[tName][dateStr]) result[tName][dateStr] = {};
-              const subjName = appinData.subjects[slot.subject!];
-              result[tName][dateStr][period] = { subject: subjName, className };
+              result[tName][dateStr][period] = { subject: appinData.subjects[slot.subject!], className };
             }
           }
         });
@@ -304,171 +126,273 @@ export default function SchoolWidget() {
   }, [appinData]);
 
   const baseAppinTimetable = useMemo(() => {
-     if (!selectedTeacher || !appinData || !parsedAppinTeachers[selectedTeacher]) return null;
-     const dailyData = parsedAppinTeachers[selectedTeacher];
-     
-     const base: Record<number, Record<number, { subject: string, className: string } | null>> = {};
-     for(let d=1; d<=5; d++) {
-         base[d] = {};
-         for(let p=1; p<=7; p++) {
-             const counts: Record<string, { count: number, data: { subject: string, className: string } }> = {};
-             
-             Object.entries(dailyData).forEach(([dateStr, periodMap]) => {
-                 const dateObj = new Date(dateStr);
-                 if (dateObj.getDay() === d) {
-                     const slot = periodMap[p.toString()];
-                     if (slot) {
-                         const key = `${slot.subject}|${slot.className}`;
-                         if (!counts[key]) counts[key] = { count: 0, data: slot };
-                         counts[key].count++;
-                     }
-                 }
-             });
-             
-             let best: { count: number, data: { subject: string, className: string } } | null = null;
-             Object.values(counts).forEach(c => {
-                 if (!best || c.count > best.count) best = c as any;
-             });
-             base[d][p] = best ? (best as { count: number, data: { subject: string, className: string } }).data : null;
-         }
-     }
-     return base;
+    if (!selectedTeacher || !appinData || !parsedAppinTeachers[selectedTeacher]) return null;
+    const dailyData = parsedAppinTeachers[selectedTeacher];
+    const base: Record<number, Record<number, { subject: string; className: string } | null>> = {};
+    for (let d = 1; d <= 5; d++) {
+      base[d] = {};
+      for (let p = 1; p <= 7; p++) {
+        const counts: Record<string, { count: number; data: { subject: string; className: string } }> = {};
+        Object.entries(dailyData).forEach(([dateStr, periodMap]) => {
+          const dateObj = new Date(dateStr);
+          if (dateObj.getDay() === d) {
+            const slot = periodMap[p.toString()];
+            if (slot) {
+              const key = `${slot.subject}|${slot.className}`;
+              if (!counts[key]) counts[key] = { count: 0, data: slot };
+              counts[key].count++;
+            }
+          }
+        });
+        let best: { count: number; data: { subject: string; className: string } } | null = null;
+        Object.values(counts).forEach(c => { if (!best || c.count > best.count) best = c as any; });
+        base[d][p] = best ? (best as any).data : null;
+      }
+    }
+    return base;
   }, [selectedTeacher, appinData, parsedAppinTeachers]);
 
-  // 고양이 스프라이트 행 번호 계산 (새로운 타입 시스템 사용)
-  const getCatSpriteRow = (direction: CatDirection, behaviorType: CatBehavior['type']): number => {
-    if (behaviorType === 'walking' || behaviorType === 'idle') {
-      switch (direction) {
-        case 'down': return 0;  // 1행: 아래로 걷기
-        case 'right': return 1; // 2행: 오른쪽 걷기
-        case 'up': return 2;    // 3행: 위로 걷기
-        case 'left': return 3;  // 4행: 왼쪽 걷기
-      }
-    } else {
-      switch (behaviorType) {
-        case 'sitting': return 4;   // 5행: 앉기
-        case 'licking': return 5;   // 6행: 손핥기
-        case 'lying': return 6;     // 7행: 오른쪽 보다가 바닥에 눕기
-        default: return 1;
-      }
-    }
-  };
+  // ── Data ───────────────────────────────────────────────────────────────────
+  const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });
+  const [latecomers, setLatecomers] = useState<Latecomer[]>([]);
+  const [points, setPoints] = useState<PointStatus[]>([]);
+  const [todos, setTodos] = useState<ScheduleItem[]>([]);
+  const [newTodoText, setNewTodoText] = useState('');
 
-  // 스프라이트 이미지 로드 및 픽셀 데이터 캐싱 (모든 고양이 종류)
+  const [loadingStates, setLoadingStates] = useState({ todo: false, timetable: false, meal: false, attendance: false, points: false });
+  const [errorStates, setErrorStates] = useState({ timetable: false, meal: false, attendance: false, points: false });
+  const [dataLoaded, setDataLoaded] = useState({ todo: false, timetable: false, appin: false, meal: false, attendance: false, points: false });
+
+  // ── Settings ───────────────────────────────────────────────────────────────
+  const [grade, setGrade] = useState(() => localStorage.getItem('schoolGrade') || '1');
+  const [classNum, setClassNum] = useState(() => localStorage.getItem('schoolClass') || '8');
+  const [schoolWidgetPinned, setSchoolWidgetPinned] = useState(false);
+  const [defaultTeacher, setDefaultTeacher] = useState('');
+  const [regionCode, setRegionCode] = useState(() => localStorage.getItem('schoolRegionCode') || 'C10');
+  const [schoolCode, setSchoolCode] = useState(() => localStorage.getItem('schoolCode') || '7150451');
+
+  // ── Cat ────────────────────────────────────────────────────────────────────
+  const [enabledCats, setEnabledCats] = useState<CatTypeId[]>(() => {
+    const saved = localStorage.getItem('schoolEnabledCats');
+    if (saved) { try { return JSON.parse(saved); } catch { return ['default']; } }
+    return localStorage.getItem('schoolCatEnabled') === 'false' ? [] : ['default'];
+  });
+  const [catSize, setCatSize] = useState(() => parseInt(localStorage.getItem('schoolCatSize') || '32', 10));
+
+  const { catStatesRef, catElementsRef, visibleCats, setVisibleCats, isPixelHit } = useCatAnimation(enabledCats, catSize);
+
+  // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const loadSpriteImage = (catType: typeof CAT_TYPES[number]) => {
-      const img = new Image();
-      img.src = new URL(`./asset/${catType.sprite}`, import.meta.url).href;
-      img.onload = () => {
-        spriteImagesRef.current.set(catType.id, img);
-
-        // 캔버스 생성 및 픽셀 데이터 추출
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        // 스프라이트 시트 크기: rows행 4열, 각 프레임 32x32
-        const frameWidth = 32;
-        const frameHeight = 32;
-        const cols = 4;
-        const rows = catType.rows; // 고양이별 행 수 사용
-
-        canvas.width = frameWidth;
-        canvas.height = frameHeight;
-
-        // 각 프레임의 픽셀 데이터 캐싱
-        const catPixelData = new Map<string, ImageData>();
-        for (let row = 0; row < rows; row++) {
-          for (let col = 0; col < cols; col++) {
-            ctx.clearRect(0, 0, frameWidth, frameHeight);
-            ctx.drawImage(
-              img,
-              col * frameWidth, row * frameHeight, frameWidth, frameHeight,
-              0, 0, frameWidth, frameHeight
-            );
-
-            const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
-            const key = `${row}-${col}`;
-            catPixelData.set(key, imageData);
-          }
-        }
-        spritePixelDataRef.current.set(catType.id, catPixelData);
-      };
-      img.onerror = () => {
-        console.error(`Failed to load cat sprite image: ${catType.sprite}`);
-      };
+    let lastCall = 0;
+    const sendToBottom = () => {
+      const now = Date.now();
+      if (now - lastCall < 500) return;
+      lastCall = now;
+      invoke('send_window_to_bottom').catch(console.error);
     };
-
-    // 모든 고양이 스프라이트 로드
-    CAT_TYPES.forEach(catType => loadSpriteImage(catType));
+    window.addEventListener('mousedown', sendToBottom);
+    window.addEventListener('focus', sendToBottom);
+    return () => { window.removeEventListener('mousedown', sendToBottom); window.removeEventListener('focus', sendToBottom); };
   }, []);
 
-  // 픽셀 퍼펙트 히트 테스트 함수
-  const isPixelHit = (
-    catTypeId: CatTypeId,
-    clickX: number,
-    clickY: number,
-    catX: number,
-    catY: number,
-    size: number,
-    direction: CatDirection,
-    behaviorType: CatBehavior['type'],
-    frame: number
-  ): boolean => {
-    // 클릭 위치가 고양이 영역 밖이면 false
-    if (
-      clickX < catX ||
-      clickX > catX + size ||
-      clickY < catY ||
-      clickY > catY + size
-    ) {
-      return false;
+  useEffect(() => {
+    localStorage.setItem('schoolGrade', grade);
+    localStorage.setItem('schoolClass', classNum);
+    setDataLoaded(prev => ({ ...prev, attendance: false, points: false }));
+    setLatecomers([]);
+    setPoints([]);
+  }, [grade, classNum]);
+
+  useEffect(() => {
+    setDataLoaded(prev => ({ ...prev, meal: false }));
+  }, [regionCode, schoolCode]);
+
+  useEffect(() => {
+    if (selectedTeacher) localStorage.setItem('lastSelectedTeacher', selectedTeacher);
+  }, [selectedTeacher]);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        setSchoolWidgetPinned(await invoke<boolean>('get_school_widget_pinned'));
+        const savedTeacher = await invoke<string | null>('get_registry_value', { key: 'SchoolDefaultTeacher' });
+        if (savedTeacher) setDefaultTeacher(savedTeacher);
+        const savedRegion = await invoke<string | null>('get_registry_value', { key: 'SchoolRegionCode' });
+        if (savedRegion) { setRegionCode(savedRegion); localStorage.setItem('schoolRegionCode', savedRegion); }
+        const savedSchool = await invoke<string | null>('get_registry_value', { key: 'SchoolCode' });
+        if (savedSchool) { setSchoolCode(savedSchool); localStorage.setItem('schoolCode', savedSchool); }
+      } catch { /* ignore */ }
+    };
+    loadSettings();
+  }, []);
+
+  useEffect(() => {
+    if (timetableData?.teachers.length && timetableSource === 'comcigan') {
+      if (defaultTeacher && timetableData.teachers.includes(defaultTeacher)) {
+        setSelectedTeacher(defaultTeacher);
+      } else {
+        const saved = localStorage.getItem('lastSelectedTeacher');
+        setSelectedTeacher(saved && timetableData.teachers.includes(saved) ? saved : timetableData.teachers[0]);
+      }
+    } else if (appinData?.teachers.length && timetableSource === 'appin') {
+      if (defaultTeacher && appinData.teachers.includes(defaultTeacher)) {
+        setSelectedTeacher(defaultTeacher);
+      } else {
+        const saved = localStorage.getItem('lastSelectedTeacher');
+        setSelectedTeacher(saved && appinData.teachers.includes(saved) ? saved : appinData.teachers[0]);
+      }
     }
+  }, [timetableData, appinData, defaultTeacher, timetableSource]);
 
-    // 스프라이트 이미지가 아직 로드되지 않았으면 기본 히트 테스트 (사각형)
-    const catPixelData = spritePixelDataRef.current.get(catTypeId);
-    if (!catPixelData || catPixelData.size === 0) {
-      return true;
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.teacher-search-container')) setShowTeacherDropdown(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ── Fetch functions ────────────────────────────────────────────────────────
+  const fetchTimetable = async () => {
+    if (timetableSource === 'appin') {
+      if (dataLoaded.appin && appinData) return;
+      setLoadingStates(prev => ({ ...prev, timetable: true }));
+      setErrorStates(prev => ({ ...prev, timetable: false }));
+      try {
+        const data = await invoke<AppinData>('get_appin_timetable_data');
+        setAppinData(data);
+        setDataLoaded(prev => ({ ...prev, appin: true }));
+        if (data.teachers?.length) {
+          const saved = localStorage.getItem('lastSelectedTeacher');
+          setSelectedTeacher(saved && data.teachers.includes(saved) ? saved : data.teachers[0]);
+        }
+      } catch { setErrorStates(prev => ({ ...prev, timetable: true })); }
+      finally { setLoadingStates(prev => ({ ...prev, timetable: false })); }
+    } else {
+      if (dataLoaded.timetable && timetableData) return;
+      setLoadingStates(prev => ({ ...prev, timetable: true }));
+      setErrorStates(prev => ({ ...prev, timetable: false }));
+      try {
+        const data = await invoke<TimetableData>('get_timetable_data');
+        setTimetableData(data);
+        setDataLoaded(prev => ({ ...prev, timetable: true }));
+        if (data.teachers.length) {
+          const saved = localStorage.getItem('lastSelectedTeacher');
+          setSelectedTeacher(saved && data.teachers.includes(saved) ? saved : data.teachers[0]);
+        }
+      } catch { setErrorStates(prev => ({ ...prev, timetable: true })); }
+      finally { setLoadingStates(prev => ({ ...prev, timetable: false })); }
     }
-
-    // 클릭 위치를 고양이 로컬 좌표로 변환
-    const localX = clickX - catX;
-    const localY = clickY - catY;
-
-    // 원본 프레임 크기(32x32)로 스케일링
-    const originalFrameSize = 32;
-    const scale = size / originalFrameSize;
-    const originalX = Math.floor(localX / scale);
-    const originalY = Math.floor(localY / scale);
-
-    // 범위 체크
-    if (
-      originalX < 0 ||
-      originalX >= originalFrameSize ||
-      originalY < 0 ||
-      originalY >= originalFrameSize
-    ) {
-      return false;
-    }
-
-    // 해당 프레임의 픽셀 데이터 가져오기
-    const row = getCatSpriteRow(direction, behaviorType);
-    const col = frame;
-    const key = `${row}-${col}`;
-    const pixelData = catPixelData.get(key);
-
-    if (!pixelData) {
-      return true; // 픽셀 데이터가 없으면 기본 히트 테스트
-    }
-
-    // 해당 위치의 픽셀 알파값 확인
-    const pixelIndex = (originalY * originalFrameSize + originalX) * 4;
-    const alpha = pixelData.data[pixelIndex + 3];
-
-    // 알파값이 0보다 크면 실제 고양이 영역
-    return alpha > 0;
   };
 
+  const fetchMeal = async () => {
+    if (dataLoaded.meal) return;
+    setLoadingStates(prev => ({ ...prev, meal: true }));
+    try {
+      const now = new Date();
+      const kstDate = new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60000);
+      const date = `${kstDate.getFullYear()}${String(kstDate.getMonth() + 1).padStart(2, '0')}${String(kstDate.getDate()).padStart(2, '0')}`;
+      const data = await invoke<MealInfo>('get_meal_data', { date, atptCode: regionCode, schoolCode });
+      setMealInfo(data);
+      setDataLoaded(prev => ({ ...prev, meal: true }));
+    } catch {
+      setMealInfo({ lunch: '급식 정보를 불러올 수 없습니다', dinner: '석식 정보를 불러올 수 없습니다' });
+      setErrorStates(prev => ({ ...prev, meal: true }));
+    } finally { setLoadingStates(prev => ({ ...prev, meal: false })); }
+  };
+
+  const fetchAttendance = async (forceRefresh = false) => {
+    if (!forceRefresh && dataLoaded.attendance && latecomers.length > 0) return;
+    setLoadingStates(prev => ({ ...prev, attendance: true }));
+    try {
+      const response = await invoke<[Latecomer[], string]>('get_attendance_data', { grade, class: classNum });
+      if (response?.[0] && Array.isArray(response[0])) {
+        setLatecomers(response[0]);
+        setDataLoaded(prev => ({ ...prev, attendance: true }));
+      } else setLatecomers([]);
+    } catch { setLatecomers([]); }
+    finally { setLoadingStates(prev => ({ ...prev, attendance: false })); }
+  };
+
+  const fetchPoints = async (forceRefresh = false) => {
+    if (!forceRefresh && dataLoaded.points && points.length > 0) return;
+    setLoadingStates(prev => ({ ...prev, points: true }));
+    try {
+      const response = await invoke<[PointStatus[], string]>('get_points_data', { grade, class: classNum });
+      if (response?.[0] && Array.isArray(response[0])) {
+        setPoints(response[0]);
+        setDataLoaded(prev => ({ ...prev, points: true }));
+      } else setPoints([]);
+    } catch { setPoints([]); }
+    finally { setLoadingStates(prev => ({ ...prev, points: false })); }
+  };
+
+  const fetchTodos = () => {
+    if (dataLoaded.todo && todos.length > 0) return;
+    setLoadingStates(prev => ({ ...prev, todo: true }));
+    try {
+      const saved = localStorage.getItem('schoolWidgetTodos');
+      const parsed: ScheduleItem[] = saved ? JSON.parse(saved) : [];
+      parsed.sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      setTodos(parsed);
+      setDataLoaded(prev => ({ ...prev, todo: true }));
+    } catch { setTodos([]); }
+    finally { setLoadingStates(prev => ({ ...prev, todo: false })); }
+  };
+
+  useEffect(() => {
+    switch (activeTab) {
+      case 'todo': if (!dataLoaded.todo) fetchTodos(); break;
+      case 'meal': if (!dataLoaded.meal) fetchMeal(); break;
+      case 'timetable':
+        if (timetableSource === 'appin') { if (!dataLoaded.appin) fetchTimetable(); }
+        else { if (!dataLoaded.timetable) fetchTimetable(); }
+        break;
+      case 'attendance': if (!dataLoaded.attendance) fetchAttendance(); break;
+      case 'points': if (!dataLoaded.points) fetchPoints(); break;
+    }
+  }, [activeTab]);
+
+  // ── Todo handlers ──────────────────────────────────────────────────────────
+  const handleAddTodo = () => {
+    if (!newTodoText.trim()) return;
+    const now = new Date().toISOString();
+    const newTodo: ScheduleItem = {
+      id: 'todo-' + Date.now().toString(36) + Math.random().toString(36).substr(2),
+      type: 'manual_todo', title: newTodoText.trim(), content: '',
+      startDate: now, endDate: now, isAllDay: true,
+      isCompleted: false, createdAt: now, updatedAt: now, isDeleted: false,
+    };
+    const updated = [newTodo, ...todos].sort((a, b) => {
+      if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    setTodos(updated);
+    localStorage.setItem('schoolWidgetTodos', JSON.stringify(updated));
+    setNewTodoText('');
+  };
+
+  const handleToggleTodo = (todo: ScheduleItem) => {
+    const updated = todos
+      .map(t => t.id === todo.id ? { ...t, isCompleted: !t.isCompleted, updatedAt: new Date().toISOString() } : t)
+      .sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    setTodos(updated);
+    localStorage.setItem('schoolWidgetTodos', JSON.stringify(updated));
+  };
+
+  const handleDeleteTodo = (id: string) => {
+    const updated = todos.filter(t => t.id !== id);
+    setTodos(updated);
+    localStorage.setItem('schoolWidgetTodos', JSON.stringify(updated));
+  };
+
+  // ── Teacher handlers ───────────────────────────────────────────────────────
   const handleTeacherSearchChange = (value: string) => {
     setTeacherSearch(value);
     setShowTeacherDropdown(true);
@@ -483,1579 +407,188 @@ export default function SchoolWidget() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!showTeacherDropdown || filteredTeachers.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlightedIndex(prev =>
-        prev < filteredTeachers.length - 1 ? prev + 1 : prev
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1);
-    } else if (e.key === 'Enter' && highlightedIndex >= 0) {
-      e.preventDefault();
-      handleTeacherSelect(filteredTeachers[highlightedIndex]);
-    } else if (e.key === 'Escape') {
-      setShowTeacherDropdown(false);
-      setHighlightedIndex(-1);
-    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightedIndex(prev => Math.min(prev + 1, filteredTeachers.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1); }
+    else if (e.key === 'Enter' && highlightedIndex >= 0) { e.preventDefault(); handleTeacherSelect(filteredTeachers[highlightedIndex]); }
+    else if (e.key === 'Escape') { setShowTeacherDropdown(false); setHighlightedIndex(-1); }
   };
 
-  // Save grade and class
-  useEffect(() => {
-    localStorage.setItem('schoolGrade', grade);
-    localStorage.setItem('schoolClass', classNum);
-    // 학년/반이 변경되면 출결/상벌점 캐시 초기화
-    setDataLoaded(prev => ({ ...prev, attendance: false, points: false }));
-    setLatecomers([]);
-    setPoints([]);
-  }, [grade, classNum]);
-
-  // 지역 코드나 학교 코드가 변경되면 급식 데이터 캐시 초기화
-  useEffect(() => {
-    setDataLoaded(prev => ({ ...prev, meal: false }));
-  }, [regionCode, schoolCode]);
-
-  // Fetch functions
-  const fetchTimetable = async () => {
-    if (timetableSource === 'appin') {
-      if (dataLoaded.appin && appinData) return;
-      setLoadingStates(prev => ({ ...prev, timetable: true }));
-      setErrorStates(prev => ({ ...prev, timetable: false }));
-      try {
-        const data = await invoke<AppinData>('get_appin_timetable_data');
-        setAppinData(data);
-        setDataLoaded(prev => ({ ...prev, appin: true }));
-        if (data.teachers && data.teachers.length > 0) {
-          const savedTeacher = localStorage.getItem('lastSelectedTeacher');
-          setSelectedTeacher(
-            (savedTeacher && data.teachers.includes(savedTeacher)) ? savedTeacher : data.teachers[0]
-          );
-        }
-      } catch (error) {
-        console.error('Appin fetch error', error);
-        setErrorStates(prev => ({ ...prev, timetable: true }));
-      } finally {
-        setLoadingStates(prev => ({ ...prev, timetable: false }));
-      }
-    } else {
-      if (dataLoaded.timetable && timetableData) return;
-      setLoadingStates(prev => ({ ...prev, timetable: true }));
-      setErrorStates(prev => ({ ...prev, timetable: false }));
-      try {
-        const data = await invoke<TimetableData>('get_timetable_data');
-        setTimetableData(data);
-        setDataLoaded(prev => ({ ...prev, timetable: true }));
-        if (data.teachers.length > 0) {
-          const savedTeacher = localStorage.getItem('lastSelectedTeacher');
-          setSelectedTeacher(
-            (savedTeacher && data.teachers.includes(savedTeacher)) ? savedTeacher : data.teachers[0]
-          );
-        }
-      } catch (error) {
-        console.error('Comcigan fetch error', error);
-        setErrorStates(prev => ({ ...prev, timetable: true }));
-      } finally {
-        setLoadingStates(prev => ({ ...prev, timetable: false }));
-      }
-    }
+  const toggleFavoriteTeacher = (teacher: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setFavoriteTeachers(prev => {
+      const next = prev.includes(teacher) ? prev.filter(t => t !== teacher) : [...prev, teacher];
+      localStorage.setItem('schoolFavoriteTeachers', JSON.stringify(next));
+      return next;
+    });
   };
 
-  const fetchMeal = async () => {
-    if (dataLoaded.meal) return; // Already loaded
-    setLoadingStates(prev => ({ ...prev, meal: true }));
-    setErrorStates(prev => ({ ...prev, meal: false }));
-    try {
-      // 한국 시간대(KST, UTC+9) 기준으로 오늘 날짜 가져오기
-      const now = new Date();
-      const kstOffset = 9 * 60; // KST는 UTC+9시간
-      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-      const kstDate = new Date(utc + (kstOffset * 60000));
-      const year = kstDate.getFullYear();
-      const month = String(kstDate.getMonth() + 1).padStart(2, '0');
-      const day = String(kstDate.getDate()).padStart(2, '0');
-      const date = `${year}${month}${day}`;
-      const data = await invoke<MealInfo>('get_meal_data', {
-        date,
-        atptCode: regionCode,
-        schoolCode: schoolCode
-      });
-      setMealInfo(data);
-      setDataLoaded(prev => ({ ...prev, meal: true }));
-    } catch (error) {
-      console.error('Meal fetch error', error);
-      setMealInfo({ lunch: '급식 정보를 불러올 수 없습니다', dinner: '석식 정보를 불러올 수 없습니다' });
-      setErrorStates(prev => ({ ...prev, meal: true }));
-    } finally {
-      setLoadingStates(prev => ({ ...prev, meal: false }));
-    }
+  const handleWheelScroll = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
   };
 
-  const fetchAttendance = async (forceRefresh = false) => {
-    if (!forceRefresh && dataLoaded.attendance && latecomers.length > 0) return; // Already loaded
-    setLoadingStates(prev => ({ ...prev, attendance: true }));
-    try {
-      const response = await invoke<[Latecomer[], string]>('get_attendance_data', { grade, class: classNum });
-      if (response && response[0] && Array.isArray(response[0])) {
-        setLatecomers(response[0]);
-        setDataLoaded(prev => ({ ...prev, attendance: true }));
-      } else {
-        setLatecomers([]);
-      }
-    } catch (error) {
-      setLatecomers([]);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, attendance: false }));
-    }
-  };
-
-  const fetchPoints = async (forceRefresh = false) => {
-    if (!forceRefresh && dataLoaded.points && points.length > 0) return; // Already loaded
-    setLoadingStates(prev => ({ ...prev, points: true }));
-    try {
-      const response = await invoke<[PointStatus[], string]>('get_points_data', { grade, class: classNum });
-      if (response && response[0] && Array.isArray(response[0])) {
-        setPoints(response[0]);
-        setDataLoaded(prev => ({ ...prev, points: true }));
-      } else {
-        setPoints([]);
-      }
-    } catch (error) {
-      setPoints([]);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, points: false }));
-    }
-  };
-
-  const fetchTodos = () => {
-    if (dataLoaded.todo && todos.length > 0) return;
-    setLoadingStates(prev => ({ ...prev, todo: true }));
-    try {
-      const saved = localStorage.getItem('schoolWidgetTodos');
-      if (saved) {
-        const parsed: ScheduleItem[] = JSON.parse(saved);
-        // sort by created date descending or completed status
-        parsed.sort((a, b) => {
-          if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
-        setTodos(parsed);
-      } else {
-        setTodos([]);
-      }
-      setDataLoaded(prev => ({ ...prev, todo: true }));
-    } catch (error) {
-      console.error('Failed to load todos', error);
-      setTodos([]);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, todo: false }));
-    }
-  };
-
-  const handleAddTodo = () => {
-    if (!newTodoText.trim()) return;
-    try {
-      const now = new Date().toISOString();
-      const id = 'todo-' + Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-      const newTodo: ScheduleItem = {
-        id,
-        type: 'manual_todo',
-        title: newTodoText.trim(),
-        content: '',
-        startDate: now,
-        endDate: now,
-        isAllDay: true,
-        isCompleted: false,
-        createdAt: now,
-        updatedAt: now,
-        isDeleted: false
-      };
-
-      const updatedTodos = [newTodo, ...todos];
-      // Resort
-      updatedTodos.sort((a, b) => {
-        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-
-      setTodos(updatedTodos);
-      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
-      setNewTodoText('');
-    } catch (error) {
-      console.error('Failed to add todo', error);
-      alert('할 일 추가에 실패했습니다.');
-    }
-  };
-
-  const handleToggleTodo = (todo: ScheduleItem) => {
-    try {
-      const updatedItem = {
-        ...todo,
-        isCompleted: !todo.isCompleted,
-        updatedAt: new Date().toISOString()
-      };
-
-      const updatedTodos = todos.map(t => t.id === todo.id ? updatedItem : t);
-      updatedTodos.sort((a, b) => {
-        if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-
-      setTodos(updatedTodos);
-      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
-    } catch (error) {
-      console.error('Failed to update todo', error);
-    }
-  };
-
-  const handleDeleteTodo = (todoId: string) => {
-    try {
-      const updatedTodos = todos.filter(t => t.id !== todoId);
-      setTodos(updatedTodos);
-      localStorage.setItem('schoolWidgetTodos', JSON.stringify(updatedTodos));
-    } catch (error) {
-      console.error('Failed to delete todo', error);
-    }
-  };
-
-  // Load data based on active tab (only on initial load)
-  useEffect(() => {
-    switch (activeTab) {
-      case 'todo':
-        if (!dataLoaded.todo) {
-          fetchTodos();
-        }
-        break;
-      case 'meal':
-        if (!dataLoaded.meal) {
-          fetchMeal();
-        }
-        break;
-      case 'timetable':
-        if (timetableSource === 'appin') {
-          if (!dataLoaded.appin) fetchTimetable();
-        } else {
-          if (!dataLoaded.timetable) fetchTimetable();
-        }
-        break;
-      case 'attendance':
-        if (!dataLoaded.attendance) {
-          fetchAttendance();
-        }
-        break;
-      case 'points':
-        if (!dataLoaded.points) {
-          fetchPoints();
-        }
-        break;
-    }
-  }, [activeTab]);
-
-  // Save selected teacher
-  useEffect(() => {
-    if (selectedTeacher) {
-      localStorage.setItem('lastSelectedTeacher', selectedTeacher);
-    }
-  }, [selectedTeacher]);
-
-  // 설정 불러오기
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        // 학교 위젯 핀 상태
-        const pinned = await invoke<boolean>('get_school_widget_pinned');
-        setSchoolWidgetPinned(pinned);
-
-        // 기본 선생님
-        const savedDefaultTeacher = await invoke<string | null>('get_registry_value', { key: 'SchoolDefaultTeacher' });
-        if (savedDefaultTeacher) {
-          setDefaultTeacher(savedDefaultTeacher);
-        }
-
-        // 지역 코드와 학교 코드
-        const savedRegionCode = await invoke<string | null>('get_registry_value', { key: 'SchoolRegionCode' });
-        if (savedRegionCode) {
-          setRegionCode(savedRegionCode);
-          localStorage.setItem('schoolRegionCode', savedRegionCode);
-        }
-
-        const savedSchoolCode = await invoke<string | null>('get_registry_value', { key: 'SchoolCode' });
-        if (savedSchoolCode) {
-          setSchoolCode(savedSchoolCode);
-          localStorage.setItem('schoolCode', savedSchoolCode);
-        }
-
-      } catch (error) {
-        // Failed to load settings
-      }
-    };
-    loadSettings();
-  }, []);
-
-  // 시간표 데이터 로드 시 기본 선생님 설정
-  useEffect(() => {
-    if (timetableData && timetableData.teachers.length > 0 && timetableSource === 'comcigan') {
-      if (defaultTeacher && timetableData.teachers.includes(defaultTeacher)) {
-        setSelectedTeacher(defaultTeacher);
-      } else {
-        const savedTeacher = localStorage.getItem('lastSelectedTeacher');
-        setSelectedTeacher(
-          (savedTeacher && timetableData.teachers.includes(savedTeacher)) ? savedTeacher : timetableData.teachers[0]
-        );
-      }
-    } else if (appinData && appinData.teachers && appinData.teachers.length > 0 && timetableSource === 'appin') {
-      if (defaultTeacher && appinData.teachers.includes(defaultTeacher)) {
-        setSelectedTeacher(defaultTeacher);
-      } else {
-        const savedTeacher = localStorage.getItem('lastSelectedTeacher');
-        setSelectedTeacher(
-          (savedTeacher && appinData.teachers.includes(savedTeacher)) ? savedTeacher : appinData.teachers[0]
-        );
-      }
-    }
-  }, [timetableData, appinData, defaultTeacher, timetableSource]);
-
-  // 설정 저장 함수
+  // ── Settings save ──────────────────────────────────────────────────────────
   const saveSettings = async () => {
     try {
-      // 학교 위젯 핀 상태
       await invoke('set_school_widget_pinned', { pinned: schoolWidgetPinned });
-
-      // 기본 선생님
-      if (defaultTeacher) {
-        await invoke('set_registry_value', { key: 'SchoolDefaultTeacher', value: defaultTeacher });
-      }
-
-      // 학년/반
+      if (defaultTeacher) await invoke('set_registry_value', { key: 'SchoolDefaultTeacher', value: defaultTeacher });
       await invoke('set_registry_value', { key: 'SchoolGrade', value: grade });
       await invoke('set_registry_value', { key: 'SchoolClass', value: classNum });
-
-      // 지역 코드와 학교 코드
       await invoke('set_registry_value', { key: 'SchoolRegionCode', value: regionCode });
       await invoke('set_registry_value', { key: 'SchoolCode', value: schoolCode });
       localStorage.setItem('schoolRegionCode', regionCode);
       localStorage.setItem('schoolCode', schoolCode);
-
-      // 급식 데이터 캐시 초기화 (코드가 변경되었으므로)
       setDataLoaded(prev => ({ ...prev, meal: false }));
-
-
       alert('설정이 저장되었습니다.');
-    } catch (error) {
-      alert('설정 저장에 실패했습니다.');
-    }
+    } catch { alert('설정 저장에 실패했습니다.'); }
   };
 
-  // 교과목 이름을 기반으로 파스텔 색상 생성 (HSL 방식)
-  const getSubjectColor = (subjectName: string): string => {
-    if (!subjectName) return '';
-
-    let hash = 0;
-    for (let i = 0; i < subjectName.length; i++) {
-      hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
-    }
-
-    // hue 0~359도 결정, 채도 45% + 명도 72% = 파스텔 계열
-    const hue = Math.abs(hash) % 360;
-    return `hsla(${hue}, 45%, 72%, 0.42)`;
-  };
-
-  const renderTodo = () => {
-    if (loadingStates.todo && todos.length === 0) return <div className="loading">Loading...</div>;
-
-    return (
-      <div className="todo-container">
-        <div className="todo-input-group">
-          <input
-            type="text"
-            className="todo-input"
-            placeholder="새로운 할 일을 입력하세요..."
-            value={newTodoText}
-            onChange={(e) => setNewTodoText(e.target.value)}
-            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Enter') {
-                handleAddTodo();
-              }
-            }}
-          />
-          <button className="todo-add-btn" onClick={handleAddTodo}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-        <div className="todo-list">
-          {todos.length === 0 ? (
-            <div className="todo-empty">할 일이 없습니다.</div>
-          ) : (
-            todos.map(todo => (
-              <div key={todo.id} className={`todo-item ${todo.isCompleted ? 'completed' : ''}`}>
-                <button
-                  className={`todo-checkbox ${todo.isCompleted ? 'checked' : ''}`}
-                  onClick={() => handleToggleTodo(todo)}
-                >
-                  {todo.isCompleted && (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  )}
-                </button>
-                <div className="todo-content" onClick={() => handleToggleTodo(todo)}>
-                  {todo.title}
-                </div>
-                <button
-                  className="todo-delete-btn"
-                  onClick={() => handleDeleteTodo(todo.id)}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  };
-
-
-  const renderTimetable = () => {
-    if (loadingStates.timetable) return <div className="loading">로딩 중...</div>;
-    if (errorStates.timetable) return (
-      <div className="error-message" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
-        <span>시간표를 불러오는데 실패했습니다.</span>
-        <button className="refresh-btn-small" onClick={() => { setDataLoaded(prev => ({ ...prev, timetable: false, appin: false })); fetchTimetable(); }}>다시 시도</button>
-      </div>
-    );
-
-    let schedule: any[][][] = []; // [periodIdx][dayIdx][subject, room, isDiff]
-    if (timetableSource === 'appin') {
-        if (!appinData || !selectedTeacher || !parsedAppinTeachers[selectedTeacher] || !baseAppinTimetable) return <div className="error-message">No Data</div>;
-
-        const teacherData = parsedAppinTeachers[selectedTeacher];
-        const { mondayDate } = appinWeekRange;
-        
-        schedule = Array(8).fill(null).map(() => Array(5).fill(null)) as any;
-        for(let dIdx = 0; dIdx < 5; dIdx++) {
-            const targetDate = new Date(mondayDate);
-            targetDate.setDate(mondayDate.getDate() + dIdx);
-            const year = targetDate.getFullYear();
-            const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-            const day = String(targetDate.getDate()).padStart(2, '0');
-            const dateStr = `${year}-${month}-${day}`;
-            
-            for(let pIdx = 0; pIdx < 7; pIdx++) {
-               const pStr = (pIdx + 1).toString();
-               const slot = teacherData[dateStr]?.[pStr];
-               const baseSlot = baseAppinTimetable[dIdx + 1]?.[pIdx + 1];
-               
-               const dateHasData = !!teacherData[dateStr];
-               if (slot) {
-                 const isDiff = !baseSlot || baseSlot.subject !== slot.subject || baseSlot.className !== slot.className;
-                 schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff];
-               } else if (baseSlot && dateHasData) {
-                 // 날짜 데이터는 있지만 해당 교시가 없음 → 수업 없음(변경됨)
-                 schedule[pIdx][dIdx] = ['', '', true];
-               } else if (baseSlot) {
-                 // 날짜 데이터 자체가 없음 → 기본 시간표 그대로 표시
-                 schedule[pIdx][dIdx] = [baseSlot.subject, baseSlot.className, false];
-               } else {
-                 schedule[pIdx][dIdx] = null as any;
-               }
-            }
-        }
+  // ── Timetable source switch ────────────────────────────────────────────────
+  const handleTimetableSourceChange = (src: 'comcigan' | 'appin') => {
+    setTimetableSource(src);
+    if (src === 'comcigan' && timetableData?.teachers.length) {
+      const saved = localStorage.getItem('lastSelectedTeacher');
+      setSelectedTeacher(saved && timetableData.teachers.includes(saved) ? saved : timetableData.teachers[0]);
+    } else if (src === 'appin' && appinData?.teachers.length) {
+      const saved = localStorage.getItem('lastSelectedTeacher');
+      setSelectedTeacher(saved && appinData.teachers.includes(saved) ? saved : appinData.teachers[0]);
     } else {
-        if (!timetableData || !selectedTeacher) return <div className="error-message">No Data</div>;
-        const s = timetableData.timetables[selectedTeacher];
-        if (!s) return <div className="error-message">No Schedule for {selectedTeacher}</div>;
-        schedule = s as any;
+      setSelectedTeacher('');
     }
-    
-    const days = timetableSource === 'appin' ? appinWeekRange.days : ['월', '화', '수', '목', '금'];
-    const periods = [1, 2, 3, 4, 5, 6, 7]; // 8교시 제거
-    const periodStartTimes: Record<number, string> = {
-      1: '08:30', 2: '09:30', 3: '10:30', 4: '11:30',
-      5: '13:20', 6: '14:20', 7: '15:20'
-    };
-
-    // 현재 시간 계산 (currentNow 상태로 1분마다 갱신됨)
-    const now = currentNow;
-    const currentDay = now.getDay();
-    const isWeekday = currentDay >= 1 && currentDay <= 5; // 0=일요일, 1=월요일, ..., 5=금요일
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const currentTime = currentHour * 60 + currentMinute; // 분 단위로 변환
-
-    // 교시별 시간 (시작 시간, 분 단위) - 점심시간 포함
-    // 실제 렌더링 순서: 1, 2, 3, 4, 점심, 5, 6, 7
-    const periodTimes = [
-      { start: 8 * 60 + 30, end: 9 * 60 + 20 },   // 1교시: 08:30-09:20 (rowIndex 0)
-      { start: 9 * 60 + 30, end: 10 * 60 + 20 },  // 2교시: 09:30-10:20 (rowIndex 1)
-      { start: 10 * 60 + 30, end: 11 * 60 + 20 }, // 3교시: 10:30-11:20 (rowIndex 2)
-      { start: 11 * 60 + 30, end: 12 * 60 + 20 }, // 4교시: 11:30-12:20 (rowIndex 3)
-      { start: 12 * 60 + 20, end: 13 * 60 + 20 }, // 점심시간: 12:20-13:20 (rowIndex 4)
-      { start: 13 * 60 + 20, end: 14 * 60 + 10 }, // 5교시: 13:20-14:10 (rowIndex 5)
-      { start: 14 * 60 + 20, end: 15 * 60 + 10 }, // 6교시: 14:20-15:10 (rowIndex 6)
-      { start: 15 * 60 + 20, end: 16 * 60 + 10 }, // 7교시: 15:20-16:10 (rowIndex 7)
-    ];
-
-    // 현재 시간의 Y 위치 계산
-    const getCurrentTimeY = () => {
-      if (currentDay < 1 || currentDay > 5) return null; // 월~금만
-
-      for (let i = 0; i < periodTimes.length; i++) {
-        const period = periodTimes[i];
-        if (currentTime >= period.start && currentTime <= period.end) {
-          // 교시 내에서 진행률 계산
-          const totalMinutes = period.end - period.start;
-          const passedMinutes = currentTime - period.start;
-          const progress = totalMinutes > 0 ? passedMinutes / totalMinutes : 0;
-
-          // Y 위치 반환 (행 인덱스와 진행률)
-          return { rowIndex: i, progress };
-        }
-      }
-
-      // 교시 사이의 시간 처리
-      for (let i = 0; i < periodTimes.length - 1; i++) {
-        const periodEnd = periodTimes[i].end;
-        const nextPeriodStart = periodTimes[i + 1].start;
-
-        if (currentTime > periodEnd && currentTime < nextPeriodStart) {
-          // 쉬는 시간의 진행률 계산
-          const totalBreakMinutes = nextPeriodStart - periodEnd;
-          const passedBreakMinutes = currentTime - periodEnd;
-          const breakProgress = totalBreakMinutes > 0 ? passedBreakMinutes / totalBreakMinutes : 0;
-
-          return { rowIndex: i, progress: 1 + breakProgress }; // 1.0 이상은 교시 사이
-        }
-      }
-
-      return null;
-    };
-
-    const timeY = getCurrentTimeY();
-
-    return (
-      <div className="timetable-grid">
-        <div className="timetable-cell header-empty" style={{ background: 'transparent' }}></div>
-        {days.map((dayLabel, index) => (
-          <div key={`header-${index}`} className={`timetable-cell timetable-header${isWeekday && index === currentDay - 1 ? ' is-today' : ''}`}>
-            {dayLabel}
-          </div>
-        ))}
-        {periods.map((p, pIdx) => {
-          // 점심시간은 4교시(pIdx === 3) 다음에 삽입
-          if (pIdx === 3) {
-            return (
-              <React.Fragment key={`period-group-${p}`}>
-                {/* 4교시 행 */}
-                <div className="timetable-cell period">
-                  <span className="period-label">4</span>
-                  <span className="period-time">11:30</span>
-                </div>
-                {days.map((_, dIdx) => {
-                  const lesson = schedule[3]?.[dIdx];
-                  const isToday = isWeekday && dIdx === currentDay - 1;
-                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 3;
-                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
-                  const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
-                  const isDiff = lesson && lesson[2] === true;
-                  return (
-                    <div
-                      key={`4-${dIdx}`}
-                      className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
-                      style={{
-                        ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
-                        ...(subjectColor ? { backgroundColor: subjectColor } : {}),
-                        ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
-                      } as React.CSSProperties}
-                    >
-                      {lesson ? (
-                        <>
-                          <span className="subject-name">{lesson[0]}</span>
-                          <span className="room-name">{lesson[1]}</span>
-                        </>
-                      ) : null}
-                    </div>
-                  );
-                })}
-                {/* 점심시간 행 */}
-                <div className="timetable-cell period lunch">
-                  <span className="period-label">점심</span>
-                  <span className="period-time">12:20</span>
-                </div>
-                {days.map((_, dIdx) => {
-                  const isToday = isWeekday && dIdx === currentDay - 1;
-                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 4;
-                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
-                  return (
-                    <div
-                      key={`lunch-${dIdx}`}
-                      className={`timetable-cell lunch-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
-                      style={timeProgress !== undefined ? { '--time-progress': timeProgress } as React.CSSProperties : undefined}
-                    >
-                      점심시간
-                    </div>
-                  );
-                })}
-                {/* 5교시 행 */}
-                <div className="timetable-cell period">
-                  <span className="period-label">5</span>
-                  <span className="period-time">13:20</span>
-                </div>
-                {days.map((_, dIdx) => {
-                  const lesson = schedule[4]?.[dIdx];
-                  const isToday = isWeekday && dIdx === currentDay - 1;
-                  const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 5;
-                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
-                  const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
-                  const isDiff = lesson && lesson[2] === true;
-                  return (
-                    <div
-                      key={`5-${dIdx}`}
-                      className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
-                      style={{
-                        ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
-                        ...(subjectColor ? { backgroundColor: subjectColor } : {}),
-                        ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
-                      } as React.CSSProperties}
-                    >
-                      {lesson ? (
-                        <>
-                          <span className="subject-name">{lesson[0]}</span>
-                          <span className="room-name">{lesson[1]}</span>
-                        </>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </React.Fragment>
-            );
-          }
-
-          // 4교시와 5교시는 이미 처리됨
-          if (pIdx === 3 || pIdx === 4) return null;
-
-          // 점심시간 이후 교시는 인덱스 조정
-          // 원래 데이터: schedule[0]=1교시, [1]=2교시, [2]=3교시, [3]=4교시, [4]=5교시, [5]=6교시, [6]=7교시, [7]=8교시
-          // 표시할 교시: 1, 2, 3, 4, 점심, 5, 6, 7
-          // 실제 데이터 구조 확인 결과:
-          // 1교시(pIdx=0) -> schedule[0] ✓
-          // 2교시(pIdx=1) -> schedule[1] ✓
-          // 3교시(pIdx=2) -> schedule[2] ✓
-          // 4교시(pIdx=3) -> schedule[3] ✓ (특별 처리)
-          // 점심시간 -> rowIndex 4 (특별 처리됨)
-          // 5교시(pIdx=4) -> schedule[4] ✓ (특별 처리됨)
-          // 6교시(pIdx=5) -> schedule[5] (원래 6교시 데이터)
-          // 7교시(pIdx=6) -> schedule[6] (원래 7교시 데이터)
-          const scheduleIdx = pIdx;
-
-          // pIdx에 따른 실제 rowIndex 매핑
-          // 실제 렌더링 순서: 1, 2, 3, 4, 점심, 5, 6, 7
-          // 1교시(pIdx=0) -> rowIndex 0
-          // 2교시(pIdx=1) -> rowIndex 1
-          // 3교시(pIdx=2) -> rowIndex 2
-          // 4교시(pIdx=3) -> rowIndex 3 (특별 처리됨)
-          // 점심시간 -> rowIndex 4 (특별 처리됨)
-          // 5교시(pIdx=4) -> rowIndex 5 (특별 처리됨)
-          // 6교시(pIdx=5) -> rowIndex 6
-          // 7교시(pIdx=6) -> rowIndex 7
-          // pIdx 0,1,2는 그대로, pIdx 5,6은 점심시간 때문에 +1
-          const actualRowIndex = pIdx < 3 ? pIdx : pIdx + 1;
-
-          return (
-            <React.Fragment key={p}>
-              <div className="timetable-cell period">
-                <span className="period-label">{p}</span>
-                <span className="period-time">{periodStartTimes[p]}</span>
-              </div>
-              {days.map((_, dIdx) => {
-                const lesson = schedule[scheduleIdx]?.[dIdx];
-                const isToday = isWeekday && dIdx === currentDay - 1;
-                const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === actualRowIndex;
-                const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
-                const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
-                const isDiff = lesson && lesson[2] === true;
-                return (
-                  <div
-                    key={`${p}-${dIdx}`}
-                    className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
-                    style={{
-                      ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
-                      ...(subjectColor ? { backgroundColor: subjectColor } : {}),
-                      ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {})
-                    } as React.CSSProperties}
-                  >
-                    {lesson ? (
-                      <>
-                        <span className="subject-name">{lesson[0]}</span>
-                        <span className="room-name">{lesson[1]}</span>
-                      </>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          );
-        })}
-      </div>
-    );
   };
 
-  // 외부 클릭 시 드롭다운 닫기
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.teacher-search-container')) {
-        setShowTeacherDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // 마우스 위치 추적
-  useEffect(() => {
-    // if (activeTab !== 'meal') {
-    //   targetPosRef.current = null;
-    //   return;
-    // }
-
-    const handleMouseMove = (e: Event) => {
-      const mouseEvent = e as MouseEvent;
-      const container = document.querySelector('.school-widget-container');
-      if (!container) return;
-
-      const rect = container.getBoundingClientRect();
-      targetPosRef.current = {
-        x: mouseEvent.clientX - rect.left,
-        y: mouseEvent.clientY - rect.top
-      };
-    };
-
-    const handleMouseLeave = () => {
-      targetPosRef.current = null;
-    };
-
-    const container = document.querySelector('.school-widget-container');
-    if (container) {
-      container.addEventListener('mousemove', handleMouseMove as EventListener);
-      container.addEventListener('mouseleave', handleMouseLeave);
-    }
-
-    return () => {
-      if (container) {
-        container.removeEventListener('mousemove', handleMouseMove as EventListener);
-        container.removeEventListener('mouseleave', handleMouseLeave);
-      }
-    };
-  }, []);
-
-  // 고양이 애니메이션 상수
-  const CAT_CONFIG = {
-    FRAME_DELAY: 150, // 프레임 전환 속도 (ms)
-    MOVE_SPEED: 30, // 픽셀/초
-    ENTER_DURATION: 150 * 4, // enter 단계 (4프레임)
-    HOLD_DURATION: 3000, // hold 단계 (3초)
-    EXIT_DURATION: 150 * 4, // exit 단계 (4프레임)
-    LICKING_DURATION: 3000, // 핥기 지속 시간 (3초)
-    MIN_ACTION_DURATION: 5000, // 앉기/눕기/핥기 최소 유지 시간 (1.5초) - 이 시간 전에는 마우스에 반응 안함
-    INIT_DELAY: 1000, // 초기화 지연 (1초)
-    IDLE_MIN: 2000, // 최소 대기 시간
-    IDLE_MAX: 4000, // 최대 대기 시간
-  };
-
-  // 고양이 애니메이션 (여러 고양이 지원)
-  useEffect(() => {
-    if (enabledCats.length === 0) {
-      catStatesRef.current.clear();
-      setVisibleCats(new Set());
-      return;
-    }
-
-    let animationFrameId: number;
-    let lastTime = performance.now();
-    let isRunning = true;
-
-    // 컨테이너 경계 계산 헬퍼
-    const getBounds = () => {
-      const container = document.querySelector('.school-widget-container');
-      if (!container) return null;
-      const rect = container.getBoundingClientRect();
-      const halfSize = catSize / 2;
-      return {
-        minX: 10 + halfSize,
-        maxX: rect.width - 10 - halfSize,
-        minY: 80 + halfSize,
-        maxY: rect.height - 10 - halfSize,
-      };
-    };
-
-    // 랜덤 목표 지점 생성
-    const getRandomTarget = (): { x: number; y: number } | null => {
-      const bounds = getBounds();
-      if (!bounds) return null;
-      return {
-        x: Math.random() * (bounds.maxX - bounds.minX) + bounds.minX,
-        y: Math.random() * (bounds.maxY - bounds.minY) + bounds.minY,
-      };
-    };
-
-    // 랜덤 방향 선택
-    const getRandomDirection = (): CatDirection => {
-      const dirs: CatDirection[] = ['down', 'right', 'up', 'left'];
-      return dirs[Math.floor(Math.random() * 4)];
-    };
-
-    // 랜덤 액션 선택 (앉기, 핥기, 눕기)
-    const getRandomAction = (currentTime: number): CatBehavior => {
-      const rand = Math.random();
-      if (rand < 0.4) {
-        return { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-      } else if (rand < 0.7) {
-        return { type: 'licking', startTime: currentTime, duration: CAT_CONFIG.LICKING_DURATION };
-      } else {
-        return { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-      }
-    };
-
-    // 고양이 초기화 (catId별로)
-    const initCat = (catId: CatTypeId, index: number) => {
-      if (catStatesRef.current.has(catId)) return;
-
-      const bounds = getBounds();
-      if (!bounds) return;
-
-      // 각 고양이가 다른 위치에서 시작하도록 오프셋 적용
-      const offsetX = (index % 3) * 50;
-      const offsetY = Math.floor(index / 3) * 50;
-
-      const centerX = Math.min(
-        bounds.maxX,
-        Math.max(bounds.minX, bounds.minX + offsetX + Math.random() * 100)
-      );
-      const centerY = Math.min(
-        bounds.maxY,
-        Math.max(bounds.minY, bounds.minY + offsetY + Math.random() * 100)
-      );
-      const halfSize = catSize / 2;
-
-      catStatesRef.current.set(catId, {
-        id: catId,
-        x: centerX - halfSize,
-        y: centerY - halfSize,
-        direction: getRandomDirection(),
-        behavior: { type: 'walking', target: getRandomTarget() },
-        frame: 0,
-      });
-
-      setVisibleCats(prev => new Set([...prev, catId]));
-    };
-
-    // 프레임 계산 헬퍼
-    const getFrameForPhase = (phase: CatActionPhase, phaseStartTime: number, currentTime: number): number => {
-      const elapsed = currentTime - phaseStartTime;
-      const frameIndex = Math.floor(elapsed / CAT_CONFIG.FRAME_DELAY);
-
-      if (phase === 'enter') {
-        return Math.min(frameIndex, 3);
-      } else if (phase === 'hold') {
-        return 3;
-      } else {
-        return Math.max(3 - frameIndex, 0);
-      }
-    };
-
-    // 방향 결정 (히스테리시스 적용)
-    const getDirectionToTarget = (dx: number, dy: number, currentDir: CatDirection): CatDirection => {
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      const isHorizontal = currentDir === 'left' || currentDir === 'right';
-
-      if (isHorizontal) {
-        if (absDy > absDx * 1.5) {
-          return dy > 0 ? 'down' : 'up';
-        }
-        return dx > 0 ? 'right' : 'left';
-      } else {
-        if (absDx > absDy * 1.5) {
-          return dx > 0 ? 'right' : 'left';
-        }
-        return dy > 0 ? 'down' : 'up';
-      }
-    };
-
-    // 개별 고양이 애니메이션 업데이트
-    const updateCat = (cat: CatState, currentTime: number, deltaSeconds: number) => {
-      const bounds = getBounds();
-      if (!bounds) return;
-
-      const halfSize = catSize / 2;
-      const catCenterX = cat.x + halfSize;
-      const catCenterY = cat.y + halfSize;
-      const moveDistance = CAT_CONFIG.MOVE_SPEED * deltaSeconds;
-
-      // 마우스 위치 또는 랜덤 타겟
-      const mousePos = targetPosRef.current;
-
-      switch (cat.behavior.type) {
-        case 'idle': {
-          cat.behavior = { type: 'walking', target: getRandomTarget() };
-          break;
-        }
-
-        case 'walking': {
-          let targetX: number, targetY: number;
-          const isRandomWandering = !mousePos;
-
-          if (mousePos) {
-            targetX = Math.max(bounds.minX, Math.min(bounds.maxX, mousePos.x));
-            targetY = Math.max(bounds.minY, Math.min(bounds.maxY, mousePos.y));
-            cat.behavior.target = null;
-          } else if (cat.behavior.target) {
-            targetX = cat.behavior.target.x;
-            targetY = cat.behavior.target.y;
-          } else {
-            const newTarget = getRandomTarget();
-            if (newTarget) {
-              cat.behavior.target = newTarget;
-              targetX = newTarget.x;
-              targetY = newTarget.y;
-            } else {
-              targetX = catCenterX;
-              targetY = catCenterY;
-            }
-          }
-
-          const dx = targetX - catCenterX;
-          const dy = targetY - catCenterY;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          const arrivalThreshold = isRandomWandering ? 5 : 2;
-
-          if (distance <= arrivalThreshold) {
-            if (isRandomWandering) {
-              cat.behavior = getRandomAction(currentTime);
-            } else {
-              cat.behavior = { type: 'sitting', phase: 'hold', phaseStartTime: currentTime, actionStartTime: currentTime };
-              cat.frame = 3;
-            }
-          } else {
-            const moveX = (dx / distance) * moveDistance;
-            const moveY = (dy / distance) * moveDistance;
-
-            const newCenterX = Math.max(bounds.minX, Math.min(bounds.maxX, catCenterX + moveX));
-            const newCenterY = Math.max(bounds.minY, Math.min(bounds.maxY, catCenterY + moveY));
-
-            cat.x = newCenterX - halfSize;
-            cat.y = newCenterY - halfSize;
-            cat.direction = getDirectionToTarget(dx, dy, cat.direction);
-            cat.frame = Math.floor(currentTime / CAT_CONFIG.FRAME_DELAY) % 4;
-          }
-          break;
-        }
-
-        case 'sitting':
-        case 'lying': {
-          const behavior = cat.behavior as CatBehaviorSitting | CatBehaviorLying;
-          const elapsed = currentTime - behavior.phaseStartTime;
-          const totalActionTime = currentTime - behavior.actionStartTime;
-
-          // 최소 유지 시간이 지난 후에만 마우스에 반응
-          if (mousePos && totalActionTime >= CAT_CONFIG.MIN_ACTION_DURATION) {
-            const dx = mousePos.x - catCenterX;
-            const dy = mousePos.y - catCenterY;
-            if (Math.sqrt(dx * dx + dy * dy) > 10) {
-              cat.behavior = { type: 'walking', target: null };
-              break;
-            }
-          }
-
-          if (behavior.phase === 'enter' && elapsed >= CAT_CONFIG.ENTER_DURATION) {
-            cat.behavior = { ...behavior, phase: 'hold', phaseStartTime: currentTime };
-          } else if (behavior.phase === 'hold' && elapsed >= CAT_CONFIG.HOLD_DURATION) {
-            cat.behavior = { ...behavior, phase: 'exit', phaseStartTime: currentTime };
-          } else if (behavior.phase === 'exit' && elapsed >= CAT_CONFIG.EXIT_DURATION) {
-            cat.behavior = { type: 'walking', target: getRandomTarget() };
-            cat.direction = getRandomDirection();
-          }
-
-          cat.frame = getFrameForPhase(behavior.phase, behavior.phaseStartTime, currentTime);
-          break;
-        }
-
-        case 'licking': {
-          const elapsed = currentTime - cat.behavior.startTime;
-
-          // 최소 유지 시간이 지난 후에만 마우스에 반응
-          if (mousePos && elapsed >= CAT_CONFIG.MIN_ACTION_DURATION) {
-            const dx = mousePos.x - catCenterX;
-            const dy = mousePos.y - catCenterY;
-            if (Math.sqrt(dx * dx + dy * dy) > 10) {
-              cat.behavior = { type: 'walking', target: null };
-              break;
-            }
-          }
-
-          if (elapsed >= cat.behavior.duration) {
-            cat.behavior = { type: 'walking', target: getRandomTarget() };
-            cat.direction = getRandomDirection();
-          } else {
-            cat.frame = Math.floor(currentTime / CAT_CONFIG.FRAME_DELAY) % 4;
-          }
-          break;
-        }
-      }
-    };
-
-    // 메인 애니메이션 루프
-    const animate = (currentTime: number) => {
-      if (!isRunning) return;
-
-      const deltaTime = currentTime - lastTime;
-      lastTime = currentTime;
-      const deltaSeconds = deltaTime / 1000;
-
-      // 모든 활성 고양이 업데이트
-      catStatesRef.current.forEach((cat) => {
-        updateCat(cat, currentTime, deltaSeconds);
-
-        // DOM 직접 업데이트
-        const el = catElementsRef.current.get(cat.id);
-        if (el) {
-          el.style.left = `${cat.x}px`;
-          el.style.top = `${cat.y}px`;
-
-          const row = getCatSpriteRow(cat.direction, cat.behavior.type);
-          el.style.backgroundPosition = `-${cat.frame * catSize}px -${row * catSize}px`;
-        }
-      });
-
-      animationFrameId = requestAnimationFrame(animate);
-    };
-
-    // 활성화된 고양이들 초기화 (지연 시간 적용)
-    const initTimeouts = enabledCats.map((catId, index) =>
-      setTimeout(() => initCat(catId, index), CAT_CONFIG.INIT_DELAY + index * 500)
-    );
-
-    animationFrameId = requestAnimationFrame(animate);
-
-    return () => {
-      isRunning = false;
-      initTimeouts.forEach(clearTimeout);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [enabledCats, catSize]);
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="school-widget-container">
-      <div className="tab-bar">
-        <button
-          className={activeTab === 'todo' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('todo')}
-        >
-          할 일
-        </button>
-        <button
-          className={activeTab === 'meal' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('meal')}
-        >
-          급식
-        </button>
-        <button
-          className={activeTab === 'timetable' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('timetable')}
-        >
-          시간표
-        </button>
-        <button
-          className={activeTab === 'attendance' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('attendance')}
-        >
-          출결
-        </button>
-        <button
-          className={activeTab === 'points' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('points')}
-        >
-          상벌점
-        </button>
-        <button
-          className={activeTab === 'settings' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('settings')}
-        >
-          설정
-        </button>
-      </div>
+      <TabBar activeTab={activeTab} enabledTabs={enabledTabs} onTabChange={handleTabChange} />
 
       <div className="tab-content">
-        {activeTab === 'todo' && renderTodo()}
+        {activeTab === 'todo' && (
+          <TodoTab
+            todos={todos} loading={loadingStates.todo}
+            newTodoText={newTodoText} onNewTodoTextChange={setNewTodoText}
+            onAdd={handleAddTodo} onToggle={handleToggleTodo} onDelete={handleDeleteTodo}
+          />
+        )}
         {activeTab === 'meal' && (
-          <div className="meal-section">
-            <div className="section-header">
-              <h2>오늘의 급식</h2>
-              <span className="date">{new Date().toLocaleDateString()}</span>
-            </div>
-            {loadingStates.meal ? (
-              <div className="loading">로딩 중...</div>
-            ) : (
-              <div className="meal-items-container">
-                <div className="meal-item">
-                  <div className="meal-type">중식</div>
-                  <div className="meal-menu">{mealInfo.lunch}</div>
-                </div>
-                <div className="meal-item">
-                  <div className="meal-type">석식</div>
-                  <div className="meal-menu">{mealInfo.dinner}</div>
-                </div>
-              </div>
-            )}
-
-          </div>
+          <MealTab mealInfo={mealInfo} loading={loadingStates.meal} />
         )}
-
         {activeTab === 'timetable' && (
-          <div className="timetable-section">
-            {renderTimetable()}
-            
-            {timetableSource === 'appin' && (
-              <>
-                <div className="timetable-top-hover-area"></div>
-                <div className="timetable-top-hover">
-                  <div className="appin-week-controls" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px' }}>
-                    <button onClick={() => setAppinWeekOffset(o => o - 1)} className="refresh-btn-small" style={{ borderRadius: '50%', width: '25px', height: '25px', padding: 0 }}>&lt;</button>
-                    <span style={{ fontWeight: 'bold', color: 'white', fontSize: '0.9rem' }}>{appinWeekRange.weekText}</span>
-                    <button onClick={() => setAppinWeekOffset(o => o + 1)} className="refresh-btn-small" style={{ borderRadius: '50%', width: '25px', height: '25px', padding: 0 }}>&gt;</button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="timetable-hover-area"></div>
-            <div className="timetable-search-hover" style={{ flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '8px' }}>
-                <div className="teacher-search-container" style={{ flex: '0 0 auto', position: 'relative' }}>
-                  <input
-                    type="text"
-                    value={teacherSearch}
-                    onChange={(e) => handleTeacherSearchChange(e.target.value)}
-                    onFocus={() => setShowTeacherDropdown(true)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="선생님 검색..."
-                    className="search-input"
-                    style={{ width: '140px' }}
-                  />
-                  {showTeacherDropdown && filteredTeachers.length > 0 && (
-                    <div className="teacher-dropdown">
-                      {filteredTeachers.map((teacher: any, index: number) => (
-                        <div
-                          key={teacher}
-                          className={`teacher-dropdown-item ${index === highlightedIndex ? 'highlighted' : ''} ${teacher === selectedTeacher ? 'selected' : ''}`}
-                          onClick={() => handleTeacherSelect(teacher)}
-                          onMouseEnter={() => setHighlightedIndex(index)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                        >
-                          <span>{teacher}</span>
-                          <button
-                            onClick={(e) => toggleFavoriteTeacher(teacher, e)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              color: favoriteTeachers.includes(teacher) ? '#ffd700' : 'rgba(255,255,255,0.3)',
-                              fontSize: '1rem',
-                              padding: '0 4px',
-                              marginLeft: '8px'
-                            }}
-                            title="즐겨찾기"
-                          >
-                            {favoriteTeachers.includes(teacher) ? '★' : '☆'}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {(() => {
-                  const displayTeachers = Array.from(new Set([defaultTeacher, ...favoriteTeachers].filter(Boolean)));
-                  if (displayTeachers.length === 0) return null;
-                  return (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flex: 1,
-                        overflowX: 'auto',
-                        gap: '6px',
-                        padding: '4px 0',
-                        scrollbarWidth: 'none',
-                        msOverflowStyle: 'none'
-                      }}
-                      onWheel={handleWheelScroll}
-                    >
-                      {displayTeachers.map(t => (
-                        <button
-                          key={t}
-                          onClick={() => handleTeacherSelect(t)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '12px',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                            background: selectedTeacher === t ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
-                            color: t === defaultTeacher ? '#ffd700' : 'white',
-                            whiteSpace: 'nowrap',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem',
-                            flex: '0 0 auto'
-                          }}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
+          <TimetableTab
+            timetableSource={timetableSource}
+            timetableData={timetableData}
+            appinData={appinData}
+            selectedTeacher={selectedTeacher}
+            parsedAppinTeachers={parsedAppinTeachers}
+            baseAppinTimetable={baseAppinTimetable}
+            appinWeekRange={appinWeekRange}
+            onAppinWeekOffsetChange={setAppinWeekOffset}
+            currentNow={currentNow}
+            loading={loadingStates.timetable}
+            error={errorStates.timetable}
+            onRetry={() => { setDataLoaded(prev => ({ ...prev, timetable: false, appin: false })); fetchTimetable(); }}
+            teacherSearch={teacherSearch}
+            onTeacherSearchChange={handleTeacherSearchChange}
+            showTeacherDropdown={showTeacherDropdown}
+            onShowTeacherDropdown={setShowTeacherDropdown}
+            filteredTeachers={filteredTeachers}
+            highlightedIndex={highlightedIndex}
+            onHighlightedIndexChange={setHighlightedIndex}
+            onTeacherSelect={handleTeacherSelect}
+            onKeyDown={handleKeyDown}
+            defaultTeacher={defaultTeacher}
+            favoriteTeachers={favoriteTeachers}
+            onToggleFavorite={toggleFavoriteTeacher}
+            onWheelScroll={handleWheelScroll}
+          />
         )}
-
         {activeTab === 'attendance' && (
-          <div className="attendance-section">
-            <div className="controls">
-              <button onClick={() => fetchAttendance(true)} className="refresh-btn-small">새로고침</button>
-            </div>
-            {loadingStates.attendance ? (
-              <div className="loading">로딩 중...</div>
-            ) : latecomers.length === 0 ? (
-              <div className="empty-message">출결 데이터가 없습니다</div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>학생정보</th>
-                    <th>등교시간</th>
-                    <th>출결사항</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latecomers.map((l, i) => {
-                    // 학생정보에서 "*번 ***" 형식만 추출
-                    const match = l.student_info.match(/(\d+)번\s+(.+)/);
-                    const displayInfo = match ? `${match[1]}번\n${match[2]}` : l.student_info;
-                    return (
-                      <tr key={i}>
-                        <td>{displayInfo}</td>
-                        <td>{l.arrival_time}</td>
-                        <td>{l.attendance_status}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+          <AttendanceTab
+            latecomers={latecomers} loading={loadingStates.attendance}
+            onRefresh={() => fetchAttendance(true)}
+          />
         )}
-
         {activeTab === 'points' && (
-          <div className="points-section">
-            <div className="controls">
-              <button onClick={() => fetchPoints(true)} className="refresh-btn-small">새로고침</button>
-            </div>
-            {loadingStates.points ? (
-              <div className="loading">로딩 중...</div>
-            ) : points.length === 0 ? (
-              <div className="empty-message">상벌점 데이터가 없습니다</div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>학생정보</th>
-                    <th>상점</th>
-                    <th>벌점</th>
-                    <th>상쇄</th>
-                    <th>총점</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {points.map((p, i) => {
-                    // 학생정보에서 "*번 ***" 형식만 추출
-                    const match = p.student_info.match(/(\d+)번\s+(.+)/);
-                    const displayInfo = match ? `${match[1]}번 ${match[2]}` : p.student_info;
-                    return (
-                      <tr key={i}>
-                        <td>{displayInfo}</td>
-                        <td className="reward">{p.reward}</td>
-                        <td className="penalty">{p.penalty}</td>
-                        <td>{p.offset}</td>
-                        <td className="total">{p.total}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+          <PointsTab
+            points={points} loading={loadingStates.points}
+            onRefresh={() => fetchPoints(true)}
+          />
         )}
-
         {activeTab === 'settings' && (
-          <div className="settings-section">
-
-            {/* 위젯 */}
-            <div className="settings-card">
-              <div className="settings-card-title">위젯</div>
-              <div className="settings-row">
-                <span className="settings-label">시간표 소스</span>
-                <div className="segment-control">
-                  <button
-                    className={`segment-btn ${timetableSource === 'comcigan' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTimetableSource('comcigan');
-                      localStorage.setItem('schoolTimetableSource', 'comcigan');
-                      if (timetableData?.teachers.length) {
-                        const saved = localStorage.getItem('lastSelectedTeacher');
-                        setSelectedTeacher(saved && timetableData.teachers.includes(saved) ? saved : timetableData.teachers[0]);
-                      } else {
-                        setSelectedTeacher('');
-                      }
-                    }}
-                  >컴시간</button>
-                  <button
-                    className={`segment-btn ${timetableSource === 'appin' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTimetableSource('appin');
-                      localStorage.setItem('schoolTimetableSource', 'appin');
-                      if (appinData?.teachers.length) {
-                        const saved = localStorage.getItem('lastSelectedTeacher');
-                        setSelectedTeacher(saved && appinData.teachers.includes(saved) ? saved : appinData.teachers[0]);
-                      } else {
-                        setSelectedTeacher('');
-                      }
-                    }}
-                  >압핀</button>
-                </div>
-              </div>
-              <div className="settings-row">
-                <span className="settings-label">위젯 고정</span>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={schoolWidgetPinned}
-                    onChange={(e) => setSchoolWidgetPinned(e.target.checked)}
-                  />
-                  <span className="toggle-track"><span className="toggle-thumb" /></span>
-                </label>
-              </div>
-            </div>
-
-            {/* 고양이 */}
-            <div className="settings-card">
-              <div className="settings-card-title">고양이</div>
-              <div className="settings-row" style={{ alignItems: 'flex-start', paddingTop: '12px', paddingBottom: '12px' }}>
-                <span className="settings-label" style={{ paddingTop: '2px' }}>종류</span>
-                <div className="cat-chips">
-                  {CAT_TYPES.map(catType => {
-                    const isActive = enabledCats.includes(catType.id);
-                    return (
-                      <button
-                        key={catType.id}
-                        className={`cat-chip ${isActive ? 'active' : ''}`}
-                        onClick={() => {
-                          let newCats: CatTypeId[];
-                          if (isActive) {
-                            newCats = enabledCats.filter(id => id !== catType.id);
-                            catStatesRef.current.delete(catType.id);
-                            setVisibleCats(prev => {
-                              const next = new Set(prev);
-                              next.delete(catType.id);
-                              return next;
-                            });
-                          } else {
-                            newCats = [...enabledCats, catType.id];
-                          }
-                          setEnabledCats(newCats);
-                          localStorage.setItem('schoolEnabledCats', JSON.stringify(newCats));
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: '14px',
-                            height: '14px',
-                            backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
-                            backgroundSize: `56px ${14 * catType.rows}px`,
-                            backgroundPosition: '-28px 0',
-                            imageRendering: 'pixelated',
-                            display: 'inline-block',
-                            flexShrink: 0,
-                          }}
-                        />
-                        {catType.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="settings-row">
-                <span className="settings-label">크기</span>
-                <span className="settings-value-text">{catSize}px</span>
-                <button
-                  className="settings-reset-btn"
-                  onClick={() => { setCatSize(32); localStorage.setItem('schoolCatSize', '32'); }}
-                >초기화</button>
-              </div>
-            </div>
-
-            {/* 시간표 */}
-            <div className="settings-card">
-              <div className="settings-card-title">시간표</div>
-              <div className="settings-row">
-                <span className="settings-label">기본 선생님</span>
-                <select
-                  value={defaultTeacher}
-                  onChange={(e) => setDefaultTeacher(e.target.value)}
-                  className="settings-select-inline"
-                >
-                  <option value="">없음</option>
-                  {(timetableSource === 'appin' ? (appinData?.teachers || []) : (timetableData?.teachers || [])).map((t: string) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* 학년 · 반 */}
-            <div className="settings-card">
-              <div className="settings-card-title">학년 · 반</div>
-              <div className="settings-row">
-                <span className="settings-label">학년</span>
-                <input
-                  type="number"
-                  value={grade}
-                  onChange={(e) => setGrade(e.target.value)}
-                  min="1"
-                  max="3"
-                  className="settings-number-input"
-                />
-              </div>
-              <div className="settings-row">
-                <span className="settings-label">반</span>
-                <input
-                  type="number"
-                  value={classNum}
-                  onChange={(e) => setClassNum(e.target.value)}
-                  min="1"
-                  max="20"
-                  className="settings-number-input"
-                />
-              </div>
-            </div>
-
-            {/* 학교 정보 */}
-            <div className="settings-card">
-              <div className="settings-card-title">학교 정보</div>
-              <div className="settings-row">
-                <span className="settings-label">지역 코드</span>
-                <input
-                  type="text"
-                  value={regionCode}
-                  onChange={(e) => setRegionCode(e.target.value)}
-                  placeholder="예: C10"
-                  className="settings-text-input"
-                />
-              </div>
-              <div className="settings-hint">서울 C10 · 경기 J10 · 부산 B10</div>
-              <div className="settings-row">
-                <span className="settings-label">학교 코드</span>
-                <input
-                  type="text"
-                  value={schoolCode}
-                  onChange={(e) => setSchoolCode(e.target.value)}
-                  placeholder="예: 7150451"
-                  className="settings-text-input"
-                />
-              </div>
-              <div className="settings-hint">NEIS 학교 정보 검색에서 확인 가능</div>
-            </div>
-
-            <button onClick={saveSettings} className="save-btn">저장</button>
-          </div>
+          <SettingsTab
+            timetableSource={timetableSource}
+            onTimetableSourceChange={handleTimetableSourceChange}
+            schoolWidgetPinned={schoolWidgetPinned}
+            onSchoolWidgetPinnedChange={setSchoolWidgetPinned}
+            enabledTabs={enabledTabs}
+            onEnabledTabsChange={setEnabledTabs}
+            enabledCats={enabledCats}
+            onEnabledCatsChange={(cats) => {
+              const removed = enabledCats.filter(id => !cats.includes(id));
+              removed.forEach(id => {
+                catStatesRef.current.delete(id);
+                setVisibleCats(prev => { const next = new Set(prev); next.delete(id); return next; });
+              });
+              setEnabledCats(cats);
+            }}
+            catSize={catSize}
+            onCatSizeReset={() => { setCatSize(32); localStorage.setItem('schoolCatSize', '32'); }}
+            timetableData={timetableData}
+            appinData={appinData}
+            defaultTeacher={defaultTeacher}
+            onDefaultTeacherChange={setDefaultTeacher}
+            grade={grade}
+            onGradeChange={setGrade}
+            classNum={classNum}
+            onClassNumChange={setClassNum}
+            regionCode={regionCode}
+            onRegionCodeChange={setRegionCode}
+            schoolCode={schoolCode}
+            onSchoolCodeChange={setSchoolCode}
+            onSave={saveSettings}
+          />
         )}
       </div>
 
-      {/* 고양이 스프라이트들 - tab-content 바깥에서 모든 탭에 표시 */}
-      {
-        Array.from(visibleCats).map(catId => {
-          const catType = CAT_TYPES.find(t => t.id === catId);
-          if (!catType) return null;
-
-          return (
-            <div
-              key={catId}
-              ref={(el) => catElementsRef.current.set(catId, el)}
-              className="cat-sprite"
-              onClick={(e) => {
-                const cat = catStatesRef.current.get(catId);
-                if (!cat) return;
-
-                const container = document.querySelector('.school-widget-container');
-                if (!container) return;
-
-                const rect = container.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const clickY = e.clientY - rect.top;
-
-                const isHit = isPixelHit(
-                  catId,
-                  clickX,
-                  clickY,
-                  cat.x,
-                  cat.y,
-                  catSize,
-                  cat.direction,
-                  cat.behavior.type,
-                  cat.frame
-                );
-
-                if (!isHit) return;
-
-                // 클릭 시 1픽셀씩 커지기
-                const newSize = catSize + 1;
-                setCatSize(newSize);
-                localStorage.setItem('schoolCatSize', newSize.toString());
-
-                // 클릭 시 앉거나 눕기 (50% 확률)
-                const currentTime = performance.now();
-                if (Math.random() < 0.5) {
-                  cat.behavior = { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-                } else {
-                  cat.behavior = { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
-                }
-                cat.frame = 0;
-              }}
-              style={{
-                position: 'absolute',
-                left: '0px',
-                top: '0px',
-                width: `${catSize}px`,
-                height: `${catSize}px`,
-                backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
-                backgroundSize: `${catSize * 4}px ${catSize * catType.rows}px`,
-                backgroundPosition: '0px 0px',
-                imageRendering: 'pixelated',
-                zIndex: 1000,
-                cursor: 'pointer',
-                pointerEvents: 'auto',
-              }}
-            />
-          );
-        })
-      }
-    </div >
+      {/* Cat sprites - rendered outside tab-content so visible on all tabs */}
+      {Array.from(visibleCats).map(catId => {
+        const catType = CAT_TYPES.find(t => t.id === catId);
+        if (!catType) return null;
+        return (
+          <div
+            key={catId}
+            ref={(el) => catElementsRef.current.set(catId, el)}
+            className="cat-sprite"
+            onClick={(e) => {
+              const cat = catStatesRef.current.get(catId);
+              if (!cat) return;
+              const container = document.querySelector('.school-widget-container');
+              if (!container) return;
+              const rect = container.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const clickY = e.clientY - rect.top;
+              if (!isPixelHit(catId, clickX, clickY, cat.x, cat.y, catSize, cat.direction, cat.behavior.type, cat.frame)) return;
+              const newSize = catSize + 1;
+              setCatSize(newSize);
+              localStorage.setItem('schoolCatSize', newSize.toString());
+              const currentTime = performance.now();
+              cat.behavior = Math.random() < 0.5
+                ? { type: 'sitting', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime }
+                : { type: 'lying', phase: 'enter', phaseStartTime: currentTime, actionStartTime: currentTime };
+              cat.frame = 0;
+            }}
+            style={{
+              position: 'absolute', left: '0px', top: '0px',
+              width: `${catSize}px`, height: `${catSize}px`,
+              backgroundImage: `url(${new URL(`./asset/${catType.sprite}`, import.meta.url).href})`,
+              backgroundSize: `${catSize * 4}px ${catSize * catType.rows}px`,
+              backgroundPosition: '0px 0px',
+              imageRendering: 'pixelated',
+              cursor: 'pointer', zIndex: 10, pointerEvents: 'none',
+            }}
+          />
+        );
+      })}
+    </div>
   );
 }
 
