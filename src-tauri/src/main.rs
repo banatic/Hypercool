@@ -68,6 +68,8 @@ fn main() {
             system::check_file_exists,
             system::open_file,
             system::set_auto_start,
+            system::setup_claude_mcp,
+            system::check_node_installed,
             
             window::notify_hidden,
             window::hide_main_window,

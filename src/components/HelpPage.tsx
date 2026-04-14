@@ -1,23 +1,74 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import './HelpPage.css';
 
+interface ClaudeConfigResult {
+  path: string;
+  already_configured: boolean;
+}
+
 const CONFIG_JSON = `{
+  "preferences": {
+    "coworkScheduledTasksEnabled": false,
+    "ccdScheduledTasksEnabled": true,
+    "sidebarMode": "chat",
+    "coworkWebSearchEnabled": true,
+    "coworkOnboardingResumeStep": null
+  },
   "mcpServers": {
     "hypercool": {
-      "url": "http://localhost:3737/mcp"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3737/mcp"]
     }
   }
 }`;
 
-
+const CONFIG_PATH = `%LOCALAPPDATA%\\Packages`;
 
 export const HelpPage = () => {
   const [copiedConfig, setCopiedConfig] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
+  const [nodeInstalled, setNodeInstalled] = useState<boolean | null>(null);
+  const [autoSetupState, setAutoSetupState] = useState<'idle' | 'loading' | 'success' | 'already' | 'error'>('idle');
+  const [autoSetupTitle, setAutoSetupTitle] = useState('');
+  const [autoSetupPath, setAutoSetupPath] = useState('');
+  const [autoSetupError, setAutoSetupError] = useState('');
+
+  useEffect(() => {
+    invoke<boolean>('check_node_installed').then(setNodeInstalled).catch(() => setNodeInstalled(false));
+  }, []);
 
   const copyConfig = () => {
     navigator.clipboard.writeText(CONFIG_JSON);
     setCopiedConfig(true);
     setTimeout(() => setCopiedConfig(false), 2000);
+  };
+
+  const copyPath = () => {
+    navigator.clipboard.writeText(CONFIG_PATH);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
+  };
+
+  const runAutoSetup = async () => {
+    setAutoSetupState('loading');
+    setAutoSetupTitle('');
+    setAutoSetupPath('');
+    setAutoSetupError('');
+    try {
+      const result = await invoke<ClaudeConfigResult>('setup_claude_mcp');
+      setAutoSetupPath(result.path);
+      if (result.already_configured) {
+        setAutoSetupState('already');
+        setAutoSetupTitle('이미 설정되어 있습니다.');
+      } else {
+        setAutoSetupState('success');
+        setAutoSetupTitle('설정 완료! Claude를 재시작하세요.');
+      }
+    } catch (e: unknown) {
+      setAutoSetupState('error');
+      setAutoSetupError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -54,9 +105,36 @@ export const HelpPage = () => {
           </div>
         </div>
 
-        {/* Step 2 */}
+        {/* Step 2: Node.js */}
         <div className="help-step">
           <div className="step-number">2</div>
+          <div className="step-content">
+            <h3>Node.js 설치하기</h3>
+            {nodeInstalled === null && (
+              <p className="help-tip">Node.js 설치 여부 확인 중...</p>
+            )}
+            {nodeInstalled === true && (
+              <p className="node-ok">✅ Node.js가 설치되어 있습니다. 다음 단계로 넘어가세요!</p>
+            )}
+            {nodeInstalled === false && (
+              <>
+                <div className="node-warning">
+                  <span className="node-warning-icon">⚠️</span>
+                  <span>Node.js가 설치되어 있지 않습니다. AI 연동에 필요하므로 아래에서 설치해 주세요.</span>
+                </div>
+                <p>아래 주소에서 <strong>Windows</strong> 버전(LTS)을 다운로드해 설치하세요.</p>
+                <div className="help-url-box">
+                  <span>https://nodejs.org/ko/download</span>
+                </div>
+                <p className="help-tip">💡 설치 후 이 프로그램을 재시작하면 설치 여부가 다시 확인됩니다.</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Step 3 */}
+        <div className="help-step">
+          <div className="step-number">3</div>
           <div className="step-content">
             <h3>HyperCool을 먼저 실행하기</h3>
             <p>
@@ -66,37 +144,65 @@ export const HelpPage = () => {
           </div>
         </div>
 
-        {/* Step 3 */}
-        <div className="help-step">
-          <div className="step-number">3</div>
-          <div className="step-content">
-            <h3>설정 파일 열기</h3>
-            <p>
-              Claude 앱의 설정 파일을 수정해야 합니다.<br />
-              <strong>윈도우 탐색기</strong> 주소창에 아래 경로를 붙여넣고 Enter를 누르세요.
-            </p>
-            <div className="help-code-block">
-              <code>%APPDATA%\Claude</code>
-              <button className="help-copy-btn" onClick={() => { navigator.clipboard.writeText('%APPDATA%\\Claude'); }}>
-                복사
-              </button>
+        {/* Auto Setup */}
+        <div className="help-auto-setup">
+          <div className="auto-setup-label">아래 버튼을 누르면 설정 파일을 자동으로 찾아서 업데이트합니다.</div>
+          <button
+            className={`auto-setup-btn auto-setup-btn--${autoSetupState}`}
+            onClick={runAutoSetup}
+            disabled={autoSetupState === 'loading'}
+          >
+            {autoSetupState === 'loading' && '설정 중...'}
+            {autoSetupState === 'idle' && '자동 설정하기'}
+            {autoSetupState === 'success' && '✓ 설정 완료'}
+            {autoSetupState === 'already' && '✓ 이미 설정됨'}
+            {autoSetupState === 'error' && '다시 시도'}
+          </button>
+          {(autoSetupTitle || autoSetupError) && (
+            <div className={`auto-setup-result auto-setup-result--${autoSetupState === 'error' ? 'error' : autoSetupState === 'already' ? 'already' : 'ok'}`}>
+              {autoSetupTitle && <div className="auto-setup-result-title">{autoSetupTitle}</div>}
+              {autoSetupPath && <div className="auto-setup-result-path">{autoSetupPath}</div>}
+              {autoSetupError && <div className="auto-setup-result-error">{autoSetupError}</div>}
             </div>
-            <p>
-              해당 폴더에 <strong>claude_desktop_config.json</strong> 파일이 있을 겁니다.<br />
-              없다면 새로 만드세요. (파일명 그대로 <code>claude_desktop_config.json</code>)
-            </p>
-            <p className="help-tip">💡 메모장으로 열면 됩니다. 파일 우클릭 → 연결 프로그램 → 메모장</p>
-          </div>
+          )}
+          <div className="auto-setup-divider">또는 아래 단계를 직접 따라하세요</div>
         </div>
 
         {/* Step 4 */}
         <div className="help-step">
           <div className="step-number">4</div>
           <div className="step-content">
+            <h3>설정 파일 찾기</h3>
+            <p>
+              Claude 앱의 설정 파일 위치를 찾아야 합니다.<br />
+              <strong>윈도우 탐색기</strong> 주소창에 아래 경로를 붙여넣고 Enter를 누르세요.
+            </p>
+            <div className="help-code-block">
+              <code>%LOCALAPPDATA%\Packages</code>
+              <button className={`help-copy-btn ${copiedPath ? 'copied' : ''}`} onClick={copyPath}>
+                {copiedPath ? '복사됨 ✓' : '복사'}
+              </button>
+            </div>
+            <p>
+              열린 폴더에서 <strong>Claude_</strong>로 시작하는 폴더를 찾으세요.<br />
+              (예: <code>Claude_pzs8sxrjxfjjc</code> — 이름은 PC마다 다를 수 있습니다)
+            </p>
+            <p>
+              그 폴더 안의 <code>LocalCache\Roaming\Claude\</code> 경로로 이동하면<br />
+              <strong>claude_desktop_config.json</strong> 파일이 있습니다.<br />
+              없다면 새로 만드세요.
+            </p>
+            <p className="help-tip">💡 메모장으로 열면 됩니다. 파일 우클릭 → 연결 프로그램 → 메모장</p>
+          </div>
+        </div>
+
+        {/* Step 5 */}
+        <div className="help-step">
+          <div className="step-number">5</div>
+          <div className="step-content">
             <h3>설정 내용 붙여넣기</h3>
             <p>
-              파일 안의 내용을 <strong>전부 지우고</strong> 아래 내용을 붙여넣으세요.<br />
-              기존에 내용이 있다면 <code>"mcpServers"</code> 부분만 추가하면 됩니다.
+              파일 안의 내용을 <strong>전부 지우고</strong> 아래 내용을 그대로 붙여넣으세요.
             </p>
             <div className="help-code-block config-block">
               <pre>{CONFIG_JSON}</pre>
@@ -108,9 +214,9 @@ export const HelpPage = () => {
           </div>
         </div>
 
-        {/* Step 5 */}
+        {/* Step 6 */}
         <div className="help-step">
-          <div className="step-number">5</div>
+          <div className="step-number">6</div>
           <div className="step-content">
             <h3>Claude 앱 재시작하기</h3>
             <p>
@@ -120,7 +226,7 @@ export const HelpPage = () => {
           </div>
         </div>
 
-        {/* Step 6 - Result */}
+        {/* Step 7 - Result */}
         <div className="help-step help-step-result">
           <div className="step-number">✓</div>
           <div className="step-content">

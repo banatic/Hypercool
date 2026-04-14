@@ -521,8 +521,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.6",
-        notes="MCP 지원 추가",
+        version="0.5.8",
+        notes="MCP 첨부파일 읽기 기능 추가",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다. 
         skip_build=False,
         msi_path=None,

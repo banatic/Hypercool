@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 struct McpState {
     db_path: PathBuf,
@@ -114,6 +115,29 @@ async fn handle_mcp(
                             "type": "object",
                             "properties": {}
                         }
+                    },
+                    {
+                        "name": "list_attachments",
+                        "description": "쿨메신저 수신 파일 목록을 조회합니다. 파일명 검색과 확장자 필터를 지원합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "query": { "type": "string", "description": "파일명 검색어 (부분 일치, 생략 가능)" },
+                                "ext":   { "type": "string", "description": "확장자 필터 (예: pdf, hwpx, xlsx — 생략 가능)" },
+                                "limit": { "type": "number", "description": "최대 결과 수 (기본값: 50, 최대: 200)" }
+                            }
+                        }
+                    },
+                    {
+                        "name": "read_attachment",
+                        "description": "쿨메신저 수신 파일의 텍스트 내용을 읽습니다. 지원 형식: hwp, hwpx, pdf, xlsx, xls, xlsm, xlsb, odt, pptx, md, html, csv",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "filename": { "type": "string", "description": "읽을 파일명 (list_attachments로 조회한 파일명)" }
+                            },
+                            "required": ["filename"]
+                        }
                     }
                 ]
             }),
@@ -145,6 +169,39 @@ async fn handle_mcp(
     Json(response).into_response()
 }
 
+/// HTML 태그를 제거하고 순수 텍스트를 반환합니다.
+fn strip_html(html: &str) -> String {
+    use scraper::Html;
+
+    // <br> 계열을 먼저 개행으로 치환 (scraper는 이를 공백으로 처리)
+    let preprocessed = html
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n");
+
+    let document = Html::parse_document(&preprocessed);
+    let raw: String = document.root_element().text().collect::<Vec<_>>().join("");
+
+    // 연속 공백 정리 및 빈 줄 압축
+    let lines: Vec<&str> = raw
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines.join("\n")
+}
+
+/// 텍스트를 max_chars 글자 수 기준으로 자릅니다.
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        truncated + "..."
+    } else {
+        truncated
+    }
+}
+
 fn call_tool(db_path: &PathBuf, name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "search_messages" => {
@@ -165,6 +222,16 @@ fn call_tool(db_path: &PathBuf, name: &str, args: &Value) -> Result<Value, Strin
             tool_get_message_by_id(db_path, id)
         }
         "get_db_stats" => tool_get_db_stats(db_path),
+        "list_attachments" => {
+            let query = args["query"].as_str();
+            let ext   = args["ext"].as_str();
+            let limit = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
+            tool_list_attachments(query, ext, limit)
+        }
+        "read_attachment" => {
+            let filename = args["filename"].as_str().ok_or("filename required")?;
+            tool_read_attachment(filename)
+        }
         _ => Err(format!("Unknown tool: {}", name)),
     }
 }
@@ -182,7 +249,7 @@ fn tool_search_messages(db_path: &PathBuf, query: &str, limit: i64) -> Result<Va
     let escaped = query.replace('"', "\"\"").replace('*', "").replace(':', " ");
     let fts_query = format!("\"{}\"*", escaped);
 
-    let sql = "SELECT m.id, m.sender, substr(m.content, 1, 300), m.receive_date
+    let sql = "SELECT m.id, m.sender, m.content, m.receive_date, m.file_paths
                FROM messages_fts
                JOIN messages m ON m.id = messages_fts.rowid
                WHERE messages_fts MATCH ?1
@@ -191,9 +258,11 @@ fn tool_search_messages(db_path: &PathBuf, query: &str, limit: i64) -> Result<Va
 
     let mut stmt = conn.prepare(sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
 
-    let rows: Vec<(i64, String, String, Option<String>)> = stmt
+    let rows: Vec<(i64, String, String, Option<String>, Vec<String>)> = stmt
         .query_map(rusqlite::params![fts_query, limit], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            let fp_json: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+            let file_paths: Vec<String> = serde_json::from_str(&fp_json).unwrap_or_default();
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, file_paths))
         })
         .map_err(|e| format!("쿼리 실패: {}", e))?
         .filter_map(|r| r.ok())
@@ -203,14 +272,19 @@ fn tool_search_messages(db_path: &PathBuf, query: &str, limit: i64) -> Result<Va
         format!("\"{}\" 검색 결과가 없습니다.", query)
     } else {
         let mut out = format!("\"{}\" 검색 결과 {}개:\n\n", query, rows.len());
-        for (id, sender, preview, date) in &rows {
+        for (id, sender, content, date, file_paths) in &rows {
+            let preview = truncate_text(&strip_html(content), 300);
             out.push_str(&format!(
-                "ID: {} | 발신: {} | 날짜: {}\n{}\n\n",
+                "ID: {} | 발신: {} | 날짜: {}\n{}",
                 id,
                 sender,
                 date.as_deref().unwrap_or("날짜 없음"),
-                preview.trim()
+                preview
             ));
+            if !file_paths.is_empty() {
+                out.push_str(&format!("\n첨부: {}", file_paths.join(", ")));
+            }
+            out.push_str("\n\n");
         }
         out
     };
@@ -257,7 +331,7 @@ fn tool_get_messages(
         .unwrap_or(0);
 
     let query_sql = format!(
-        "SELECT id, sender, content_preview, receive_date
+        "SELECT id, sender, content_preview, receive_date, file_paths
          FROM messages {}
          ORDER BY receive_date DESC, id DESC
          LIMIT {} OFFSET {}",
@@ -266,13 +340,16 @@ fn tool_get_messages(
 
     let mut stmt = conn.prepare(&query_sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
 
-    let rows: Vec<(i64, String, String, Option<String>)> = stmt
+    let rows: Vec<(i64, String, String, Option<String>, Vec<String>)> = stmt
         .query_map([], |row| {
+            let fp_json: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+            let file_paths: Vec<String> = serde_json::from_str(&fp_json).unwrap_or_default();
             Ok((
                 row.get(0)?,
                 row.get(1)?,
                 row.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 row.get(3)?,
+                file_paths,
             ))
         })
         .map_err(|e| format!("쿼리 실패: {}", e))?
@@ -299,14 +376,18 @@ fn tool_get_messages(
         }
     } else {
         let mut out = header;
-        for (id, sndr, preview, date) in &rows {
+        for (id, sndr, preview, date, file_paths) in &rows {
             out.push_str(&format!(
-                "ID: {} | 발신: {} | 날짜: {}\n{}\n\n",
+                "ID: {} | 발신: {} | 날짜: {}\n{}",
                 id,
                 sndr,
                 date.as_deref().unwrap_or("날짜 없음"),
                 preview.trim()
             ));
+            if !file_paths.is_empty() {
+                out.push_str(&format!("\n첨부: {}", file_paths.join(", ")));
+            }
+            out.push_str("\n\n");
         }
         out
     };
@@ -318,26 +399,35 @@ fn tool_get_message_by_id(db_path: &PathBuf, id: i64) -> Result<Value, String> {
     let conn = open_db(db_path)?;
 
     let result = conn.query_row(
-        "SELECT id, sender, content, receive_date FROM messages WHERE id = ?1",
+        "SELECT id, sender, content, receive_date, file_paths FROM messages WHERE id = ?1",
         [id],
         |row| {
+            let fp_json: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+            let file_paths: Vec<String> = serde_json::from_str(&fp_json).unwrap_or_default();
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<String>>(3)?,
+                file_paths,
             ))
         },
     );
 
     let text = match result {
-        Ok((id, sender, content, date)) => format!(
-            "메시지 ID: {}\n발신: {}\n날짜: {}\n\n{}",
-            id,
-            sender,
-            date.as_deref().unwrap_or("날짜 없음"),
-            content
-        ),
+        Ok((id, sender, content, date, file_paths)) => {
+            let mut out = format!(
+                "메시지 ID: {}\n발신: {}\n날짜: {}",
+                id,
+                sender,
+                date.as_deref().unwrap_or("날짜 없음"),
+            );
+            if !file_paths.is_empty() {
+                out.push_str(&format!("\n첨부: {}", file_paths.join(", ")));
+            }
+            out.push_str(&format!("\n\n{}", strip_html(&content)));
+            out
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             format!("ID {}인 메시지를 찾을 수 없습니다.", id)
         }
@@ -379,6 +469,218 @@ fn tool_get_db_stats(db_path: &PathBuf) -> Result<Value, String> {
     );
 
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
+}
+
+// ─── 첨부 파일 관련 ────────────────────────────────────────────────────────────
+
+/// 쿨메신저 수신 파일 저장 경로를 레지스트리에서 읽어옴
+fn get_attachments_dir() -> Option<PathBuf> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let subkey = hkcu
+        .open_subkey(r"Software\Jiransoft\CoolMsg50\Option\GetFile")
+        .ok()?;
+    let path: String = subkey.get_value("DownPath").ok()?;
+    Some(PathBuf::from(path))
+}
+
+fn tool_list_attachments(query: Option<&str>, ext: Option<&str>, limit: i64) -> Result<Value, String> {
+    let dir = get_attachments_dir()
+        .ok_or_else(|| "쿨메신저 수신 파일 경로를 찾을 수 없습니다. 쿨메신저가 설치·실행됐는지 확인하세요.".to_string())?;
+
+    if !dir.exists() {
+        return Err(format!("수신 파일 디렉토리가 없습니다: {}", dir.display()));
+    }
+
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("디렉토리 읽기 실패: {}", e))?;
+
+    // (수정 시각, 파일명) 쌍으로 수집한 뒤 최신순 정렬
+    let mut files: Vec<(std::time::SystemTime, String)> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let meta = e.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+
+            // 확장자 필터
+            if let Some(ext_filter) = ext {
+                let file_ext = std::path::Path::new(&name)
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("");
+                if !file_ext.eq_ignore_ascii_case(ext_filter) {
+                    return None;
+                }
+            }
+
+            // 파일명 검색
+            if let Some(q) = query {
+                if !name.to_lowercase().contains(&q.to_lowercase()) {
+                    return None;
+                }
+            }
+
+            let modified = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+            Some((modified, name))
+        })
+        .collect();
+
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.truncate(limit as usize);
+
+    let text = if files.is_empty() {
+        "조건에 맞는 파일이 없습니다.".to_string()
+    } else {
+        let mut out = format!("수신 파일 {}개 (최신순):\n\n", files.len());
+        for (_, name) in &files {
+            out.push_str(name);
+            out.push('\n');
+        }
+        out
+    };
+
+    Ok(json!({ "content": [{ "type": "text", "text": text }] }))
+}
+
+fn tool_read_attachment(filename: &str) -> Result<Value, String> {
+    let dir = get_attachments_dir()
+        .ok_or_else(|| "쿨메신저 수신 파일 경로를 찾을 수 없습니다.".to_string())?;
+    let path = dir.join(filename);
+
+    if !path.exists() {
+        return Err(format!("파일을 찾을 수 없습니다: {}", filename));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let content = match ext.as_str() {
+        "hwp" | "hwpx" => read_hwp_file(&path)?,
+        "pdf"          => read_pdf_file(&path)?,
+        "xlsx" | "xls" | "xlsm" | "xlsb" => read_excel_file(&path)?,
+        "odt"          => read_odt_file(&path)?,
+        "pptx"         => read_pptx_file(&path)?,
+        "md" | "txt" | "csv" => {
+            std::fs::read_to_string(&path).map_err(|e| format!("파일 읽기 실패: {}", e))?
+        }
+        "html" | "htm" => {
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| format!("파일 읽기 실패: {}", e))?;
+            strip_html(&raw)
+        }
+        _ => return Err(format!("지원하지 않는 파일 형식입니다: .{}", ext)),
+    };
+
+    let truncated = truncate_text(&content, 15000);
+    let text = format!("파일: {}\n\n{}", filename, truncated);
+    Ok(json!({ "content": [{ "type": "text", "text": text }] }))
+}
+
+fn read_hwp_file(path: &PathBuf) -> Result<String, String> {
+    use unhwp::{parse_file, render::render_markdown, RenderOptions};
+    let document = parse_file(path).map_err(|e| format!("HWP 파싱 실패: {}", e))?;
+    let options = RenderOptions::default();
+    render_markdown(&document, &options).map_err(|e| format!("HWP 렌더링 실패: {}", e))
+}
+
+fn read_pdf_file(path: &PathBuf) -> Result<String, String> {
+    let doc = lopdf::Document::load(path).map_err(|e| format!("PDF 로드 실패: {}", e))?;
+    let mut page_numbers: Vec<u32> = doc.get_pages().keys().cloned().collect();
+    page_numbers.sort_unstable();
+    doc.extract_text(&page_numbers).map_err(|e| format!("PDF 텍스트 추출 실패: {}", e))
+}
+
+fn read_excel_file(path: &PathBuf) -> Result<String, String> {
+    use calamine::{open_workbook_auto, Data, Reader};
+    let mut wb = open_workbook_auto(path).map_err(|e| format!("Excel 로드 실패: {}", e))?;
+    let sheet_names = wb.sheet_names().to_owned();
+    let mut out = String::new();
+
+    for name in sheet_names {
+        out.push_str(&format!("## {}\n", name));
+        if let Ok(range) = wb.worksheet_range(&name) {
+            for row in range.rows() {
+                let cells: Vec<String> = row
+                    .iter()
+                    .map(|c| match c {
+                        Data::Empty => String::new(),
+                        Data::String(s) => s.clone(),
+                        Data::Int(i) => i.to_string(),
+                        Data::Float(f) => f.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        other => format!("{:?}", other),
+                    })
+                    .collect();
+                if cells.iter().all(|c| c.is_empty()) {
+                    continue;
+                }
+                out.push_str(&cells.join("\t"));
+                out.push('\n');
+            }
+        }
+        out.push('\n');
+    }
+
+    Ok(out)
+}
+
+fn read_odt_file(path: &PathBuf) -> Result<String, String> {
+    use std::io::Read;
+    use zip::ZipArchive;
+
+    let file = std::fs::File::open(path).map_err(|e| format!("파일 열기 실패: {}", e))?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("ZIP 열기 실패: {}", e))?;
+    let mut entry = archive
+        .by_name("content.xml")
+        .map_err(|_| "content.xml을 찾을 수 없습니다".to_string())?;
+    let mut xml = String::new();
+    entry.read_to_string(&mut xml).map_err(|e| format!("읽기 실패: {}", e))?;
+    Ok(extract_xml_text(&xml))
+}
+
+fn read_pptx_file(path: &PathBuf) -> Result<String, String> {
+    use std::io::Read;
+    use zip::ZipArchive;
+
+    let file = std::fs::File::open(path).map_err(|e| format!("파일 열기 실패: {}", e))?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("ZIP 열기 실패: {}", e))?;
+
+    let mut slide_names: Vec<String> = archive
+        .file_names()
+        .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))
+        .map(|s| s.to_string())
+        .collect();
+    slide_names.sort();
+
+    let mut out = String::new();
+    for name in slide_names {
+        if let Ok(mut entry) = archive.by_name(&name) {
+            let mut xml = String::new();
+            let _ = entry.read_to_string(&mut xml);
+            let text = extract_xml_text(&xml);
+            if !text.is_empty() {
+                out.push_str(&text);
+                out.push('\n');
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// XML 태그를 제거하고 텍스트만 추출
+fn extract_xml_text(xml: &str) -> String {
+    let re = regex::Regex::new(r"<[^>]+>").unwrap();
+    let text = re.replace_all(xml, "");
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines.join("\n")
 }
 
 pub fn start(db_path: PathBuf, port: u16) {

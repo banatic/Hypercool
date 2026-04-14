@@ -6,7 +6,12 @@
       "Bash(python:*)",
       "Bash(cp /tmp/hypercool.key.bak D:/dev/Hypercool/src-tauri/hypercool.key)",
       "Bash(cp /tmp/hypercool.plain.key.bak D:/dev/Hypercool/src-tauri/hypercool.plain.key)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(xargs grep:*)",
+      "Bash(cargo build:*)",
+      "Bash(curl -s \"https://docs.rs/lopdf/latest/lopdf/\")",
+      "Bash(curl -s \"https://docs.rs/calamine/latest/calamine/\")",
+      "Bash(reg query:*)"
     ]
   }
 }

@@ -1400,13 +1400,15 @@
   font-size: 16px;
 }
 
-.schedule-panel .row {
+.schedule-panel .row,
+.schedule-modal .row {
   display: flex;
   gap: 10px;
   margin-top: 16px;
 }
 
-.schedule-panel .row button {
+.schedule-panel .row button,
+.schedule-modal .row button {
   flex: 1;
   padding: 12px;
   border-radius: var(--radius);
@@ -1414,13 +1416,15 @@
   font-weight: 600;
 }
 
-.schedule-panel .row button:first-child {
+.schedule-panel .row button:first-child,
+.schedule-modal .row button:first-child {
   background: var(--primary);
   color: white;
   border-color: var(--primary);
 }
 
-.schedule-panel .row button:first-child:hover {
+.schedule-panel .row button:first-child:hover,
+.schedule-modal .row button:first-child:hover {
   background: var(--primary-dark);
 }
 

@@ -195,6 +195,140 @@
   font-style: italic;
 }
 
+/* Auto Setup */
+.help-auto-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 32px;
+  background: rgba(99, 179, 237, 0.06);
+  border: 1px solid rgba(99, 179, 237, 0.2);
+  border-radius: 12px;
+  margin: 8px 0;
+}
+
+.auto-setup-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #aaa);
+  text-align: center;
+}
+
+.auto-setup-btn {
+  padding: 10px 28px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  background: #3b82f6;
+  color: #fff;
+  min-width: 160px;
+}
+
+.auto-setup-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.auto-setup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auto-setup-btn--success,
+.auto-setup-btn--already {
+  background: #16a34a;
+}
+
+.auto-setup-btn--error {
+  background: #dc2626;
+}
+
+.auto-setup-result {
+  border-radius: 8px;
+  padding: 12px 16px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+
+.auto-setup-result--ok {
+  background: #14532d;
+  border: 1px solid #16a34a;
+}
+
+.auto-setup-result--already {
+  background: #1e3a5f;
+  border: 1px solid #3b82f6;
+}
+
+.auto-setup-result--error {
+  background: #450a0a;
+  border: 1px solid #dc2626;
+}
+
+.auto-setup-result-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.auto-setup-result-path {
+  font-size: 0.74rem;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  color: #cbd5e1;
+  background: #0f1923;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 6px 10px;
+  word-break: break-all;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.auto-setup-result-error {
+  font-size: 0.82rem;
+  color: #fca5a5;
+  line-height: 1.5;
+}
+
+/* Node.js 상태 */
+.node-ok {
+  font-size: 0.9rem;
+  color: #86efac;
+  font-weight: 500;
+  margin: 4px 0;
+}
+
+.node-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  color: #fde68a;
+  line-height: 1.6;
+}
+
+.node-warning-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.auto-setup-divider {
+  font-size: 0.8rem;
+  color: rgba(160, 160, 160, 0.5);
+  text-align: center;
+  margin-top: 4px;
+}
+
 /* 스크린샷 */
 .help-screenshot {
   margin-top: 16px;
