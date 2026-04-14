@@ -1,11 +1,11 @@
 {
-    "version": "0.5.8",
-    "notes": "MCP 첨부파일 읽기 기능 추가",
-    "pub_date": "2026-04-14T03:48:56.843Z",
+    "version": "0.5.9",
+    "notes": "학교 위젯 드래그 기능 수정",
+    "pub_date": "2026-04-14T23:30:57.032Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkUvZDNVSDBtOVpBQ0ZqUXEwY0lyQ3pEd2htSlNCSWRPZ2tCTDNTcnRiTW8rZ0JPYVlxSm54RW9VN29Hdkl3MlJiOW94amlRUE55ZDlzMDgvdXFqaHc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MTM4NzMyCWZpbGU6SHlwZXJDb29sXzAuNS44X3g2NF9lbi1VUy5tc2kKTi91L0dhNE1ZTG5GTXM2STl3YnFuTnF4cCtTSnRPZWtCU0NnU09SQ0RYQ3l1TkhaTmFHd3dkdFFERzZhQTYrK1MxdFNmY0lDNFFLSVVRczRzODRiQXc9PQo=",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.8/HyperCool_0.5.8_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkw3VktkbmljZW5nUW5INGhYMm1VMlNtODR0ZWVlSXlaekh1ZzhqaG8xaUwwczVlMlJYZUhZQ0JHdlI2eGlQb2xLVmFQZ0N2ajZNZjN6WVhCSkRlMWdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MjA5NjA3CWZpbGU6SHlwZXJDb29sXzAuNS45X3g2NF9lbi1VUy5tc2kKR3pING5adVJjMjNFYzF0M20raU83clNRZGI0T3BuOGROeWhKemkxUU1NeUpsQ0VYdEEvclhzNnlXQ0puaTc2TTJnbEtNQkVpQnI1TXdUM0tFaHBGREE9PQo=",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.9/HyperCool_0.5.9_x64_en-US.msi"
         }
     }
 }
