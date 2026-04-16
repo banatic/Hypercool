@@ -1,11 +1,11 @@
 {
-    "version": "0.5.10",
-    "notes": "MCP 날짜 범위 필터 오류 수정",
-    "pub_date": "2026-04-16T01:16:09.087Z",
+    "version": "0.5.11",
+    "notes": "MCP 이미지 조회 기능 추가 및 BMP 자동 변환 지원",
+    "pub_date": "2026-04-16T03:51:17.152Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk1KdWwyd3EvbTdoWXhkazZHOHIySGlPTEZ6VG90Y1ErWUd1ekM2a1NaTWhIN1NzVzc2MlR0U0N2VStnWkJwdkJ0KzEySnI2R1JCL1prbjBLb0lGdlE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzAyMzA3CWZpbGU6SHlwZXJDb29sXzAuNS4xMF94NjRfZW4tVVMubXNpCnZKaExPR2FvbEQxMHdmT2MxY0J3a0F6K1h2dkJocThuK25leHE5N3Z4R0kvQ1poV1FEUDBjUEJHSkJBc2l5N0xsVjBENGN4aEJjMnkrZnF5UXZ2S0JRPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.10/HyperCool_0.5.10_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkJFMGtvRzFldkFmTWYrRFppZDl1T1lUU2tJaTIwUHZKUWlNV1JUVm1xQU5zTEw1eGUzd1N2VFF3QTBmYnVuUUpzM0JXSUttSVNUaGJZUzZ4dEFsZHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzExNjYyCWZpbGU6SHlwZXJDb29sXzAuNS4xMV94NjRfZW4tVVMubXNpClIybVAyb2JnZGlycFp2amt4V1pzS1NWM29NYTNGZElzSm9vcHd4a1dHaFR5TnBKT2ovc3Y3ODBuUllHaExmeG9jWWI0L0JlejN6bzNCNDJtSjF6S0JBPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.11/HyperCool_0.5.11_x64_en-US.msi"
         }
     }
 }
