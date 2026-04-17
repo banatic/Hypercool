@@ -1,11 +1,11 @@
 {
-    "version": "0.5.12",
-    "notes": "MCP 도구 검색 개선: 영문 키워드 추가 및 get_messages images_only 파라미터 지원",
-    "pub_date": "2026-04-16T04:12:31.298Z",
+    "version": "0.5.13",
+    "notes": "에듀파인 공문 MCP 추가: 공문 자동 감지·저장·검색, AI 연동 관리 탭 신설, 결재 전 공문 필터",
+    "pub_date": "2026-04-17T03:42:07.096Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk1ZSE4rb0E1b0FSbDhnT2lEWGk4VktFbGQ3R2J1Z0RaeXp6V3RhbWRHaXU1NW1hZDkyTXJyREpGOEwyVG40cnBJVlY5WVVtRnhaQ1RQWjZGMXZMd3dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzEyOTAwCWZpbGU6SHlwZXJDb29sXzAuNS4xMl94NjRfZW4tVVMubXNpClVRZ0lXV04zZ0gvZTVHTWpOZkU1T1NYeHlKUlR0NjhYVzl2clJrYiszZnZ6Yk54RUcrWHlpMGY2cHc3QmJpUEJMa1FvMXVjZmVFeHZ3bGxrKzEyckR3PT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.12/HyperCool_0.5.12_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkkyMUNZTWVFWTJQTHlHUWZMVDhZTzlzcFlLejFZMmJLUG1qaWw4TC95NkYwa0ticmtFZkx1Y1pmUGMxa1Z2Y1ZDQlp3aTVOUkNMUEk1cTh2bk1UQUE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2Mzk3NDU4CWZpbGU6SHlwZXJDb29sXzAuNS4xM194NjRfZW4tVVMubXNpCjFyTkYxS3JtUUFTSW1lZTRUeVF6Q3JmUUJJdHVUZklTY1ltalp1eVVpSTdZL0ljR1BOWkRRaHhMdytxM1NFWnFPNElhOEN5bmlBVEJDNldRTXFSV0FnPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.13/HyperCool_0.5.13_x64_en-US.msi"
         }
     }
 }
