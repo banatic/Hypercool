@@ -5,6 +5,10 @@ use serde::{Serialize, Deserialize};
 use chrono::{Utc, Datelike};
 use crate::commands::system::{get_registry_value, set_registry_value};
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+static FONT_TAG_REGEX: OnceLock<regex::Regex> = OnceLock::new();
+static FONT_COLOR_REGEX: OnceLock<regex::Regex> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScheduleItem {
@@ -272,7 +276,7 @@ fn strip_desktopcal_markup(s: &str) -> String {
     result = result.replace("|&quot;|", "\"");
     result = result.replace("|&amp;|", "&");
     // Strip <font ...>...</font> tags
-    let re_font = regex::Regex::new(r"<font[^>]*>").unwrap();
+    let re_font = FONT_TAG_REGEX.get_or_init(|| regex::Regex::new(r"<font[^>]*>").unwrap());
     result = re_font.replace_all(&result, "").to_string();
     result = result.replace("</font>", "");
     result.trim().to_string()
@@ -282,7 +286,7 @@ fn strip_desktopcal_markup(s: &str) -> String {
 /// e.g. `|&lt;|font color=|&quot;|#FFD700|&quot;||&gt;|text|&lt;|/font|&gt;|` → Some("#FFD700")
 fn extract_desktopcal_color(s: &str) -> Option<String> {
     let decoded = s.replace("|&quot;|", "\"").replace("|&lt;|", "<").replace("|&gt;|", ">");
-    let re = regex::Regex::new(r#"color="(#[0-9A-Fa-f]{6})""#).unwrap();
+    let re = FONT_COLOR_REGEX.get_or_init(|| regex::Regex::new(r#"color="(#[0-9A-Fa-f]{6})""#).unwrap());
     re.captures(&decoded).map(|c| c[1].to_string())
 }
 

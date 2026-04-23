@@ -521,9 +521,9 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.8",
-        notes="MCP 첨부파일 읽기 기능 추가",
-        pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다. 
+        version="0.5.13",
+        notes="에듀파인 공문 MCP 추가: 공문 자동 감지·저장·검색, AI 연동 관리 탭 신설, 결재 전 공문 필터",
+        pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,
         bundle_dir=Path("src-tauri/target/release/bundle/msi"),

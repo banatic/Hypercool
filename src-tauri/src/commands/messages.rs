@@ -204,15 +204,6 @@ fn read_from_recv_only(
         "".to_string()
     };
 
-    let total_count_sql = format!("SELECT COUNT(MessageKey) FROM tbl_recv {}", where_clause);
-    let _total_count: i64 = conn
-        .query_row(
-            &total_count_sql,
-            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
-            |row| row.get(0),
-        )
-        .map_err(|e| format!("총 메시지 수 조회 실패: {}", e))?;
-
     params.push(Box::new(limit.unwrap_or(50)));
     params.push(Box::new(offset.unwrap_or(0)));
 

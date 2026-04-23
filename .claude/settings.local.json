@@ -11,7 +11,13 @@
       "Bash(cargo build:*)",
       "Bash(curl -s \"https://docs.rs/lopdf/latest/lopdf/\")",
       "Bash(curl -s \"https://docs.rs/calamine/latest/calamine/\")",
-      "Bash(reg query:*)"
+      "Bash(reg query:*)",
+      "Bash(sed -n '30,45p' D:/dev/hypercool/src/CalendarWidget.css)",
+      "Bash(sed -n '383,425p' D:/dev/hypercool/src/CalendarWidget.css)",
+      "Bash(curl -s https://raw.githubusercontent.com/srbhptl39/MCP-SuperAssistant/main/README.md)",
+      "Bash(grep -n \"base64\" D:/dev/hypercool/src-tauri/src/*.rs)",
+      "Bash(npx tsc *)",
+      "Read(//d/dev/tenorpicker/**)"
     ]
   }
 }

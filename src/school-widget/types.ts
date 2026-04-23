@@ -35,7 +35,7 @@ export interface AppinData {
   days: Record<string, Record<string, Record<string, AppinTimetableSlot>>>;
 }
 
-export type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings';
+export type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings' | 'stock';
 
 export type CatDirection = 'down' | 'right' | 'up' | 'left';
 export type CatActionPhase = 'enter' | 'hold' | 'exit';

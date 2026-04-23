@@ -2,7 +2,10 @@ use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use chrono::Datelike;
+
+static ALLERGY_REGEX: OnceLock<regex::Regex> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MealData {
@@ -55,7 +58,7 @@ pub fn fetch_meal_data(date: &str, atpt_code: &str, school_code: &str) -> Result
                     let menu = ddish_nm.replace("<br/>", "\n");
                     
                     // 알레르기 정보 제거 (괄호 안의 숫자 제거)
-                    let re = regex::Regex::new(r"\s*\([^)]*\)").unwrap();
+                    let re = ALLERGY_REGEX.get_or_init(|| regex::Regex::new(r"\s*\([^)]*\)").unwrap());
                     let menu = re.replace_all(&menu, "").to_string();
                     
                     // 중식/석식 구분
@@ -442,6 +445,263 @@ pub fn fetch_points_data(grade: &str, class: &str) -> Result<(Vec<PointsData>, S
 
 
     
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StockQuote {
+    pub symbol: String,
+    pub short_name: String,
+    pub regular_market_price: f64,
+    pub regular_market_change_percent: f64,
+    pub pre_market_price: Option<f64>,
+    pub pre_market_change_percent: Option<f64>,
+    pub post_market_price: Option<f64>,
+    pub post_market_change_percent: Option<f64>,
+    pub market_state: String,
+    pub currency: String,
+}
+
+fn make_client() -> reqwest::blocking::Client {
+    reqwest::blocking::ClientBuilder::new()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .unwrap_or_default()
+}
+
+/// 미국 동부 시간(ET) 기준 시장 상태 추정 (공휴일 미반영)
+fn us_market_state() -> &'static str {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    // 미국 동부: 대략 UTC-5 (DST 무시)
+    let et = unix - 5 * 3600;
+    let dow = ((et / 86400 + 4) % 7) as u32; // 0=Sun
+    if dow == 0 || dow == 6 {
+        return "CLOSED";
+    }
+    let mins = ((et % 86400) / 60) as u32;
+    match mins {
+        240..=569  => "PRE",     // 04:00–09:30
+        570..=959  => "REGULAR", // 09:30–16:00
+        960..=1199 => "POST",    // 16:00–20:00
+        _          => "CLOSED",
+    }
+}
+
+// ─── Nasdaq.com 내부 API (미국주식, 장외시간 포함) ──────────────────────────
+fn parse_dollar(s: &str) -> Option<f64> {
+    s.replace('$', "").replace(',', "").trim().parse().ok()
+}
+
+fn parse_pct(s: &str) -> Option<f64> {
+    s.replace('%', "").replace('+', "").trim().parse().ok()
+}
+
+fn fetch_nasdaq_symbol(client: &reqwest::blocking::Client, sym: &str) -> Option<StockQuote> {
+    // stocks → etf 순으로 시도
+    for asset_class in &["stocks", "etf"] {
+        let url = format!(
+            "https://api.nasdaq.com/api/quote/{}/info?assetclass={}",
+            sym.to_uppercase(),
+            asset_class
+        );
+        let Ok(resp) = client
+            .get(&url)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://www.nasdaq.com")
+            .send()
+        else {
+            continue;
+        };
+        let Ok(text) = resp.text() else { continue };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+
+        let data = &json["data"];
+        if data.is_null() {
+            continue;
+        }
+
+        let company_name = data["companyName"]
+            .as_str()
+            .unwrap_or(sym)
+            .to_string();
+
+        let primary = &data["primaryData"];
+        let price = parse_dollar(primary["lastSalePrice"].as_str().unwrap_or("0"))?;
+        let change_pct = parse_pct(primary["percentageChange"].as_str().unwrap_or("0%"))
+            .unwrap_or(0.0);
+
+        // secondaryData = 장외 (Pre-Market / After Hours)
+        let secondary = &data["secondaryData"];
+        let (pre_price, pre_pct, post_price, post_pct, market_state) =
+            if secondary.is_null() || !secondary.is_object() {
+                (None, None, None, None, us_market_state().to_string())
+            } else {
+                let label = secondary["label"].as_str().unwrap_or("");
+                let ext_price = secondary["lastSalePrice"]
+                    .as_str()
+                    .and_then(|s| parse_dollar(s));
+                let ext_pct = secondary["percentageChange"]
+                    .as_str()
+                    .and_then(|s| parse_pct(s));
+
+                if label.to_lowercase().contains("pre") {
+                    (ext_price, ext_pct, None, None, "PRE".to_string())
+                } else {
+                    // "After Hours" or similar
+                    (None, None, ext_price, ext_pct, "POST".to_string())
+                }
+            };
+
+        return Some(StockQuote {
+            symbol: sym.to_string(),
+            short_name: company_name,
+            regular_market_price: price,
+            regular_market_change_percent: change_pct,
+            pre_market_price: pre_price,
+            pre_market_change_percent: pre_pct,
+            post_market_price: post_price,
+            post_market_change_percent: post_pct,
+            market_state,
+            currency: "USD".to_string(),
+        });
+    }
+    None
+}
+
+fn fetch_us_from_nasdaq(symbols: &[String]) -> Result<Vec<StockQuote>, String> {
+    let us_syms: Vec<&String> = symbols.iter().filter(|s| !is_kr_symbol(s)).collect();
+    if us_syms.is_empty() {
+        return Ok(vec![]);
+    }
+    let client = make_client();
+    let results: Vec<StockQuote> = us_syms
+        .iter()
+        .filter_map(|s| fetch_nasdaq_symbol(&client, s))
+        .collect();
+
+    if results.is_empty() {
+        Err("Nasdaq API에서 데이터를 가져오지 못했습니다 (네트워크 차단 또는 잘못된 종목코드)".to_string())
+    } else {
+        Ok(results)
+    }
+}
+
+// ─── 네이버 Finance API (한국주식) ───────────────────────────────────────────
+fn is_kr_symbol(s: &str) -> bool {
+    let base = s.trim_end_matches(".KS").trim_end_matches(".KQ");
+    base.len() == 6 && base.chars().all(|c| c.is_ascii_digit())
+}
+
+fn fetch_kr_from_naver(symbols: &[String]) -> Vec<StockQuote> {
+    let kr_symbols: Vec<&String> = symbols.iter().filter(|s| is_kr_symbol(s)).collect();
+    if kr_symbols.is_empty() {
+        return vec![];
+    }
+
+    let client = make_client();
+    let mut results = Vec::new();
+
+    for sym in kr_symbols {
+        let code = sym
+            .trim_end_matches(".KS")
+            .trim_end_matches(".KQ");
+
+        // 네이버 실시간 주가 API
+        let url = format!(
+            "https://polling.finance.naver.com/api/realtime/domestic/stock/{}",
+            code
+        );
+        let resp = client
+            .get(&url)
+            .header("Referer", "https://finance.naver.com")
+            .send();
+
+        let Ok(resp) = resp else { continue };
+        let Ok(text) = resp.text() else { continue };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+
+        let Some(data) = json["datas"].as_array().and_then(|a| a.first()) else { continue };
+
+        let price_str = data["closePrice"].as_str().unwrap_or("0").replace(',', "");
+        let Ok(price) = price_str.parse::<f64>() else { continue };
+
+        let change_pct: f64 = data["fluctuationsRatio"]
+            .as_str()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
+
+        let name = data["stockName"]
+            .as_str()
+            .unwrap_or(code)
+            .to_string();
+
+        // 한국 주식은 장 중/마감 여부 판단 (KST = UTC+9)
+        let market_state = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let unix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let kst = unix + 9 * 3600;
+            let dow = ((kst / 86400 + 4) % 7) as u32;
+            let mins = ((kst % 86400) / 60) as u32;
+            if dow == 0 || dow == 6 {
+                "CLOSED"
+            } else if (540..=930).contains(&mins) {
+                "REGULAR" // 09:00–15:30
+            } else {
+                "CLOSED"
+            }
+        };
+
+        results.push(StockQuote {
+            symbol: sym.clone(),
+            short_name: name,
+            regular_market_price: price,
+            regular_market_change_percent: change_pct,
+            pre_market_price: None,
+            pre_market_change_percent: None,
+            post_market_price: None,
+            post_market_change_percent: None,
+            market_state: market_state.to_string(),
+            currency: "KRW".to_string(),
+        });
+    }
+
+    results
+}
+
+pub fn fetch_stock_data(symbols: &[String]) -> Result<Vec<StockQuote>, String> {
+    let mut results: Vec<StockQuote> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    // 한국 주식: 네이버 Finance
+    let kr = fetch_kr_from_naver(symbols);
+    results.extend(kr);
+
+    // 미국 주식: Nasdaq.com API
+    match fetch_us_from_nasdaq(symbols) {
+        Ok(us) => results.extend(us),
+        Err(e) => errors.push(e),
+    }
+
+    if results.is_empty() && !errors.is_empty() {
+        return Err(errors.join(" / "));
+    }
+
+    // 원래 symbols 순서로 정렬
+    results.sort_by_key(|q| symbols.iter().position(|s| s == &q.symbol).unwrap_or(usize::MAX));
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn get_stock_quotes(symbols: Vec<String>) -> Result<Vec<StockQuote>, String> {
+    fetch_stock_data(&symbols)
+}
+
 #[tauri::command]
 pub fn get_meal_data(date: String, atpt_code: String, school_code: String) -> Result<MealData, String> {
     fetch_meal_data(&date, &atpt_code, &school_code)

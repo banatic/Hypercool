@@ -1,11 +1,15 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use hypercool::commands::{messages, system, window};
+use hypercool::commands::{messages, mcp as mcp_commands, system, window};
 use hypercool::db;
+use hypercool::edufine_db;
+use hypercool::gif_clipboard;
+use hypercool::gif_watcher;
 use hypercool::models::CacheState;
 use hypercool::school_data;
 use hypercool::search_db;
+use hypercool::tenor;
 use hypercool::timetable_parser;
 use hypercool::appin_parser;
 use hypercool::utils::is_class_time;
@@ -29,6 +33,37 @@ use winreg::enums::*;
 use winreg::RegKey;
 
 const REG_BASE: &str = r"Software\\HyperCool";
+
+#[tauri::command]
+async fn cmd_search_tenor(query: String, offset: u32) -> Result<serde_json::Value, String> {
+    tenor::search_tenor(&query, offset).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn cmd_copy_html(html: String) -> Result<(), String> {
+    gif_clipboard::copy_html_to_clipboard(&html).map_err(|e| e.to_string())
+}
+
+/// gif-btn-N 클릭 시 페어 gif-widget-N을 토글. 새 visibility(bool)를 반환.
+#[tauri::command]
+fn toggle_gif_panel(app: tauri::AppHandle, btn_label: String) -> Result<bool, String> {
+    let widget_label = btn_label.replace("gif-btn", "gif-widget");
+    let btn_win = app.get_webview_window(&btn_label)
+        .ok_or_else(|| format!("{} not found", btn_label))?;
+    let panel_win = app.get_webview_window(&widget_label)
+        .ok_or_else(|| format!("{} not found", widget_label))?;
+
+    if panel_win.is_visible().unwrap_or(false) {
+        let _ = panel_win.hide();
+        Ok(false)
+    } else {
+        let btn_pos = btn_win.outer_position().map_err(|e| e.to_string())?;
+        let (px, py) = gif_watcher::compute_panel_position(btn_pos.x, btn_pos.y);
+        let _ = panel_win.set_position(tauri::PhysicalPosition::new(px, py));
+        panel_win.show().map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
 
 fn main() {
     hypercool::dummy_window::init();
@@ -98,12 +133,23 @@ fn main() {
             search_db::read_cached_messages,
             search_db::get_cached_message_count,
             search_db::is_cache_ready,
-            
+
+            mcp_commands::get_mcp_status,
+            mcp_commands::toggle_edufine_mcp,
+            mcp_commands::get_edufine_stats,
+            mcp_commands::list_edufine_docs_recent,
+            mcp_commands::open_edufine_watch_dir,
+
             timetable_parser::get_timetable_data,
             appin_parser::get_appin_timetable_data,
             school_data::get_meal_data,
             school_data::get_attendance_data,
             school_data::get_points_data,
+            school_data::get_stock_quotes,
+
+            cmd_search_tenor,
+            cmd_copy_html,
+            toggle_gif_panel,
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -126,10 +172,72 @@ fn main() {
                 // Don't return error - search is optional
             }
 
-            // Start MCP server (read-only access to messages via HTTP)
+            // Initialize Edufine DB + restore watcher state + start MCP server
             if let Ok(app_data_dir) = app.path().app_data_dir() {
-                let db_path = app_data_dir.join("hypercool_search.db");
-                hypercool::mcp_server::start(db_path, 3737);
+                let search_db_path = app_data_dir.join("hypercool_search.db");
+                let edufine_db_path = app_data_dir.join("edufine_docs.db");
+
+                if let Err(e) = edufine_db::init_db(&edufine_db_path) {
+                    eprintln!("[Edufine] DB 초기화 실패: {}", e);
+                }
+
+                mcp_commands::restore_edufine_state(app.app_handle());
+                hypercool::mcp_server::start(search_db_path, edufine_db_path, 3737);
+            }
+
+            // gif-btn-N / gif-widget-N 쌍 생성 (각 N은 메시지 전송창 하나에 대응)
+            {
+                let make_url = |path: &str| -> tauri::WebviewUrl {
+                    if cfg!(dev) {
+                        tauri::WebviewUrl::External(
+                            format!("http://localhost:1420/{}", path).parse().unwrap()
+                        )
+                    } else {
+                        tauri::WebviewUrl::App(path.into())
+                    }
+                };
+
+                for &btn_label in gif_watcher::POOL {
+                    let widget_label = btn_label.replace("gif-btn", "gif-widget");
+
+                    // gif-btn: 오버레이 버튼 (shadow 없음)
+                    let btn_win = tauri::WebviewWindowBuilder::new(
+                        app, btn_label, make_url("gif-btn.html"))
+                        .title("GIF 버튼")
+                        .inner_size(70.0, 27.0)
+                        .resizable(false)
+                        .decorations(false)
+                        .transparent(true)
+                        .shadow(false)
+                        .skip_taskbar(true)
+                        .visible(false)
+                        .build()
+                        .ok();
+
+                    // gif-widget: GIF 검색 패널 (shadow 없음 — CSS box-shadow로만 처리)
+                    let widget_win = tauri::WebviewWindowBuilder::new(
+                        app, &widget_label, make_url("gif-widget.html"))
+                        .title("GIF 위젯")
+                        .inner_size(420.0, 580.0)
+                        .resizable(false)
+                        .decorations(false)
+                        .transparent(true)
+                        .shadow(false)
+                        .skip_taskbar(true)
+                        .visible(false)
+                        .build()
+                        .ok();
+
+                    // owner chain: gif-widget-N의 owner = gif-btn-N (영구 설정)
+                    if let (Some(btn), Some(widget)) = (btn_win, widget_win) {
+                        gif_watcher::set_panel_owner(&widget, &btn);
+                    }
+                }
+
+                let gif_app = app.app_handle().clone();
+                std::thread::spawn(move || {
+                    gif_watcher::start_watcher(gif_app);
+                });
             }
 
             // Apply window vibrancy (Windows: Acrylic; macOS: Vibrancy; fallback: Blur)

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ClassifyIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon, HelpIcon } from './icons';
+import { ClassifyIcon, HistoryIcon, SettingsIcon, CollapseIcon, CalendarIcon, SchoolIcon, McpIcon } from './icons';
 import { Page } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -77,8 +77,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ page, setPage, sidebarCollapse
         >
           <span className="icon"><SchoolIcon /></span><span className="label">학교 위젯</span>
         </button>
-        <button className={page === 'help' ? 'active' : ''} onClick={() => setPage('help')}>
-          <span className="icon"><HelpIcon /></span><span className="label">MCP 도움말</span>
+        <button className={page === 'mcp' ? 'active' : ''} onClick={() => setPage('mcp')}>
+          <span className="icon"><McpIcon /></span><span className="label">AI 연동</span>
         </button>
         <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
           <span className="icon"><SettingsIcon /></span><span className="label">설정</span>

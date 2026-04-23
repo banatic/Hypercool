@@ -15,6 +15,7 @@ import TimetableTab from './school-widget/tabs/TimetableTab';
 import AttendanceTab from './school-widget/tabs/AttendanceTab';
 import PointsTab from './school-widget/tabs/PointsTab';
 import SettingsTab from './school-widget/tabs/SettingsTab';
+import StockTab from './school-widget/tabs/StockTab';
 import { useCatAnimation } from './school-widget/hooks/useCatAnimation';
 
 export default function SchoolWidget() {
@@ -37,7 +38,7 @@ export default function SchoolWidget() {
 
   // If active tab gets disabled, switch to first available enabled tab
   useEffect(() => {
-    if (activeTab !== 'settings' && !enabledTabs.includes(activeTab)) {
+    if (activeTab !== 'settings' && activeTab !== 'stock' && !enabledTabs.includes(activeTab)) {
       const first = enabledTabs[0] ?? 'settings';
       handleTabChange(first as Tab);
     }
@@ -159,6 +160,14 @@ export default function SchoolWidget() {
   const [todos, setTodos] = useState<ScheduleItem[]>([]);
   const [newTodoText, setNewTodoText] = useState('');
 
+  const [stockUnlocked, setStockUnlocked] = useState(() => localStorage.getItem('stockUnlocked') === 'true');
+
+  const handleUnlockStock = () => {
+    setStockUnlocked(true);
+    localStorage.setItem('stockUnlocked', 'true');
+    handleTabChange('stock');
+  };
+
   const [loadingStates, setLoadingStates] = useState({ todo: false, timetable: false, meal: false, attendance: false, points: false });
   const [errorStates, setErrorStates] = useState({ timetable: false, meal: false, attendance: false, points: false });
   const [dataLoaded, setDataLoaded] = useState({ todo: false, timetable: false, appin: false, meal: false, attendance: false, points: false });
@@ -184,7 +193,11 @@ export default function SchoolWidget() {
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
     let lastCall = 0;
-    const sendToBottom = () => {
+    const sendToBottom = (e?: Event) => {
+      // tab-bar에서 startDragging()이 호출될 수 있으므로 건너뜀
+      if (e instanceof MouseEvent && (e.target as HTMLElement).closest('.tab-bar')) {
+        return;
+      }
       const now = Date.now();
       if (now - lastCall < 500) return;
       lastCall = now;
@@ -459,7 +472,13 @@ export default function SchoolWidget() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="school-widget-container">
-      <TabBar activeTab={activeTab} enabledTabs={enabledTabs} onTabChange={handleTabChange} />
+      <TabBar
+        activeTab={activeTab}
+        enabledTabs={enabledTabs}
+        onTabChange={handleTabChange}
+        stockUnlocked={stockUnlocked}
+        onUnlockStock={handleUnlockStock}
+      />
 
       <div className="tab-content">
         {activeTab === 'todo' && (
@@ -513,6 +532,7 @@ export default function SchoolWidget() {
             onRefresh={() => fetchPoints(true)}
           />
         )}
+        {activeTab === 'stock' && <StockTab />}
         {activeTab === 'settings' && (
           <SettingsTab
             timetableSource={timetableSource}
@@ -592,7 +612,11 @@ export default function SchoolWidget() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+// HMR-safe: reuse the existing root instead of creating a new one
+const rootEl = document.getElementById('root')!;
+const root = (rootEl as any).__viteReactRoot ?? ReactDOM.createRoot(rootEl);
+(rootEl as any).__viteReactRoot = root;
+root.render(
   <React.StrictMode>
     <SchoolWidget />
   </React.StrictMode>

@@ -1902,7 +1902,7 @@ function CalendarWidgetApp() {
     const handleMouseDown = async (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // 핀 버튼 자체는 드래그하지 않음
-      if (target.closest('.calendar-pin-btn')) {
+      if (target.closest('.calendar-pin-btn') || target.closest('.calendar-nav-btn')) {
         return;
       }
       // 핀이 고정된 상태에서만 드래그 가능
@@ -1921,7 +1921,10 @@ function CalendarWidgetApp() {
   return <CalendarWidget isPinned={isPinned} onPinnedChange={setIsPinned} />;
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root')!;
+const root = (rootEl as any).__viteReactRoot ?? ReactDOM.createRoot(rootEl);
+(rootEl as any).__viteReactRoot = root;
+root.render(
   <React.StrictMode>
     <CalendarWidgetApp />
   </React.StrictMode>

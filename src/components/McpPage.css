@@ -1,0 +1,493 @@
+.mcp-page {
+  padding: 24px 28px 48px;
+  color: var(--text-primary, #e0e0e0);
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* 헤더는 드래그 가능, 섹션(버튼/토글 포함)은 no-drag */
+.mcp-sections {
+  -webkit-app-region: no-drag;
+}
+
+/* 헤더 */
+.mcp-header {
+  margin-bottom: 20px;
+}
+
+.mcp-header h2 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: var(--text-primary, #fff);
+}
+
+.mcp-server-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.mcp-server-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mcp-server-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.mcp-server-port {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.78rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 상태 점 */
+.mcp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mcp-dot--on {
+  background: #48bb78;
+  box-shadow: 0 0 6px rgba(72, 187, 120, 0.6);
+}
+
+.mcp-dot--off {
+  background: #4a5568;
+}
+
+/* 섹션 */
+.mcp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-section {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mcp-section--help {
+  border-color: rgba(99, 179, 237, 0.2);
+}
+
+.mcp-section-header {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  gap: 12px;
+}
+
+.mcp-section-header--btn {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: inherit;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s;
+  justify-content: flex-start;
+}
+
+.mcp-section-header--btn:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mcp-section-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-section-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.3;
+}
+
+.mcp-section-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+  margin-top: 2px;
+}
+
+/* 토글 스위치 */
+.mcp-toggle {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.mcp-toggle--on {
+  background: #48bb78;
+}
+
+.mcp-toggle--off {
+  background: #4a5568;
+}
+
+.mcp-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mcp-toggle-knob {
+  position: absolute;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  transition: left 0.2s;
+}
+
+.mcp-toggle--on .mcp-toggle-knob {
+  left: 23px;
+}
+
+.mcp-toggle--off .mcp-toggle-knob {
+  left: 3px;
+}
+
+
+/* 에듀파인 바디 */
+.mcp-edufine-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-watch-dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.mcp-watch-dir-label {
+  font-size: 0.76rem;
+  color: var(--text-secondary, #888);
+  flex-shrink: 0;
+}
+
+.mcp-watch-dir-path {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.75rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-open-dir-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.1s;
+  flex-shrink: 0;
+}
+
+.mcp-open-dir-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mcp-last-detected {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #666);
+  margin-bottom: 10px;
+}
+
+
+.mcp-edufine-hint {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+  line-height: 1.7;
+}
+
+.mcp-edufine-hint code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.78rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* 도움말 아이콘 */
+.mcp-help-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(99, 179, 237, 0.15);
+  color: #63b3ed;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mcp-chevron {
+  font-size: 0.7rem;
+  color: var(--text-secondary, #888);
+}
+
+/* 도움말 바디 */
+.mcp-help-body {
+  border-top: 1px solid rgba(99, 179, 237, 0.15);
+  padding: 16px;
+}
+
+/* Auto Setup */
+.mcp-auto-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: rgba(99, 179, 237, 0.05);
+  border: 1px solid rgba(99, 179, 237, 0.15);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.mcp-auto-setup-label {
+  font-size: 0.84rem;
+  color: var(--text-secondary, #aaa);
+  text-align: center;
+}
+
+.mcp-auto-setup-btn {
+  padding: 9px 24px;
+  border-radius: 7px;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  background: #3b82f6;
+  color: #fff;
+  min-width: 150px;
+}
+
+.mcp-auto-setup-btn:hover:not(:disabled) { background: #2563eb; }
+.mcp-auto-setup-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.mcp-auto-setup-btn--success, .mcp-auto-setup-btn--already { background: #16a34a; }
+.mcp-auto-setup-btn--error { background: #dc2626; }
+
+.mcp-auto-setup-result {
+  border-radius: 7px;
+  padding: 10px 14px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-auto-setup-result--ok { background: #14532d; border: 1px solid #16a34a; }
+.mcp-auto-setup-result--error { background: #450a0a; border: 1px solid #dc2626; }
+
+.mcp-auto-setup-result-title { font-size: 0.88rem; font-weight: 700; color: #fff; }
+.mcp-auto-setup-result-path {
+  font-size: 0.72rem;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  color: #cbd5e1;
+  background: #0f1923;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 5px 8px;
+  word-break: break-all;
+}
+.mcp-auto-setup-result-error { font-size: 0.8rem; color: #fca5a5; }
+.mcp-auto-setup-divider {
+  font-size: 0.76rem;
+  color: rgba(160,160,160,0.45);
+  text-align: center;
+}
+
+/* Node.js */
+.mcp-node-ok {
+  font-size: 0.84rem;
+  color: #86efac;
+  margin-bottom: 12px;
+}
+
+.mcp-node-warning {
+  display: flex;
+  gap: 8px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.84rem;
+  color: #fde68a;
+  line-height: 1.6;
+}
+
+/* 도움말 단계 */
+.mcp-help-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mcp-help-step {
+  display: flex;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mcp-help-step:last-child { border-bottom: none; }
+
+.mcp-step-num {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(99, 179, 237, 0.15);
+  color: #63b3ed;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.mcp-step-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  margin-bottom: 5px;
+}
+
+.mcp-step-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #aaa);
+  line-height: 1.65;
+  margin-bottom: 6px;
+}
+
+.mcp-step-desc:last-child { margin-bottom: 0; }
+
+.mcp-step-desc strong { color: var(--text-primary, #e0e0e0); font-weight: 600; }
+
+.mcp-step-desc code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.78rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* 코드 블록 */
+.mcp-code-block {
+  background: #141e2b;
+  border: 1px solid #2d4060;
+  border-radius: 7px;
+  padding: 8px 12px;
+  margin: 5px 0 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.mcp-code-block code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.8rem;
+  color: #7ec8f0;
+  flex: 1;
+  background: transparent;
+  padding: 0;
+}
+
+.mcp-code-block--pre {
+  align-items: flex-start;
+}
+
+.mcp-code-block--pre pre {
+  margin: 0;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.78rem;
+  color: #7dbb8a;
+  line-height: 1.55;
+  flex: 1;
+  white-space: pre;
+}
+
+.mcp-copy-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  color: #ccc;
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.mcp-copy-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.mcp-copy-btn.copied { background: rgba(72, 187, 120, 0.2); border-color: rgba(72, 187, 120, 0.4); color: #48bb78; }
+
+/* 예시 질문 */
+.mcp-examples {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mcp-examples-title {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mcp-example {
+  background: rgba(99, 179, 237, 0.07);
+  border-left: 3px solid rgba(99, 179, 237, 0.4);
+  border-radius: 0 6px 6px 0;
+  padding: 7px 11px;
+  font-size: 0.82rem;
+  color: #90cdf4;
+  font-style: italic;
+}

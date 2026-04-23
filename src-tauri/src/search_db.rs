@@ -1,10 +1,14 @@
 use rusqlite::{params, Connection, Result as SqliteResult};
 use tauri::{AppHandle, Manager};
 use serde::{Serialize, Deserialize};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use crate::models::SearchResultItem;
 use crate::utils::{decompress_brotli, decode_comp_zlib_utf16le, parse_file_paths};
+
+static TAG_REGEX: OnceLock<regex::Regex> = OnceLock::new();
+static SEARCH_DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 /// Sync statistics returned after synchronization
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -44,10 +48,13 @@ fn get_search_db_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app_dir.join("hypercool_search.db"))
 }
 
-/// Get a connection to the search database
-fn get_connection(app: &AppHandle) -> Result<Connection, String> {
-    let db_path = get_search_db_path(app)?;
-    Connection::open(db_path).map_err(|e| e.to_string())
+/// Get the shared connection to the search database
+fn get_connection(_app: &AppHandle) -> Result<std::sync::MutexGuard<'static, Connection>, String> {
+    SEARCH_DB
+        .get()
+        .ok_or_else(|| "Search DB not initialized".to_string())?
+        .lock()
+        .map_err(|e| format!("DB 잠금 실패: {}", e))
 }
 
 /// Initialize the search database schema with FTS5
@@ -131,7 +138,10 @@ pub fn init_search_db(app: &AppHandle) -> Result<(), String> {
         "CREATE INDEX IF NOT EXISTS idx_messages_receive_date ON messages(receive_date);
          CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);"
     ).map_err(|e| format!("인덱스 생성 실패: {}", e))?;
-    
+
+    // Store the connection in the global pool (ignore error if already initialized)
+    let _ = SEARCH_DB.set(Mutex::new(conn));
+
     Ok(())
 }
 
@@ -223,7 +233,10 @@ pub fn sync_from_udb(app: &AppHandle, udb_path: String) -> Result<SyncStats, Str
         return Err(format!("UDB 파일을 찾을 수 없습니다: {}", udb_path));
     }
     
-    let search_conn = get_connection(app)?;
+    // Use a dedicated write connection — keeps the shared read connection unlocked during bulk inserts
+    let search_conn = Connection::open(get_search_db_path(app)?)
+        .map_err(|e| format!("Search DB 쓰기 연결 실패: {}", e))?;
+    search_conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
     let udb_conn = Connection::open(&udb_path).map_err(|e| format!("UDB 연결 실패: {}", e))?;
     
     // Check if tbl_recv exists in UDB
@@ -379,8 +392,7 @@ pub fn search_messages_fts(
 
 /// Strip HTML tags from text, including truncated tags at start/end
 fn strip_html_tags(input: &str) -> String {
-    use regex::Regex;
-    
+
     // Skip JSON-like content (shouldn't be displayed as snippet)
     let trimmed = input.trim();
     if trimmed.starts_with('{') || trimmed.starts_with('[') || 
@@ -390,7 +402,7 @@ fn strip_html_tags(input: &str) -> String {
     }
     
     // Remove complete HTML tags
-    let tag_regex = Regex::new(r"<[^>]*>").unwrap();
+    let tag_regex = TAG_REGEX.get_or_init(|| regex::Regex::new(r"<[^>]*>").unwrap());
     let mut result = tag_regex.replace_all(input, "").to_string();
     
     // Remove truncated tag at the END: "<div style=..."

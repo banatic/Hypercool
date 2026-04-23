@@ -83,8 +83,11 @@ export const SyncService = {
 
         // 3. Process Remote Changes (Update Local)
         console.log(`DEBUG: Processing ${remoteItems.length} remote items`);
+        const localMap = new Map(localItems.map(i => [i.id, i]));
+        const remoteMap = new Map(remoteItems.map(i => [i.id, i]));
+
         for (const remote of remoteItems) {
-            const local = localItems.find(i => i.id === remote.id);
+            const local = localMap.get(remote.id);
 
             if (!local) {
                 // New from remote
@@ -105,24 +108,14 @@ export const SyncService = {
         }
 
         // 4. Process Local Changes (Push to Remote)
-        // We need to re-fetch local items if we updated them? 
-        // Or just track what we updated.
-        // Actually, we only push items that were NOT updated from remote just now.
-
         const localItemsToPush = localItems.filter(local => {
-            // If we just updated it from remote, local.updatedAt matches remote.updatedAt (roughly).
-            // But we updated it in DB, so `localItems` array is stale for those.
-            // But we want to push items that are NEWER than lastSyncTime AND NOT updated from remote.
-
-            // If lastSyncTime is null, push everything (except what we just pulled).
             if (!lastSyncTime) return true;
-
             return new Date(local.updatedAt) > new Date(lastSyncTime);
         });
 
         for (const local of localItemsToPush) {
             // Check if we just updated this from remote
-            const remote = remoteItems.find(r => r.id === local.id);
+            const remote = remoteMap.get(local.id);
             if (remote) {
                 const remoteTime = new Date(remote.updatedAt).getTime();
                 const localTime = new Date(local.updatedAt).getTime();

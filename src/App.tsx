@@ -8,6 +8,7 @@ import { ClassifierPage } from './components/ClassifierPage';
 import { HistoryPage } from './components/HistoryPage';
 import { SettingsPage } from './components/SettingsPage';
 import { HelpPage } from './components/HelpPage';
+import { McpPage } from './components/McpPage';
 import { ScheduleModal } from './components/ScheduleModal';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { AuthService } from './auth/AuthService';
@@ -289,6 +290,7 @@ function App() {
           />
         )}
         {page === 'help' && <HelpPage />}
+        {page === 'mcp' && <McpPage />}
         {page === 'settings' && (
           <SettingsPage
             udbPath={udbPath}

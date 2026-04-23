@@ -47,8 +47,8 @@ body {
 
 /* Tab Bar */
 .tab-bar {
-    -webkit-app-region: drag;
     display: flex;
+    cursor: move;
     background: rgba(40, 40, 50, 0.2);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -68,7 +68,6 @@ body {
     cursor: pointer;
     transition: all 0.2s;
     border-bottom: 2px solid transparent;
-    -webkit-app-region: no-drag;
 }
 
 .tab:hover {
@@ -549,7 +548,7 @@ body {
 }
 
 .room-name {
-    font-size: 0.63rem;
+    font-size: 0.8rem;
     color: rgba(255, 255, 255, 0.52);
     margin-top: 2px;
 }

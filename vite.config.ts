@@ -46,6 +46,8 @@ export default defineConfig(async () => ({
         main: './index.html',
         'calendar-widget': './calendar-widget.html',
         'school-widget': './school-widget.html',
+        'gif-widget': './gif-widget.html',
+        'gif-btn': './gif-btn.html',
       },
     },
   },

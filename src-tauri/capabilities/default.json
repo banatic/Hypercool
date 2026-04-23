@@ -12,6 +12,7 @@
     "shell:allow-open",
     "deep-link:default",
     "core:window:allow-hide",
-    "core:window:allow-show"
+    "core:window:allow-show",
+    "core:window:allow-start-dragging"
   ]
 }
