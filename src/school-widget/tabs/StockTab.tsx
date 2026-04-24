@@ -259,7 +259,7 @@ export default function StockTab() {
       </div>
 
       <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', textAlign: 'center', flexShrink: 0 }}>
-        미국: CNBC · 한국: 네이버 Finance · 한국 종목은 005930 또는 005930.KS
+        미국: stooq.com · 한국: Google Finance · 한국 종목은 005930 또는 005930.KS
       </div>
     </div>
   );

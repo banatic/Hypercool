@@ -48,6 +48,7 @@ export default defineConfig(async () => ({
         'school-widget': './school-widget.html',
         'gif-widget': './gif-widget.html',
         'gif-btn': './gif-btn.html',
+        'class-btn': './class-btn.html',
       },
     },
   },

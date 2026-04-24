@@ -20,12 +20,25 @@ pub fn is_enabled() -> bool {
 
 /// gif-btn 풀 레이블 — gif-widget은 "gif-btn" → "gif-widget" 치환으로 도출
 pub const POOL: &[&str] = &["gif-btn-0", "gif-btn-1", "gif-btn-2"];
+/// class-btn 풀 레이블 — POOL[n]과 같은 슬롯 공유
+pub const CLASS_POOL: &[&str] = &["class-btn-0", "class-btn-1", "class-btn-2"];
 
 /// 추적 중인 target HWND(isize) → pool slot 인덱스
 static TRACKED: OnceLock<Mutex<HashMap<isize, usize>>> = OnceLock::new();
 
 fn get_tracked() -> std::sync::MutexGuard<'static, HashMap<isize, usize>> {
     TRACKED.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap()
+}
+
+/// pool slot → 현재 추적 중인 target HWND(isize)
+static SLOT_HWND: OnceLock<Mutex<HashMap<usize, isize>>> = OnceLock::new();
+
+fn get_slot_hwnd_map() -> std::sync::MutexGuard<'static, HashMap<usize, isize>> {
+    SLOT_HWND.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap()
+}
+
+pub fn get_slot_hwnd(slot: usize) -> Option<isize> {
+    get_slot_hwnd_map().get(&slot).copied()
 }
 
 pub fn compute_panel_position(btn_x: i32, btn_y: i32) -> (i32, i32) {
@@ -50,6 +63,7 @@ struct HookState {
     app: AppHandle,
     target_hwnd: windows::Win32::Foundation::HWND,
     btn_label: String,
+    class_btn_label: String,
 }
 
 #[cfg(target_os = "windows")]
@@ -83,6 +97,7 @@ pub fn start_watcher(app: AppHandle) {
                 let Some(slot) = slot else { continue; };
 
                 get_tracked().insert(hwnd_val, slot);
+                get_slot_hwnd_map().insert(slot, hwnd_val);
                 let btn_label = POOL[slot].to_string();
                 let app_clone = app.clone();
 
@@ -92,6 +107,7 @@ pub fn start_watcher(app: AppHandle) {
                     );
                     track_target(app_clone, h, rect, btn_label);
                     get_tracked().remove(&hwnd_val);
+                    get_slot_hwnd_map().remove(&slot);
                 });
             }
         }
@@ -106,18 +122,28 @@ fn track_target(
     btn_label: String,
 ) {
     let widget_label = btn_label.replace("gif-btn", "gif-widget");
+    let class_btn_label = btn_label.replace("gif-btn", "class-btn");
 
     if let Some(win) = app.get_webview_window(&btn_label) {
         let _ = win.show();
     }
+    if let Some(win) = app.get_webview_window(&class_btn_label) {
+        let _ = win.show();
+    }
     position_gif_btn(&app, &btn_label, &rect);
+    position_class_btn(&app, &class_btn_label, &rect);
     set_gif_btn_owner(&app, &btn_label, hwnd);
+    set_gif_btn_owner(&app, &class_btn_label, hwnd);
 
-    track_with_hooks(&app, hwnd, &btn_label);
+    track_with_hooks(&app, hwnd, &btn_label, &class_btn_label);
 
     // 창 소멸 후 정리
     clear_gif_btn_owner(&app, &btn_label);
+    clear_gif_btn_owner(&app, &class_btn_label);
     if let Some(w) = app.get_webview_window(&btn_label) {
+        let _ = w.hide();
+    }
+    if let Some(w) = app.get_webview_window(&class_btn_label) {
         let _ = w.hide();
     }
     if let Some(w) = app.get_webview_window(&widget_label) {
@@ -214,6 +240,7 @@ fn track_with_hooks(
     app: &AppHandle,
     target_hwnd: windows::Win32::Foundation::HWND,
     btn_label: &str,
+    class_btn_label: &str,
 ) {
     use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -227,6 +254,7 @@ fn track_with_hooks(
             app: app.clone(),
             target_hwnd,
             btn_label: btn_label.to_string(),
+            class_btn_label: class_btn_label.to_string(),
         });
     });
 
@@ -302,6 +330,7 @@ unsafe extern "system" fn win_event_proc(
                         right: rect.right, bottom: rect.bottom,
                     };
                     position_gif_btn(&state.app, &state.btn_label, &wr);
+                    position_class_btn(&state.app, &state.class_btn_label, &wr);
 
                     // 페어 gif-widget도 열려있으면 함께 이동
                     if let Some(panel) = state.app.get_webview_window(&widget_label) {
@@ -318,8 +347,11 @@ unsafe extern "system" fn win_event_proc(
                 PostQuitMessage(0);
             }
             EVENT_OBJECT_HIDE => {
-                // 대상 창 숨김 — btn + widget 숨기고, widget이 열려있었으면 closed 이벤트
+                // 대상 창 숨김 — btn + class-btn + widget 숨기고, widget이 열려있었으면 closed 이벤트
                 if let Some(w) = state.app.get_webview_window(&state.btn_label) {
+                    let _ = w.hide();
+                }
+                if let Some(w) = state.app.get_webview_window(&state.class_btn_label) {
                     let _ = w.hide();
                 }
                 if let Some(w) = state.app.get_webview_window(&widget_label) {
@@ -331,7 +363,7 @@ unsafe extern "system" fn win_event_proc(
                 }
             }
             EVENT_OBJECT_SHOW => {
-                // 대상 창 재표시 — btn만 다시 표시 (widget은 사용자가 직접 열어야 함)
+                // 대상 창 재표시 — btn + class-btn 다시 표시 (widget은 사용자가 직접 열어야 함)
                 let mut rect = RECT::default();
                 if GetWindowRect(hwnd, &mut rect).is_ok() {
                     let wr = WindowRect {
@@ -339,7 +371,11 @@ unsafe extern "system" fn win_event_proc(
                         right: rect.right, bottom: rect.bottom,
                     };
                     position_gif_btn(&state.app, &state.btn_label, &wr);
+                    position_class_btn(&state.app, &state.class_btn_label, &wr);
                     if let Some(w) = state.app.get_webview_window(&state.btn_label) {
+                        let _ = w.show();
+                    }
+                    if let Some(w) = state.app.get_webview_window(&state.class_btn_label) {
                         let _ = w.show();
                     }
                 }
@@ -375,4 +411,134 @@ fn position_gif_btn(app: &AppHandle, btn_label: &str, rect: &WindowRect) {
 
     #[cfg(not(target_os = "windows"))]
     let _ = win.set_position(tauri::PhysicalPosition::new(btn_x, btn_y));
+}
+
+/// class-btn-N을 gif-btn-N 오른쪽에 4px 간격으로 배치
+fn position_class_btn(app: &AppHandle, class_btn_label: &str, rect: &WindowRect) {
+    let Some(win) = app.get_webview_window(class_btn_label) else { return; };
+
+    const GIF_BTN_WIN_W: i32 = 70;
+    const GAP: i32 = 4;
+    let x = rect.left + 280 + GIF_BTN_WIN_W + GAP;
+    let y = rect.bottom - 51;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+        };
+        if let Ok(raw) = win.hwnd() {
+            let hwnd = HWND(raw.0);
+            unsafe {
+                let _ = SetWindowPos(
+                    hwnd, HWND(std::ptr::null_mut()), x, y, 0, 0,
+                    SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER,
+                );
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// "이름(이름)" 또는 "이름(ID)(이름)" 형식인지 검증.
+/// 첫 번째 "(" 앞 이름(2~5글자)과 마지막 "()" 안 내용이 같아야 통과.
+fn is_recipient_name(text: &str) -> bool {
+    let text = text.trim();
+    let Some(first_open) = text.find('(') else { return false; };
+    let before = text[..first_open].trim();
+    let count = before.chars().count();
+    if count < 2 || count > 5 { return false; }
+    let Some(last_open) = text.rfind('(') else { return false; };
+    let Some(last_close) = text.rfind(')') else { return false; };
+    if last_close <= last_open { return false; }
+    text[last_open + 1..last_close].trim() == before
+}
+
+/// 대상 창(target HWND)에서 수신자 목록 추출.
+/// ① 빈 타이틀 #32770 자식 컨테이너를 화면 Y좌표 오름차순 정렬(위 = 수신자 필드)
+/// ② 각 컨테이너의 직접 자식(GW_CHILD/GW_HWNDNEXT)만 탐색 — 재귀하지 않음
+/// ③ "이름(이름)" 엄격 패턴 검증 후 첫 번째 매칭 컨테이너 반환
+#[cfg(target_os = "windows")]
+pub fn extract_recipients(target_hwnd_val: isize) -> Vec<String> {
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumChildWindows, GetClassNameW, GetWindow, GetWindowRect,
+        GetWindowTextLengthW, GetWindowTextW, GW_CHILD, GW_HWNDNEXT,
+    };
+
+    let target_hwnd = HWND(target_hwnd_val as *mut core::ffi::c_void);
+
+    // Step 1: 빈 타이틀 #32770 하위 창 수집 + 화면 Y 좌표
+    struct ContainerCtx { containers: Vec<(HWND, i32)> }
+    unsafe extern "system" fn find_containers(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut ContainerCtx);
+        let mut cls = [0u16; 64];
+        let n = GetClassNameW(hwnd, &mut cls);
+        if n > 0 {
+            let class = String::from_utf16_lossy(&cls[..n as usize]);
+            if class == "#32770" && GetWindowTextLengthW(hwnd) == 0 {
+                let mut rect = RECT::default();
+                if GetWindowRect(hwnd, &mut rect).is_ok() {
+                    ctx.containers.push((hwnd, rect.top));
+                }
+            }
+        }
+        BOOL(1)
+    }
+    let mut cctx = ContainerCtx { containers: Vec::new() };
+    unsafe {
+        let _ = EnumChildWindows(target_hwnd, Some(find_containers),
+            LPARAM(&mut cctx as *mut _ as isize));
+    }
+
+    // Y 오름차순 = 화면 위쪽부터 (수신자 필드는 대화상자 상단에 위치)
+    cctx.containers.sort_by_key(|&(_, y)| y);
+
+    // Step 2: 각 컨테이너의 직접 자식만 순회, 수신자 패턴 검증
+    for (container, _) in &cctx.containers {
+        let mut recipients: Vec<String> = Vec::new();
+        unsafe {
+            let mut child = match GetWindow(*container, GW_CHILD) {
+                Ok(h) => h,
+                Err(_) => continue,
+            };
+            while !child.0.is_null() {
+                let mut cls = [0u16; 128];
+                let cn = GetClassNameW(child, &mut cls);
+                if cn > 0 {
+                    let class = String::from_utf16_lossy(&cls[..cn as usize]);
+                    if class.starts_with("Afx:") {
+                        let tlen = GetWindowTextLengthW(child);
+                        if tlen > 0 {
+                            let mut tbuf = vec![0u16; (tlen + 1) as usize];
+                            let written = GetWindowTextW(child, &mut tbuf);
+                            if written > 0 {
+                                let text = String::from_utf16_lossy(&tbuf[..written as usize])
+                                    .to_string();
+                                if is_recipient_name(&text) {
+                                    recipients.push(text);
+                                }
+                            }
+                        }
+                    }
+                }
+                child = match GetWindow(child, GW_HWNDNEXT) {
+                    Ok(h) => h,
+                    Err(_) => break,
+                };
+            }
+        }
+        if !recipients.is_empty() {
+            return recipients;
+        }
+    }
+    Vec::new()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn extract_recipients(_target_hwnd_val: isize) -> Vec<String> {
+    Vec::new()
 }

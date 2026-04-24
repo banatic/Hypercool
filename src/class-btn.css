@@ -1,0 +1,63 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: max-content;
+  height: auto;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.class-btn-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+}
+
+.class-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  height: 27px;
+  width: max-content;
+  border: 1px solid rgb(190, 190, 190);
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 3px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.class-btn-label {
+  font-family: 'Malgun Gothic', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0px;
+  color: rgba(40, 40, 40, 0.85);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 수업중 */
+.class-btn.busy {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+.class-btn.busy .class-btn-label {
+  color: rgb(185, 28, 28);
+}
+
+/* 공강 */
+.class-btn.free {
+  background: rgba(34, 197, 94, 0.10);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+.class-btn.free .class-btn-label {
+  color: rgb(21, 128, 61);
+}
+
+/* 쉬는시간 / 기본 */
+.class-btn.neutral .class-btn-label {
+  color: rgba(40, 40, 40, 0.55);
+}

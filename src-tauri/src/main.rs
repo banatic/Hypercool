@@ -44,6 +44,199 @@ fn cmd_copy_html(html: String) -> Result<(), String> {
     gif_clipboard::copy_html_to_clipboard(&html).map_err(|e| e.to_string())
 }
 
+/// 학교 위젯(types.ts PERIOD_TIMES)과 동일한 하드코딩 시간으로 현재 교시의 시간표 인덱스를 반환.
+/// 점심(12:20-13:20)은 None. 5교시 이후는 점심 슬롯을 건너뛰어 timetable 인덱스에 맞게 조정.
+fn get_current_period() -> Option<usize> {
+    use chrono::Timelike;
+    // (시작분, 종료분) — types.ts PERIOD_TIMES와 동일
+    const PERIOD_TIMES: &[(u32, u32)] = &[
+        (8*60+30, 9*60+20),   // 0 → timetable[0] (1교시)
+        (9*60+30, 10*60+20),  // 1 → timetable[1] (2교시)
+        (10*60+30, 11*60+20), // 2 → timetable[2] (3교시)
+        (11*60+30, 12*60+20), // 3 → timetable[3] (4교시)
+        (12*60+20, 13*60+20), // 4 = 점심 → None
+        (13*60+20, 14*60+10), // 5 → timetable[4] (5교시)
+        (14*60+20, 15*60+10), // 6 → timetable[5] (6교시)
+        (15*60+20, 16*60+10), // 7 → timetable[6] (7교시)
+    ];
+    let now = chrono::Local::now();
+    let mins = now.hour() * 60 + now.minute();
+    for (i, &(start, end)) in PERIOD_TIMES.iter().enumerate() {
+        if mins >= start && mins <= end {
+            if i == 4 { return None; } // 점심시간
+            return Some(if i < 4 { i } else { i - 1 });
+        }
+    }
+    None
+}
+
+fn parse_recipient_name(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() { return None; }
+    let name = s.split('(').next()?.trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+#[derive(serde::Serialize)]
+struct RecipientStatus {
+    name: String,
+    subject: Option<String>,
+    room: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct ClassStatusResult {
+    is_broadcast: bool,
+    in_class_period: bool,
+    current_period: Option<usize>,
+    recipients: Vec<RecipientStatus>,
+}
+
+/// class-btn-N 레이블에서 슬롯 번호 파싱
+fn parse_btn_slot(label: &str) -> Option<usize> {
+    label.rsplit('-').next()?.parse().ok()
+}
+
+fn lookup_appin_subject(
+    data: &appin_parser::AppinTimetableData,
+    teacher_name: &str,
+    period_idx: usize,
+) -> (String, Option<String>) {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let period_str = (period_idx + 1).to_string();
+    let teacher_idx = match data.teachers.iter().position(|t| t == teacher_name) {
+        Some(i) => i,
+        None => return (String::new(), None),
+    };
+    let day_data = match data.days.get(&today) {
+        Some(d) => d,
+        None => return (String::new(), None),
+    };
+    for (class_name, period_map) in day_data {
+        if let Some(slot) = period_map.get(&period_str) {
+            if slot.teacher == Some(teacher_idx) {
+                let subject = slot.subject
+                    .and_then(|si| data.subjects.get(si))
+                    .cloned()
+                    .unwrap_or_default();
+                return (subject, if class_name.is_empty() { None } else { Some(class_name.clone()) });
+            }
+        }
+    }
+    (String::new(), None)
+}
+
+#[tauri::command]
+fn get_class_status(btn_label: String, timetable_source: Option<String>) -> Result<ClassStatusResult, String> {
+    let slot = parse_btn_slot(&btn_label).ok_or("invalid label")?;
+    let hwnd_val = gif_watcher::get_slot_hwnd(slot).ok_or("not tracking")?;
+
+    let raw = gif_watcher::extract_recipients(hwnd_val);
+    let names: Vec<String> = raw.iter().filter_map(|t| parse_recipient_name(t)).collect();
+
+    if names.len() >= 5 {
+        return Ok(ClassStatusResult {
+            is_broadcast: true,
+            in_class_period: is_class_time(),
+            current_period: None,
+            recipients: Vec::new(),
+        });
+    }
+
+    let current_period = get_current_period();
+    let in_class_period = current_period.is_some();
+
+    if !in_class_period || names.is_empty() {
+        return Ok(ClassStatusResult {
+            is_broadcast: false,
+            in_class_period,
+            current_period: None,
+            recipients: names.iter().map(|n| RecipientStatus {
+                name: n.clone(), subject: None, room: None,
+            }).collect(),
+        });
+    }
+
+    let period_idx = current_period.unwrap();
+    use chrono::Datelike;
+    let day_idx = match chrono::Local::now().weekday() {
+        chrono::Weekday::Mon => 0usize,
+        chrono::Weekday::Tue => 1,
+        chrono::Weekday::Wed => 2,
+        chrono::Weekday::Thu => 3,
+        chrono::Weekday::Fri => 4,
+        _ => {
+            return Ok(ClassStatusResult {
+                is_broadcast: false,
+                in_class_period: true,
+                current_period: Some(period_idx),
+                recipients: names.iter().map(|n| RecipientStatus {
+                    name: n.clone(), subject: None, room: None,
+                }).collect(),
+            });
+        }
+    };
+
+    let use_appin = timetable_source.as_deref() == Some("appin");
+
+    let recipients = if use_appin {
+        let appin_data = appin_parser::parse_appin_timetable().ok();
+        names.iter().map(|name| {
+            let (subject, room) = appin_data.as_ref()
+                .map(|d| lookup_appin_subject(d, name, period_idx))
+                .unwrap_or((String::new(), None));
+            RecipientStatus {
+                name: name.clone(),
+                subject: if subject.is_empty() { None } else { Some(subject) },
+                room,
+            }
+        }).collect()
+    } else {
+        let timetable = match timetable_parser::parse_timetable() {
+            Ok(t) => t,
+            Err(_) => {
+                return Ok(ClassStatusResult {
+                    is_broadcast: false,
+                    in_class_period: true,
+                    current_period: Some(period_idx),
+                    recipients: names.iter().map(|n| RecipientStatus {
+                        name: n.clone(), subject: None, room: None,
+                    }).collect(),
+                });
+            }
+        };
+        names.iter().map(|name| {
+            let (subject, room) = timetable.timetables.get(name)
+                .and_then(|tt| tt.get(period_idx))
+                .and_then(|day_row| day_row.get(day_idx))
+                .and_then(|cell| {
+                    let subj = cell.first().filter(|s| !s.is_empty()).cloned()?;
+                    let rm = cell.get(1).filter(|r| !r.is_empty()).cloned();
+                    Some((subj, rm))
+                })
+                .unwrap_or((String::new(), None));
+            RecipientStatus {
+                name: name.clone(),
+                subject: if subject.is_empty() { None } else { Some(subject) },
+                room,
+            }
+        }).collect()
+    };
+
+    Ok(ClassStatusResult {
+        is_broadcast: false,
+        in_class_period: true,
+        current_period: Some(period_idx),
+        recipients,
+    })
+}
+
+#[tauri::command]
+fn resize_class_btn(app: tauri::AppHandle, label: String, width: f64, height: f64) -> Result<(), String> {
+    let win = app.get_webview_window(&label).ok_or("window not found")?;
+    win.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())
+}
+
 /// gif-btn-N 클릭 시 페어 gif-widget-N을 토글. 새 visibility(bool)를 반환.
 #[tauri::command]
 fn toggle_gif_panel(app: tauri::AppHandle, btn_label: String) -> Result<bool, String> {
@@ -150,6 +343,8 @@ fn main() {
             cmd_search_tenor,
             cmd_copy_html,
             toggle_gif_panel,
+            get_class_status,
+            resize_class_btn,
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -232,6 +427,21 @@ fn main() {
                     if let (Some(btn), Some(widget)) = (btn_win, widget_win) {
                         gif_watcher::set_panel_owner(&widget, &btn);
                     }
+                }
+
+                // class-btn-N: 수업 상태 표시 버튼
+                for &class_label in gif_watcher::CLASS_POOL {
+                    let _ = tauri::WebviewWindowBuilder::new(
+                        app, class_label, make_url("class-btn.html"))
+                        .title("수업 상태")
+                        .inner_size(100.0, 28.0)
+                        .resizable(false)
+                        .decorations(false)
+                        .transparent(true)
+                        .shadow(false)
+                        .skip_taskbar(true)
+                        .visible(false)
+                        .build();
                 }
 
                 let gif_app = app.app_handle().clone();

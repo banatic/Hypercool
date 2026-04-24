@@ -474,8 +474,8 @@ fn us_market_state() -> &'static str {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    // 미국 동부: 대략 UTC-5 (DST 무시)
-    let et = unix - 5 * 3600;
+    // 미국 동부: 대략 UTC-4 (EDT, 3월~11월)
+    let et = unix - 4 * 3600;
     let dow = ((et / 86400 + 4) % 7) as u32; // 0=Sun
     if dow == 0 || dow == 6 {
         return "CLOSED";
@@ -489,112 +489,120 @@ fn us_market_state() -> &'static str {
     }
 }
 
-// ─── Nasdaq.com 내부 API (미국주식, 장외시간 포함) ──────────────────────────
-fn parse_dollar(s: &str) -> Option<f64> {
-    s.replace('$', "").replace(',', "").trim().parse().ok()
+fn kr_market_state() -> &'static str {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let kst = unix + 9 * 3600;
+    let dow = ((kst / 86400 + 4) % 7) as u32;
+    let mins = ((kst % 86400) / 60) as u32;
+    if dow == 0 || dow == 6 {
+        "CLOSED"
+    } else if (540..=930).contains(&mins) {
+        "REGULAR" // 09:00–15:30
+    } else {
+        "CLOSED"
+    }
 }
 
-fn parse_pct(s: &str) -> Option<f64> {
-    s.replace('%', "").replace('+', "").trim().parse().ok()
+// ─── CNBC Quote API (미국주식, 프리/장후 포함, 교내망 허용 확인) ──────────────
+fn cnbc_market_state(status: &str) -> &'static str {
+    match status {
+        "PRE_MKT"  => "PRE",
+        "REG_MKT"  => "REGULAR",
+        "POST_MKT" => "POST",
+        _          => "CLOSED",
+    }
 }
 
-fn fetch_nasdaq_symbol(client: &reqwest::blocking::Client, sym: &str) -> Option<StockQuote> {
-    // stocks → etf 순으로 시도
-    for asset_class in &["stocks", "etf"] {
-        let url = format!(
-            "https://api.nasdaq.com/api/quote/{}/info?assetclass={}",
-            sym.to_uppercase(),
-            asset_class
-        );
-        let Ok(resp) = client
-            .get(&url)
-            .header("Accept", "application/json, text/plain, */*")
-            .header("Referer", "https://www.nasdaq.com")
-            .send()
-        else {
-            continue;
-        };
-        let Ok(text) = resp.text() else { continue };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+fn fetch_us_from_cnbc(symbols: &[String]) -> Result<Vec<StockQuote>, String> {
+    let us_syms: Vec<&String> = symbols.iter().filter(|s| !is_kr_symbol(s)).collect();
+    if us_syms.is_empty() {
+        return Ok(vec![]);
+    }
 
-        let data = &json["data"];
-        if data.is_null() {
+    let sym_param = us_syms.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("|");
+    let url = format!(
+        "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols={}&requestMethod=onload&noform=1&partnerId=2&fund=1&exthrs=1&output=json",
+        sym_param
+    );
+
+    let client = make_client();
+    let resp = client
+        .get(&url)
+        .header("Referer", "https://www.cnbc.com")
+        .send()
+        .map_err(|e| format!("CNBC API 요청 실패: {}", e))?;
+    let text = resp.text().map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+
+    let quotes_arr = json["QuickQuoteResult"]["QuickQuote"]
+        .as_array()
+        .ok_or("CNBC 응답 형식 오류")?;
+
+    let mut results = Vec::new();
+    for q in quotes_arr {
+        // code != "0" 은 데이터 없음
+        if q["code"].as_str().unwrap_or("3") != "0" {
             continue;
         }
 
-        let company_name = data["companyName"]
-            .as_str()
-            .unwrap_or(sym)
-            .to_string();
+        let symbol = q["symbol"].as_str().unwrap_or("").to_uppercase();
+        let name = q["name"].as_str().unwrap_or(&symbol).to_string();
 
-        let primary = &data["primaryData"];
-        let price = parse_dollar(primary["lastSalePrice"].as_str().unwrap_or("0"))?;
-        let change_pct = parse_pct(primary["percentageChange"].as_str().unwrap_or("0%"))
-            .unwrap_or(0.0);
+        let price: f64 = q["last"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let change_pct: f64 = q["change_pct"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let market_state = cnbc_market_state(q["curmktstatus"].as_str().unwrap_or("CLOSE"));
 
-        // secondaryData = 장외 (Pre-Market / After Hours)
-        let secondary = &data["secondaryData"];
-        let (pre_price, pre_pct, post_price, post_pct, market_state) =
-            if secondary.is_null() || !secondary.is_object() {
-                (None, None, None, None, us_market_state().to_string())
-            } else {
-                let label = secondary["label"].as_str().unwrap_or("");
-                let ext_price = secondary["lastSalePrice"]
-                    .as_str()
-                    .and_then(|s| parse_dollar(s));
-                let ext_pct = secondary["percentageChange"]
-                    .as_str()
-                    .and_then(|s| parse_pct(s));
+        let ext = &q["ExtendedMktQuote"];
+        let (pre_price, pre_pct, post_price, post_pct) = if ext.is_object() {
+            let ext_price: Option<f64> = ext["last"].as_str().and_then(|s| s.parse().ok());
+            let ext_pct: Option<f64> = ext["change_pct"].as_str().and_then(|s| s.parse().ok());
+            match ext["type"].as_str().unwrap_or("") {
+                "PRE_MKT"  => (ext_price, ext_pct, None, None),
+                "POST_MKT" => (None, None, ext_price, ext_pct),
+                _          => (None, None, None, None),
+            }
+        } else {
+            (None, None, None, None)
+        };
 
-                if label.to_lowercase().contains("pre") {
-                    (ext_price, ext_pct, None, None, "PRE".to_string())
-                } else {
-                    // "After Hours" or similar
-                    (None, None, ext_price, ext_pct, "POST".to_string())
-                }
-            };
-
-        return Some(StockQuote {
-            symbol: sym.to_string(),
-            short_name: company_name,
+        results.push(StockQuote {
+            symbol,
+            short_name: name,
             regular_market_price: price,
             regular_market_change_percent: change_pct,
             pre_market_price: pre_price,
             pre_market_change_percent: pre_pct,
             post_market_price: post_price,
             post_market_change_percent: post_pct,
-            market_state,
+            market_state: market_state.to_string(),
             currency: "USD".to_string(),
         });
     }
-    None
-}
-
-fn fetch_us_from_nasdaq(symbols: &[String]) -> Result<Vec<StockQuote>, String> {
-    let us_syms: Vec<&String> = symbols.iter().filter(|s| !is_kr_symbol(s)).collect();
-    if us_syms.is_empty() {
-        return Ok(vec![]);
-    }
-    let client = make_client();
-    let results: Vec<StockQuote> = us_syms
-        .iter()
-        .filter_map(|s| fetch_nasdaq_symbol(&client, s))
-        .collect();
 
     if results.is_empty() {
-        Err("Nasdaq API에서 데이터를 가져오지 못했습니다 (네트워크 차단 또는 잘못된 종목코드)".to_string())
+        Err("CNBC에서 데이터를 가져오지 못했습니다 (잘못된 종목코드 또는 네트워크 오류)".to_string())
     } else {
         Ok(results)
     }
 }
 
-// ─── 네이버 Finance API (한국주식) ───────────────────────────────────────────
+// ─── Google Finance (한국주식, 교내망 허용 확인) ─────────────────────────────
 fn is_kr_symbol(s: &str) -> bool {
     let base = s.trim_end_matches(".KS").trim_end_matches(".KQ");
     base.len() == 6 && base.chars().all(|c| c.is_ascii_digit())
 }
 
-fn fetch_kr_from_naver(symbols: &[String]) -> Vec<StockQuote> {
+/// HTML에서 첫 번째 매칭 capture 반환
+fn re_find<'a>(pattern: &str, text: &'a str) -> Option<&'a str> {
+    let re = regex::Regex::new(pattern).ok()?;
+    re.captures(text)?.get(1).map(|m| m.as_str())
+}
+
+fn fetch_kr_from_google(symbols: &[String]) -> Vec<StockQuote> {
     let kr_symbols: Vec<&String> = symbols.iter().filter(|s| is_kr_symbol(s)).collect();
     if kr_symbols.is_empty() {
         return vec![];
@@ -604,56 +612,35 @@ fn fetch_kr_from_naver(symbols: &[String]) -> Vec<StockQuote> {
     let mut results = Vec::new();
 
     for sym in kr_symbols {
-        let code = sym
-            .trim_end_matches(".KS")
-            .trim_end_matches(".KQ");
+        let code = sym.trim_end_matches(".KS").trim_end_matches(".KQ");
+        let exchange = if sym.ends_with(".KQ") { "KOSDAQ" } else { "KRX" };
 
-        // 네이버 실시간 주가 API
-        let url = format!(
-            "https://polling.finance.naver.com/api/realtime/domestic/stock/{}",
-            code
-        );
-        let resp = client
+        let url = format!("https://www.google.com/finance/quote/{}:{}", code, exchange);
+        let Ok(resp) = client
             .get(&url)
-            .header("Referer", "https://finance.naver.com")
-            .send();
+            .header("Accept-Language", "ko-KR,ko;q=0.9")
+            .send()
+        else { continue };
+        let Ok(html) = resp.text() else { continue };
 
-        let Ok(resp) = resp else { continue };
-        let Ok(text) = resp.text() else { continue };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        // 현재가
+        let Some(price_str) = re_find(r#"data-last-price="([^"]+)""#, &html) else { continue };
+        let Ok(price) = price_str.replace(',', "").parse::<f64>() else { continue };
 
-        let Some(data) = json["datas"].as_array().and_then(|a| a.first()) else { continue };
-
-        let price_str = data["closePrice"].as_str().unwrap_or("0").replace(',', "");
-        let Ok(price) = price_str.parse::<f64>() else { continue };
-
-        let change_pct: f64 = data["fluctuationsRatio"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0);
-
-        let name = data["stockName"]
-            .as_str()
+        // 회사명
+        let name = re_find(r#"class="zzDege">([^<]+)<"#, &html)
             .unwrap_or(code)
             .to_string();
 
-        // 한국 주식은 장 중/마감 여부 판단 (KST = UTC+9)
-        let market_state = {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let unix = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
-            let kst = unix + 9 * 3600;
-            let dow = ((kst / 86400 + 4) % 7) as u32;
-            let mins = ((kst % 86400) / 60) as u32;
-            if dow == 0 || dow == 6 {
-                "CLOSED"
-            } else if (540..=930).contains(&mins) {
-                "REGULAR" // 09:00–15:30
-            } else {
-                "CLOSED"
-            }
+        // 전일 종가: 첫 번째 P6K39c 항목 (통화 기호·쉼표 제거)
+        let prev_close = re_find(r#"class="P6K39c">(?:[₩$¥€])?([\d,]+(?:\.\d+)?)<"#, &html)
+            .and_then(|s| s.replace(',', "").parse::<f64>().ok())
+            .unwrap_or(price);
+
+        let change_pct = if prev_close > 0.0 {
+            (price - prev_close) / prev_close * 100.0
+        } else {
+            0.0
         };
 
         results.push(StockQuote {
@@ -665,7 +652,7 @@ fn fetch_kr_from_naver(symbols: &[String]) -> Vec<StockQuote> {
             pre_market_change_percent: None,
             post_market_price: None,
             post_market_change_percent: None,
-            market_state: market_state.to_string(),
+            market_state: kr_market_state().to_string(),
             currency: "KRW".to_string(),
         });
     }
@@ -677,12 +664,12 @@ pub fn fetch_stock_data(symbols: &[String]) -> Result<Vec<StockQuote>, String> {
     let mut results: Vec<StockQuote> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
-    // 한국 주식: 네이버 Finance
-    let kr = fetch_kr_from_naver(symbols);
+    // 한국 주식: Google Finance (교내망 접속 가능)
+    let kr = fetch_kr_from_google(symbols);
     results.extend(kr);
 
-    // 미국 주식: Nasdaq.com API
-    match fetch_us_from_nasdaq(symbols) {
+    // 미국 주식: CNBC Quote API (교내망 접속 가능, 프리/장후 포함)
+    match fetch_us_from_cnbc(symbols) {
         Ok(us) => results.extend(us),
         Err(e) => errors.push(e),
     }

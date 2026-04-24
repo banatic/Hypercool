@@ -16,7 +16,7 @@ export default function TabBar({ activeTab, enabledTabs, onTabChange, stockUnloc
   const visibleTabs = stockUnlocked
     ? [
         ...baseTabs.filter(t => t.id !== 'settings'),
-        { id: 'stock' as Tab, label: '📈' },
+        { id: 'stock' as Tab, label: '주식' },
         baseTabs.find(t => t.id === 'settings')!,
       ].filter(Boolean)
     : baseTabs;
