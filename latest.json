@@ -1,11 +1,11 @@
 {
-    "version": "0.5.13",
-    "notes": "에듀파인 공문 MCP 추가: 공문 자동 감지·저장·검색, AI 연동 관리 탭 신설, 결재 전 공문 필터",
-    "pub_date": "2026-04-17T03:42:07.096Z",
+    "version": "0.5.14",
+    "notes": "압핀 시간표 버그 수정",
+    "pub_date": "2026-04-24T01:05:47.405Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkkyMUNZTWVFWTJQTHlHUWZMVDhZTzlzcFlLejFZMmJLUG1qaWw4TC95NkYwa0ticmtFZkx1Y1pmUGMxa1Z2Y1ZDQlp3aTVOUkNMUEk1cTh2bk1UQUE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2Mzk3NDU4CWZpbGU6SHlwZXJDb29sXzAuNS4xM194NjRfZW4tVVMubXNpCjFyTkYxS3JtUUFTSW1lZTRUeVF6Q3JmUUJJdHVUZklTY1ltalp1eVVpSTdZL0ljR1BOWkRRaHhMdytxM1NFWnFPNElhOEN5bmlBVEJDNldRTXFSV0FnPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.13/HyperCool_0.5.13_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkg4Ym9HUWVaN1ovZjJjUklVTktady9TbzYyMnFhSytZM0pVYVJrbDJxSFBRY0lsaUs3TDUzK2E1WGNSN3JBd3FzRXkvazhaTFlwNjdUa0o3ci9uK0FNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTkzMDMzCWZpbGU6SHlwZXJDb29sXzAuNS4xNF94NjRfZW4tVVMubXNpCnRhdldQY2FqdkRyN1BXZms5TDNSSzlYNGthOEVlRXFKdnJzMUppMWk5V1R4b0R4d3ovZTdPTDVaYVphZTMzdlNLZ2lnblNJc3U2OEFkL0RKYzl1a0RRPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.14/HyperCool_0.5.14_x64_en-US.msi"
         }
     }
 }
