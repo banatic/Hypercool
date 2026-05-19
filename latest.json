@@ -1,11 +1,11 @@
 {
-    "version": "0.5.15",
-    "notes": "압핀 시간표 버그 수정",
-    "pub_date": "2026-04-29T23:15:12.320Z",
+    "version": "0.5.16",
+    "notes": "달력 버그 수정",
+    "pub_date": "2026-05-19T02:28:12.308Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk00dkhpR2x5R1FqREdnMVlXRCtMcnIvMkdZRGphQzF0aHdtdm5uS0wzWEN5YlRvcW05N3dRZGN5RGg4U1ZvaHlEaXVodmpaVmFQeEViNkEyaHNma2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3NTA0NjgxCWZpbGU6SHlwZXJDb29sXzAuNS4xNV94NjRfZW4tVVMubXNpCmpmWFE5VEYwT01CMHN6Zzhqb2MwRnJJdHkrTDhSZjdMc1MxaXpKU0d4MzZEK3krZ1N4aWIvb0ZKdlNsVzdWdEtoejR6UHVGWGVuTWh2bXBmbFMzaUFBPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.15/HyperCool_0.5.15_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkZMZ0VXL2VHelRMLzVaWEdDSHFXOVlGNlR6cmJNdG13Qm5raXliSU1KaVNxd0NUbXFZb0VMZkh0ZDZkbGgxTGU1UGhjdk5MNXBXRjMxa0pYV1BaR3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5MTU3ODY3CWZpbGU6SHlwZXJDb29sXzAuNS4xNl94NjRfZW4tVVMubXNpCklCbFNSa1ZwOC9oVWdzVkZzNUxmOCs4VmdRcUg0ckNKb3kyVnMxUjdFQVN6MVBtTVVDT2xnNXlJVVlWWm1SbEV2MHRxNzY2aURRcjkwZ2RyK00vckRRPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.16/HyperCool_0.5.16_x64_en-US.msi"
         }
     }
 }
