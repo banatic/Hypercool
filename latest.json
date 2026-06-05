@@ -1,11 +1,11 @@
 {
-    "version": "0.5.17",
-    "notes": "쿨 파일 관리 기능 병합",
-    "pub_date": "2026-05-20T04:33:17.372Z",
+    "version": "0.5.18",
+    "notes": "버그 수정",
+    "pub_date": "2026-06-05T01:57:14.868Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMksvVTFxTlhzV2kxbE5UcUFlWEliaEx3UUYvd1FyWFpQS2N0czBTaTIzTVpaQ1FmZXA2Nkx1UUFtRFVJdFREOXpiWmxhM1hwWSsvUitxY05HWTQyMVFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5MjUxNzQzCWZpbGU6SHlwZXJDb29sXzAuNS4xN194NjRfZW4tVVMubXNpCnhFamh2TmNueTdUMitqeTkxL0xyZllkVk80WHhpL3JRRGZUeXpUMTNCaG5DQm80SlF3d1F1UzNXelNDVXBXQXFFN3BkNGxobWVpUlh2bTF2UTRRekJnPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.17/HyperCool_0.5.17_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkdMQ3BvOGJJTVdvL0VXVVpLN2NIOFIzblJjblg5QlRuUUt1aFBRM2Z0Y2UzbndrMHp2Z3pBMXJjTjM4OHN2alhpQ0kvNVhVcEJYR2FkNUpxY0k0c3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjI0ODE5CWZpbGU6SHlwZXJDb29sXzAuNS4xOF94NjRfZW4tVVMubXNpCm9OTnh0akMvOFkvUGtFTjJjZVpqUDdSM0U0VmpYbDFlQ2NTbXg1TUI0RG9DK28raHdEMGgzNSthNU5CSEhuZndsbXZIY2h2MGc1THZ5M2hLL1dCUkFnPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.18/HyperCool_0.5.18_x64_en-US.msi"
         }
     }
 }
