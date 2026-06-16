@@ -1,11 +1,11 @@
 {
-    "version": "0.5.18",
-    "notes": "버그 수정",
-    "pub_date": "2026-06-05T01:57:14.868Z",
+    "version": "0.5.19",
+    "notes": "검색 개선 수정",
+    "pub_date": "2026-06-16T23:23:55.701Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkdMQ3BvOGJJTVdvL0VXVVpLN2NIOFIzblJjblg5QlRuUUt1aFBRM2Z0Y2UzbndrMHp2Z3pBMXJjTjM4OHN2alhpQ0kvNVhVcEJYR2FkNUpxY0k0c3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjI0ODE5CWZpbGU6SHlwZXJDb29sXzAuNS4xOF94NjRfZW4tVVMubXNpCm9OTnh0akMvOFkvUGtFTjJjZVpqUDdSM0U0VmpYbDFlQ2NTbXg1TUI0RG9DK28raHdEMGgzNSthNU5CSEhuZndsbXZIY2h2MGc1THZ5M2hLL1dCUkFnPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.18/HyperCool_0.5.18_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMlBoOWRiUHhwblYrNHNPNTh4OGx6a04yL1lhTE5Ya1BMbmpiWkppUTdBRzVhTk02MTRBWTBva2s1dXlzYXJzcnVvUFdMN3lhcWNKaEV1MzRCREl1TFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjUyMzU1CWZpbGU6SHlwZXJDb29sXzAuNS4xOV94NjRfZW4tVVMubXNpClpSYnhUaDRFWjRBK0p5Mm5lNDlZa0pGK0oxTENGY1NFc1RaRFBwRTFsam90bEVkTFRmNGZOTk83RFJFb0tKVEQ3dUkvQithUk5JOUltZUJTMjN3ZERRPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.19/HyperCool_0.5.19_x64_en-US.msi"
         }
     }
 }
