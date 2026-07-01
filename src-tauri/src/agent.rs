@@ -516,7 +516,7 @@ fn register_items_breakdown(app: &AppHandle, items: Vec<ExtractedItem>, today: &
 
     let (mut new_c, mut dedup_c, mut invalid_c) = (0i64, 0i64, 0i64);
     for item in items {
-        let full = item.source_message_id.and_then(|mid| fetch_message_text(app, mid));
+        let full = item.source_message_id.and_then(|mid| fetch_message_html(app, mid));
         let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
@@ -569,23 +569,43 @@ fn search_db_stats(app: &AppHandle) -> (bool, i64, i64) {
     }
 }
 
-/// 검색 DB에서 메시지 원문(HTML 제거 텍스트) 조회. content 에 [원문]으로 첨부하기 위함.
-fn fetch_message_text(app: &AppHandle, id: i64) -> Option<String> {
+/// 검색 DB에서 메시지 원문 HTML 조회 → 정제(인라인 base64 이미지 제거, 길이 제한).
+/// content 에 [원문] HTML 로 첨부하기 위함(줄바꿈·서식 보존).
+fn fetch_message_html(app: &AppHandle, id: i64) -> Option<String> {
     let dir = app.path().app_data_dir().ok()?;
     let db = dir.join("hypercool_search.db");
     if !db.exists() {
         return None;
     }
     let conn = Connection::open(&db).ok()?;
-    let text: Option<String> = conn
+    let html: Option<String> = conn
         .query_row(
-            "SELECT content_text FROM messages WHERE id = ?1",
+            "SELECT content FROM messages WHERE id = ?1",
             [id],
             |r| r.get::<_, Option<String>>(0),
         )
         .ok()
         .flatten();
-    text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    let cleaned = sanitize_original_html(&html?);
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+/// 원문 HTML 정제: 인라인 base64 이미지(용량 폭증)를 제거하고 6000자로 제한한다.
+fn sanitize_original_html(html: &str) -> String {
+    static DATA_URI_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = DATA_URI_RE
+        .get_or_init(|| regex::Regex::new(r#"data:image/[^;"']+;base64,[A-Za-z0-9+/=\s]+"#).unwrap());
+    let no_img = re.replace_all(html, "");
+    head_chars(no_img.trim(), 6000)
+}
+
+/// HTML 텍스트 노드용 최소 이스케이프(평문 파트를 HTML 에 넣을 때).
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// 검색 DB에서 id > since 메시지 수.
@@ -802,7 +822,7 @@ fn register_items(
     let mut skipped = 0i64;
 
     for item in items {
-        let full = item.source_message_id.and_then(|mid| fetch_message_text(app, mid));
+        let full = item.source_message_id.and_then(|mid| fetch_message_html(app, mid));
         let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
@@ -892,38 +912,42 @@ fn to_schedule_item(
         date_str.clone()
     };
 
-    // content: 요점 + 교시/시간/발신 + AI 마커 + 원문 전체.
-    let mut parts: Vec<String> = Vec::new();
-    let push = |parts: &mut Vec<String>, label: &str, val: &Option<String>| {
-        if let Some(v) = val.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            if label.is_empty() {
-                parts.push(v.to_string());
-            } else {
-                parts.push(format!("{}: {}", label, v));
-            }
-        }
+    // content(HTML): 요점/교시/발신 + AI 마커 + <hr> + 원문 HTML.
+    // 달력 위젯 EditTodoModal / 메인 앱 TodosPage 는 content 를 HTML 로 렌더링하므로
+    // 원문을 HTML 로 넣어야 줄바꿈·서식이 보존된다.
+    let line = |label: &str, val: &Option<String>| -> Option<String> {
+        val.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|v| {
+                if label.is_empty() {
+                    format!("<div>{}</div>", html_escape(v))
+                } else {
+                    format!("<div>{}: {}</div>", label, html_escape(v))
+                }
+            })
     };
-    push(&mut parts, "", &item.detail);
-    push(&mut parts, "교시", &item.period);
-    push(&mut parts, "시간", &item.time);
-    push(&mut parts, "발신", &item.sender);
-    parts.push(AI_MARKER.to_string());
-    let mut content = parts.join("\n");
+    let mut content = String::new();
+    if let Some(s) = line("", &item.detail) { content.push_str(&s); }
+    if let Some(s) = line("교시", &item.period) { content.push_str(&s); }
+    if let Some(s) = line("시간", &item.time) { content.push_str(&s); }
+    if let Some(s) = line("발신", &item.sender) { content.push_str(&s); }
+    content.push_str(&format!("<div>{}</div>", AI_MARKER));
 
-    // 원문 메시지 전체(검색 DB 본문)를 붙인다. 없으면 프롬프트의 발췌(source_text)로 폴백.
-    let original = full_body
+    // 원문: full_body 는 이미 정제된 HTML. 없으면 source_text 발췌를 escape 해서 사용.
+    let original_html = full_body
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| head_chars(s, 4000))
+        .map(str::to_string)
         .or_else(|| {
             item.source_text
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(str::to_string)
+                .map(|s| format!("<div>{}</div>", html_escape(s)))
         });
-    if let Some(orig) = original {
-        content.push_str("\n\n[원문]\n");
+    if let Some(orig) = original_html {
+        content.push_str("<hr><div style=\"color:#888;font-size:12px;margin-bottom:4px\">원문</div>");
         content.push_str(&orig);
     }
 
@@ -1244,7 +1268,7 @@ mod tests {
             sender: Some("황정환".to_string()),
             ..Default::default()
         };
-        let s = to_schedule_item(&item, today, Some("회의 전체 원문 본문입니다.")).unwrap();
+        let s = to_schedule_item(&item, today, Some("<p>회의 전체 원문 본문입니다.</p>")).unwrap();
         assert_eq!(s.id, "msg-6377");
         assert_eq!(s.schedule_type, "manual_todo");
         assert_eq!(s.reference_id.as_deref(), Some("6377"));
@@ -1252,9 +1276,10 @@ mod tests {
         assert!(!s.is_all_day);
         let content = s.content.as_deref().unwrap();
         assert!(content.contains(AI_MARKER));
-        // 원문 전체가 [원문] 섹션으로 첨부되어야 한다.
-        assert!(content.contains("[원문]"));
-        assert!(content.contains("회의 전체 원문 본문입니다."));
+        // content 는 HTML 이고 원문 HTML 이 <hr> 뒤에 그대로 첨부되어야 한다.
+        assert!(content.contains("<div>발신: 황정환</div>"));
+        assert!(content.contains("<hr>"));
+        assert!(content.contains("<p>회의 전체 원문 본문입니다.</p>"));
     }
 
     #[test]

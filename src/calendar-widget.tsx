@@ -1475,7 +1475,7 @@ const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualT
                   )}
                 </div>
               )}
-              {todo.isManual ? (
+              {todo.isManual && !/<[a-z!/][^>]*>/i.test(content) ? (
                 <textarea
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
