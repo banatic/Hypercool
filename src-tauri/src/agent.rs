@@ -516,7 +516,8 @@ fn register_items_breakdown(app: &AppHandle, items: Vec<ExtractedItem>, today: &
 
     let (mut new_c, mut dedup_c, mut invalid_c) = (0i64, 0i64, 0i64);
     for item in items {
-        let sched = match to_schedule_item(&item, today_date) {
+        let full = item.source_message_id.and_then(|mid| fetch_message_text(app, mid));
+        let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
                 invalid_c += 1;
@@ -566,6 +567,25 @@ fn search_db_stats(app: &AppHandle) -> (bool, i64, i64) {
         }
         Err(_) => (false, 0, 0),
     }
+}
+
+/// 검색 DB에서 메시지 원문(HTML 제거 텍스트) 조회. content 에 [원문]으로 첨부하기 위함.
+fn fetch_message_text(app: &AppHandle, id: i64) -> Option<String> {
+    let dir = app.path().app_data_dir().ok()?;
+    let db = dir.join("hypercool_search.db");
+    if !db.exists() {
+        return None;
+    }
+    let conn = Connection::open(&db).ok()?;
+    let text: Option<String> = conn
+        .query_row(
+            "SELECT content_text FROM messages WHERE id = ?1",
+            [id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten();
+    text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
 
 /// 검색 DB에서 id > since 메시지 수.
@@ -782,7 +802,8 @@ fn register_items(
     let mut skipped = 0i64;
 
     for item in items {
-        let sched = match to_schedule_item(&item, today_date) {
+        let full = item.source_message_id.and_then(|mid| fetch_message_text(app, mid));
+        let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
                 skipped += 1;
@@ -815,9 +836,11 @@ fn register_items(
 }
 
 /// ExtractedItem → db::ScheduleItem 변환 및 검증. 등록 불가(날짜 없음/과거)면 None.
+/// `full_body`: 검색 DB에서 가져온 원문 메시지 전체(있으면 content 에 [원문]으로 첨부).
 fn to_schedule_item(
     item: &ExtractedItem,
     today: Option<chrono::NaiveDate>,
+    full_body: Option<&str>,
 ) -> Option<crate::db::ScheduleItem> {
     // id: 명시된 값 우선, 없으면 msg-<source_id>.
     let id = item
@@ -869,7 +892,7 @@ fn to_schedule_item(
         date_str.clone()
     };
 
-    // content: 요점 + 교시/시간/발신/원문 + AI 마커.
+    // content: 요점 + 교시/시간/발신 + AI 마커 + 원문 전체.
     let mut parts: Vec<String> = Vec::new();
     let push = |parts: &mut Vec<String>, label: &str, val: &Option<String>| {
         if let Some(v) = val.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -884,9 +907,25 @@ fn to_schedule_item(
     push(&mut parts, "교시", &item.period);
     push(&mut parts, "시간", &item.time);
     push(&mut parts, "발신", &item.sender);
-    push(&mut parts, "원문", &item.source_text);
     parts.push(AI_MARKER.to_string());
-    let content = parts.join("\n");
+    let mut content = parts.join("\n");
+
+    // 원문 메시지 전체(검색 DB 본문)를 붙인다. 없으면 프롬프트의 발췌(source_text)로 폴백.
+    let original = full_body
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| head_chars(s, 4000))
+        .or_else(|| {
+            item.source_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        });
+    if let Some(orig) = original {
+        content.push_str("\n\n[원문]\n");
+        content.push_str(&orig);
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -1182,14 +1221,14 @@ mod tests {
             title: Some("지난 일".to_string()),
             ..Default::default()
         };
-        assert!(to_schedule_item(&past, today).is_none());
+        assert!(to_schedule_item(&past, today, None).is_none());
 
         let dateless = ExtractedItem {
             source_message_id: Some(11),
             title: Some("날짜없음".to_string()),
             ..Default::default()
         };
-        assert!(to_schedule_item(&dateless, today).is_none());
+        assert!(to_schedule_item(&dateless, today, None).is_none());
     }
 
     #[test]
@@ -1205,13 +1244,17 @@ mod tests {
             sender: Some("황정환".to_string()),
             ..Default::default()
         };
-        let s = to_schedule_item(&item, today).unwrap();
+        let s = to_schedule_item(&item, today, Some("회의 전체 원문 본문입니다.")).unwrap();
         assert_eq!(s.id, "msg-6377");
         assert_eq!(s.schedule_type, "manual_todo");
         assert_eq!(s.reference_id.as_deref(), Some("6377"));
         assert_eq!(s.start_date.as_deref(), Some("2026-07-05T14:00:00+09:00"));
         assert!(!s.is_all_day);
-        assert!(s.content.as_deref().unwrap().contains(AI_MARKER));
+        let content = s.content.as_deref().unwrap();
+        assert!(content.contains(AI_MARKER));
+        // 원문 전체가 [원문] 섹션으로 첨부되어야 한다.
+        assert!(content.contains("[원문]"));
+        assert!(content.contains("회의 전체 원문 본문입니다."));
     }
 
     #[test]
@@ -1224,7 +1267,7 @@ mod tests {
             title: Some("두 번째 마감".to_string()),
             ..Default::default()
         };
-        let s = to_schedule_item(&item, today).unwrap();
+        let s = to_schedule_item(&item, today, None).unwrap();
         assert_eq!(s.id, "msg-6377-1");
     }
 }
