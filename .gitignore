@@ -50,3 +50,7 @@ firestore.rules
 # 압핀
 src-appin/*
 src-appin
+
+# Firebase local debugging mini project
+firebase-debug/
+firebase-debug

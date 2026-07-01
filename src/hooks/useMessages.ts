@@ -191,23 +191,34 @@ export function useMessages(udbPath: string) {
         }
     }, [udbPath]); // Intentionally exclude loadUdbFile to avoid infinite loop
 
+    // Stale 응답 가드: 가장 최근에 시작된 검색만 결과를 반영한다
+    const searchGenRef = useRef(0);
+
     const searchMessages = useCallback(async (term: string) => {
-        if (!udbPath || !term) return;
+        if (!term.trim()) return;
+        const gen = ++searchGenRef.current;
         const t0 = logPerf('searchMessages START');
         setIsLoadingSearch(true);
         try {
             const results = await invoke<SearchResultItem[]>('search_messages', {
-                dbPath: udbPath,
                 searchTerm: term
             });
+            if (gen !== searchGenRef.current) return; // 더 최신 검색이 시작됨 — 결과 폐기
             setSearchResults(results);
             logPerf(`searchMessages DONE (${results.length} results)`, t0);
         } catch (e) {
             console.error('Search failed', e);
         } finally {
-            setIsLoadingSearch(false);
+            if (gen === searchGenRef.current) setIsLoadingSearch(false);
         }
-    }, [udbPath]);
+    }, []);
+
+    // 검색 종료: 진행 중인 검색의 늦은 응답도 무시되도록 세대를 올린다
+    const clearSearch = useCallback(() => {
+        searchGenRef.current++;
+        setSearchResults(null);
+        setIsLoadingSearch(false);
+    }, []);
 
     // Load full message content by ID (on-demand)
     // NOTE: Always fetch from backend (2ms) to avoid O(n) search in allMessages
@@ -262,6 +273,7 @@ export function useMessages(udbPath: string) {
         activeSearchMessage,
         setActiveSearchMessage,
         searchMessages,
+        clearSearch,
         loadMessageById,
         getFullMessage,    // New: get full content on demand
         isLoadingSearch,

@@ -24,6 +24,8 @@ interface Props {
   selectedTeacher: string;
   parsedAppinTeachers: Record<string, Record<string, Record<string, { subject: string; className: string }>>>;
   baseAppinTimetable: Record<number, Record<number, { subject: string; className: string } | null>> | null;
+  eventsByDateClass: Record<string, Record<string, string>>;
+  eventsByDateGrade: Record<string, (string | null)[]>;
   appinWeekRange: WeekRange;
   onAppinWeekOffsetChange: (fn: (o: number) => number) => void;
   currentNow: Date;
@@ -48,12 +50,28 @@ interface Props {
 
 export default function TimetableTab({
   timetableSource, timetableData, appinData, selectedTeacher,
-  parsedAppinTeachers, baseAppinTimetable, appinWeekRange,
+  parsedAppinTeachers, baseAppinTimetable,
+  eventsByDateClass, eventsByDateGrade,
+  appinWeekRange,
   onAppinWeekOffsetChange, currentNow, loading, error, onRetry,
   teacherSearch, onTeacherSearchChange, showTeacherDropdown, onShowTeacherDropdown,
   filteredTeachers, highlightedIndex, onHighlightedIndexChange, onTeacherSelect, onKeyDown,
   defaultTeacher, favoriteTeachers, onToggleFavorite, onWheelScroll,
 }: Props) {
+
+  const lookupEventLabel = (dateStr: string, className: string | null): string | null => {
+    const byClass = eventsByDateClass[dateStr];
+    if (className && byClass && byClass[className]) return byClass[className];
+    if (className) {
+      const m = /^(\d+)-/.exec(className);
+      if (m) {
+        const grade = parseInt(m[1], 10);
+        const arr = eventsByDateGrade[dateStr];
+        if (arr && arr[grade - 1]) return arr[grade - 1] as string;
+      }
+    }
+    return null;
+  };
 
   const renderGrid = () => {
     if (loading) return <div className="loading">로딩 중...</div>;
@@ -87,13 +105,18 @@ export default function TimetableTab({
           const baseSlot = baseAppinTimetable[dIdx + 1]?.[pIdx + 1];
           const dateHasData = !!teacherData[dateStr];
 
-          if (slot) {
+          // 행사 라벨 우선 — 평소 그 시간에 수업이 있던 셀에만 표기
+          const eventLabel = baseSlot ? lookupEventLabel(dateStr, baseSlot.className) : null;
+
+          if (eventLabel) {
+            schedule[pIdx][dIdx] = [eventLabel, '', true, true];
+          } else if (slot) {
             const isDiff = !baseSlot || baseSlot.subject !== slot.subject || baseSlot.className !== slot.className;
-            schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff];
+            schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff, false];
           } else if (baseSlot && dateHasData) {
-            schedule[pIdx][dIdx] = ['', '', true];
+            schedule[pIdx][dIdx] = ['', '', true, false];
           } else if (baseSlot) {
-            schedule[pIdx][dIdx] = [baseSlot.subject, baseSlot.className, false];
+            schedule[pIdx][dIdx] = [baseSlot.subject, baseSlot.className, false, false];
           } else {
             schedule[pIdx][dIdx] = null as any;
           }
@@ -150,21 +173,23 @@ export default function TimetableTab({
     const renderLesson = (lesson: any, key: string, isToday: boolean, rowIndex: number) => {
       const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === rowIndex;
       const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
-      const subjectColor = lesson && lesson[0] ? getSubjectColor(lesson[0]) : '';
+      const isEvent = lesson && lesson[3] === true;
+      const subjectColor = lesson && lesson[0] && !isEvent ? getSubjectColor(lesson[0]) : '';
       const isDiff = lesson && lesson[2] === true;
       return (
         <div
           key={key}
-          className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}`}
+          className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}${isEvent ? ' event-cell' : ''}`}
           style={{
             ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
             ...(subjectColor ? { backgroundColor: subjectColor } : {}),
+            ...(isEvent ? { backgroundColor: 'rgba(255, 217, 102, 0.28)' } : {}),
             ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {}),
           } as React.CSSProperties}
         >
           {lesson ? (
             <>
-              <span className="subject-name">{lesson[0]}</span>
+              <span className="subject-name" style={isEvent ? { fontWeight: 700 } : undefined}>{lesson[0]}</span>
               <span className="room-name">{lesson[1]}</span>
             </>
           ) : null}

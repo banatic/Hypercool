@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Message, MessageMeta, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
@@ -17,14 +17,34 @@ const logPerf = (label: string, startTime?: number) => {
     return now;
 };
 
+// 검색어 부분을 <mark>로 강조해 렌더링
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const HighlightedText: React.FC<{ text: string; terms: string[] }> = ({ text, terms }) => {
+    const validTerms = terms.filter(t => t.length > 0);
+    if (!text || validTerms.length === 0) return <>{text}</>;
+    const pattern = new RegExp(`(${validTerms.map(escapeRegExp).join('|')})`, 'gi');
+    // 캡처 그룹 split: 홀수 인덱스가 매칭된 부분
+    const parts = text.split(pattern);
+    return (
+        <>
+            {parts.map((part, i) =>
+                i % 2 === 1 ? <mark key={i}>{part}</mark> : part
+            )}
+        </>
+    );
+};
+
 // Memoized search result item to prevent re-renders
-const SearchResultItemMemo = React.memo(({ 
-    item, 
-    isActive, 
-    onClick 
-}: { 
-    item: SearchResultItem; 
-    isActive: boolean; 
+const SearchResultItemMemo = React.memo(({
+    item,
+    isActive,
+    searchTerms,
+    onClick
+}: {
+    item: SearchResultItem;
+    isActive: boolean;
+    searchTerms: string[];
     onClick: () => void;
 }) => {
     // Format date for display (e.g., "12/16 08:43")
@@ -48,27 +68,31 @@ const SearchResultItemMemo = React.memo(({
             onClick={onClick}
         >
             <div className="result-header">
-                <div className="result-sender">{item.sender}</div>
+                <div className="result-sender"><HighlightedText text={item.sender} terms={searchTerms} /></div>
                 <div className="result-date">{formatDate(item.receive_date)}</div>
             </div>
-            <div className="result-snippet">{item.snippet}</div>
+            <div className="result-snippet"><HighlightedText text={item.snippet} terms={searchTerms} /></div>
         </div>
     );
 }, (prevProps, nextProps) => {
-    return prevProps.isActive === nextProps.isActive && 
-           prevProps.item.id === nextProps.item.id;
+    return prevProps.isActive === nextProps.isActive &&
+           prevProps.item.id === nextProps.item.id &&
+           prevProps.item.snippet === nextProps.item.snippet &&
+           prevProps.searchTerms.join(' ') === nextProps.searchTerms.join(' ');
 });
 
 // Virtualized search results using @tanstack/react-virtual
 const ITEM_HEIGHT = 100; // Must match .result-item CSS height
 
-const VirtualizedSearchResults = React.memo(({ 
-    searchResults, 
-    activeSearchMessage, 
-    onSearchResultClick 
-}: { 
+const VirtualizedSearchResults = React.memo(({
+    searchResults,
+    activeSearchMessage,
+    searchTerms,
+    onSearchResultClick
+}: {
     searchResults: SearchResultItem[];
     activeSearchMessage: Message | null;
+    searchTerms: string[];
     onSearchResultClick: (id: number) => void;
 }) => {
     const parentRef = useRef<HTMLDivElement>(null);
@@ -110,6 +134,7 @@ const VirtualizedSearchResults = React.memo(({
                             <SearchResultItemMemo
                                 item={item}
                                 isActive={activeSearchMessage?.id === item.id}
+                                searchTerms={searchTerms}
                                 onClick={() => {
                                     logPerf(`CLICK search result id=${item.id}`);
                                     onSearchResultClick(item.id);
@@ -166,6 +191,22 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 }) => {
   const wheelLastProcessed = useRef(0);
   const historyDragRef = useRef({ startX: 0, dragging: false });
+
+  // 검색 입력은 로컬 상태로 두고 디바운스된 값만 부모로 올린다.
+  // 키 입력마다 App 전체가 리렌더되는 것을 막고, 검색 뷰 전환도 디바운스된 searchTerm 기준으로 일어난다.
+  const [searchInput, setSearchInput] = useState(searchTerm);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchInput !== searchTerm) setSearchTerm(searchInput);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchInput, searchTerm, setSearchTerm]);
+
+  // 하이라이트용 검색어 목록 (백엔드와 동일하게 공백 분리)
+  const searchTerms = useMemo(
+    () => searchTerm.trim().split(/\s+/).filter(Boolean),
+    [searchTerm]
+  );
 
   const handleHistoryWheel = useCallback((e: React.WheelEvent) => {
     if (isLoading) return;
@@ -288,11 +329,11 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     <>
       <PageHeader title={`전체 메시지 (${totalMessageCount})`}>
         <div className="history-search">
-          <input 
-            type="text" 
-            placeholder="발송자 또는 내용으로 검색..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+          <input
+            type="text"
+            placeholder="발송자 또는 내용으로 검색..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
         <div className="history-nav">
@@ -395,15 +436,16 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   );
 
   const renderSearchResults = () => {
+    const hasResults = !!searchResults && searchResults.length > 0;
     return (
       <>
-        <PageHeader title={`검색 결과 (${searchResults?.length || 0})`}>
+        <PageHeader title={`검색 결과 (${searchResults?.length || 0})${isLoadingSearch ? ' · 검색 중…' : ''}`}>
           <div className="history-search">
             <input
               type="text"
               placeholder="발송자 또는 내용으로 검색..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
         </PageHeader>
@@ -434,18 +476,23 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             )}
             {!isLoadingActiveSearch && !activeSearchMessage && (
               <div className="empty">
-                {isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}
+                {hasResults
+                  ? '오른쪽 목록에서 메시지를 선택하세요.'
+                  : isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}
               </div>
             )}
           </div>
-          <div className="history-results-pane">
-            {isLoadingSearch && <div className="empty">검색 중...</div>}
-            {!isLoadingSearch && searchResults && searchResults.length > 0 && (
-              <VirtualizedSearchResults 
+          <div className="history-results-pane" style={isLoadingSearch ? { opacity: 0.6 } : undefined}>
+            {hasResults ? (
+              // 새 검색이 진행 중이어도 이전 결과를 유지해 화면 깜빡임을 막는다
+              <VirtualizedSearchResults
                 searchResults={searchResults}
                 activeSearchMessage={activeSearchMessage}
+                searchTerms={searchTerms}
                 onSearchResultClick={onSearchResultClick}
               />
+            ) : (
+              <div className="empty">{isLoadingSearch ? '검색 중...' : '검색 결과가 없습니다.'}</div>
             )}
           </div>
         </div>

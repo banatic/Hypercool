@@ -1,8 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use hypercool::agent;
 use hypercool::commands::{messages, mcp as mcp_commands, system, window};
 use hypercool::db;
+use hypercool::download_watcher;
 use hypercool::edufine_db;
 use hypercool::gif_clipboard;
 use hypercool::gif_watcher;
@@ -258,6 +260,52 @@ fn toggle_gif_panel(app: tauri::AppHandle, btn_label: String) -> Result<bool, St
     }
 }
 
+/// 다운로드 패널 칩↔확장 모드 토글. 윈도우 크기 + 위치 갱신.
+#[tauri::command]
+fn download_panel_set_expanded(app: tauri::AppHandle, label: String, expanded: bool) -> Result<(), String> {
+    download_watcher::reposition_by_label(&app, &label, expanded);
+    Ok(())
+}
+
+/// 다운로드 헬퍼 ON/OFF (전역). 레지스트리에도 반영.
+#[tauri::command]
+fn download_helper_set_enabled(enabled: bool) -> Result<(), String> {
+    download_watcher::set_enabled(enabled);
+    save_bool_reg("DownloadHelperEnabled", enabled);
+    Ok(())
+}
+
+/// 자동 저장 클릭 ON/OFF. 레지스트리에도 반영.
+#[tauri::command]
+fn download_helper_set_auto_save(enabled: bool) -> Result<(), String> {
+    download_watcher::set_auto_save(enabled);
+    save_bool_reg("DownloadHelperAutoSave", enabled);
+    Ok(())
+}
+
+#[tauri::command]
+fn download_helper_get_settings() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "enabled": download_watcher::is_enabled(),
+        "auto_save": download_watcher::is_auto_save(),
+    }))
+}
+
+fn save_bool_reg(key: &str, value: bool) {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok((sub, _)) = hkcu.create_subkey(REG_BASE) {
+        let _ = sub.set_value(key, &(if value { "1" } else { "0" }).to_string());
+    }
+}
+
+fn load_bool_reg(key: &str, default: bool) -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    match hkcu.open_subkey(REG_BASE).and_then(|s| s.get_value::<String, _>(key)) {
+        Ok(v) => v == "1" || v.eq_ignore_ascii_case("true"),
+        Err(_) => default,
+    }
+}
+
 fn main() {
     hypercool::dummy_window::init();
 
@@ -333,6 +381,10 @@ fn main() {
             mcp_commands::list_edufine_docs_recent,
             mcp_commands::open_edufine_watch_dir,
 
+            agent::run_briefing_agent_now,
+            agent::get_briefing_agent_status,
+            agent::set_briefing_agent_enabled,
+
             timetable_parser::get_timetable_data,
             appin_parser::get_appin_timetable_data,
             school_data::get_meal_data,
@@ -345,6 +397,11 @@ fn main() {
             toggle_gif_panel,
             get_class_status,
             resize_class_btn,
+
+            download_panel_set_expanded,
+            download_helper_set_enabled,
+            download_helper_set_auto_save,
+            download_helper_get_settings,
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -378,6 +435,9 @@ fn main() {
 
                 mcp_commands::restore_edufine_state(app.app_handle());
                 hypercool::mcp_server::start(search_db_path, edufine_db_path, 3737);
+
+                // 브리핑 에이전트 활성 상태 복원(기본 OFF, 옵트인)
+                agent::restore_state(app.app_handle());
             }
 
             // gif-btn-N / gif-widget-N 쌍 생성 (각 N은 메시지 전송창 하나에 대응)
@@ -447,6 +507,37 @@ fn main() {
                 let gif_app = app.app_handle().clone();
                 std::thread::spawn(move || {
                     gif_watcher::start_watcher(gif_app);
+                });
+
+                // download-panel-N: 메시지 관리함에 부착될 다운로드 헬퍼 패널
+                // 초기 사이즈는 칩 모드(140x32). hover 시 320x460으로 확장.
+                for &label in download_watcher::POOL {
+                    let _ = tauri::WebviewWindowBuilder::new(
+                        app,
+                        label,
+                        make_url("download-panel.html"),
+                    )
+                    .title("다운로드 헬퍼")
+                    .inner_size(
+                        download_watcher::COLLAPSED_W as f64,
+                        download_watcher::COLLAPSED_H as f64,
+                    )
+                    .resizable(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .skip_taskbar(true)
+                    .visible(false)
+                    .build();
+                }
+
+                // 레지스트리에서 설정 복원
+                download_watcher::set_enabled(load_bool_reg("DownloadHelperEnabled", true));
+                download_watcher::set_auto_save(load_bool_reg("DownloadHelperAutoSave", true));
+
+                let dl_app = app.app_handle().clone();
+                std::thread::spawn(move || {
+                    download_watcher::start_watcher(dl_app);
                 });
             }
 
@@ -818,8 +909,13 @@ fn main() {
                                     let app_for_sync = app_handle.clone();
                                     let path_for_sync = path.clone();
                                     std::thread::spawn(move || {
-                                        if let Err(e) = search_db::sync_from_udb(&app_for_sync, path_for_sync) {
-                                            eprintln!("Search DB sync failed: {}", e);
+                                        match search_db::sync_from_udb(&app_for_sync, path_for_sync) {
+                                            Ok(_) => {
+                                                // sync 로 search DB 가 채워진 뒤에야 MCP 서버가 신규 메시지를
+                                                // 볼 수 있으므로, 이 시점에 브리핑 에이전트를 debounce 트리거한다.
+                                                agent::on_new_messages(&app_for_sync);
+                                            }
+                                            Err(e) => eprintln!("Search DB sync failed: {}", e),
                                         }
                                     });
                                     

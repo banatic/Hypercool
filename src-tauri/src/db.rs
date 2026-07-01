@@ -410,6 +410,24 @@ fn normalize_title(s: &str) -> String {
     s.trim().to_lowercase().replace('\r', "").replace('\n', " ")
 }
 
+/// Extract a local-time NaiveDate from a stored `start_date` value.
+/// Handles both RFC3339 (UTC ISO from `Date.toISOString()`) and plain `YYYY-MM-DD`.
+/// This avoids the UTC↔local timezone mismatch that caused desktopcal_memo
+/// duplicates for early-morning todos.
+fn extract_local_date(s: &str) -> Option<chrono::NaiveDate> {
+    extract_local_date_with_tz(s, &chrono::Local)
+}
+
+fn extract_local_date_with_tz<Tz: chrono::TimeZone>(s: &str, tz: &Tz) -> Option<chrono::NaiveDate> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Some(dt.with_timezone(tz).naive_local().date());
+    }
+    if s.len() >= 10 {
+        return chrono::NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d").ok();
+    }
+    None
+}
+
 /// Import calendar data from a DeskTopCal .db file into Hypercool's tbl_schedules.
 #[tauri::command]
 pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportResult, String> {
@@ -421,25 +439,67 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     ).map_err(|e| format!("탁상달력 DB 열기 실패: {}", e))?;
 
+    import_desktopcal_db_impl(&conn, &ext_conn)
+}
+
+pub fn import_desktopcal_db_impl(conn: &Connection, ext_conn: &Connection) -> Result<ImportResult, String> {
     let mut imported: u32 = 0;
     let mut skipped: u32 = 0;
     let conflicts: u32 = 0;
 
-    // Begin transaction on our DB
     conn.execute("BEGIN TRANSACTION", []).map_err(|e| e.to_string())?;
 
-    // Helper: check if a schedule with matching date+title already exists
-    let check_existing = |conn: &Connection, date: &str, title_norm: &str| -> Result<bool, String> {
+    // Build in-memory dedup indexes once. This replaces the previous per-row
+    // `substr(start_date,1,10)` SQL probe, which mis-handled UTC-stored dates
+    // and missed natural-key matches via `reference_id`.
+    let mut by_ref: HashMap<String, String> = HashMap::new(); // reference_id -> schedule.id
+    let mut by_local: HashMap<(chrono::NaiveDate, String), (String, Option<String>)> = HashMap::new(); // (local_date, title_norm) -> (id, reference_id)
+    {
         let mut stmt = conn.prepare(
-            "SELECT title FROM tbl_schedules WHERE substr(start_date, 1, 10) = ?1"
+            "SELECT id, title, start_date, reference_id FROM tbl_schedules"
         ).map_err(|e| e.to_string())?;
-        let rows: Vec<String> = stmt.query_map(params![date], |row| {
-            row.get::<_, String>(0)
-        }).map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        }).map_err(|e| e.to_string())?;
 
-        Ok(rows.iter().any(|t| normalize_title(t) == title_norm))
+        for r in rows {
+            let (id, title, start_date, reference_id) = match r {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if let Some(ref_id) = reference_id.as_ref() {
+                by_ref.insert(ref_id.clone(), id.clone());
+            }
+            if let Some(sd) = start_date.as_ref() {
+                if let Some(local) = extract_local_date(sd) {
+                    let key = (local, normalize_title(&title));
+                    // Prefer rows with reference_id (more authoritative) — but
+                    // only overwrite if the existing entry has no ref.
+                    let prefer_new = reference_id.is_some();
+                    match by_local.get(&key) {
+                        Some((_, existing_ref)) if existing_ref.is_some() && !prefer_new => {}
+                        _ => {
+                            by_local.insert(key, (id.clone(), reference_id.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Backfill `reference_id` on a local row when by_local matches an external item.
+    // Wrapping rusqlite errors uniformly.
+    let backfill_ref = |conn: &Connection, schedule_id: &str, new_ref: &str| -> Result<(), String> {
+        conn.execute(
+            "UPDATE tbl_schedules SET reference_id = ?1 WHERE id = ?2 AND (reference_id IS NULL OR reference_id = '')",
+            params![new_ref, schedule_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
     };
 
     // ── 1. Import item_table (date memos) ──
@@ -466,32 +526,51 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
             let date_part = unique_id.replace("dkcal_mdays_", "");
             if date_part.len() < 8 { continue; }
             let formatted_date = format!("{}-{}-{}", &date_part[..4], &date_part[4..6], &date_part[6..8]);
+            let local_date = match chrono::NaiveDate::parse_from_str(&formatted_date, "%Y-%m-%d") {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
 
             // Title: first line of content; content: full text
             let content_trimmed = content.trim().to_string();
             let title = content_trimmed.lines().next().unwrap_or("메모").to_string();
             let title_norm = normalize_title(&title);
 
-            // Check for duplicates
-            if check_existing(&conn, &formatted_date, &title_norm)? {
+            let ref_id = format!("dkcal_item_{}", it_id);
+
+            // (a) Natural key: already imported under this reference_id.
+            if by_ref.contains_key(&ref_id) {
                 skipped += 1;
                 continue;
             }
 
-            let color = if bgcolor.is_empty() { None } else { Some(bgcolor) };
+            // (b) Date+title match (legacy rows without reference_id, or a
+            //     user-created todo on the same day with same title).
+            if let Some((schedule_id, existing_ref)) = by_local.get(&(local_date, title_norm.clone())).cloned() {
+                if existing_ref.is_none() {
+                    // Backfill so subsequent syncs hit the natural-key branch.
+                    backfill_ref(conn, &schedule_id, &ref_id)?;
+                    by_ref.insert(ref_id.clone(), schedule_id.clone());
+                    by_local.insert((local_date, title_norm), (schedule_id, Some(ref_id)));
+                }
+                skipped += 1;
+                continue;
+            }
 
+            // (c) New item from DeskTopCal — insert.
+            let color = if bgcolor.is_empty() { None } else { Some(bgcolor) };
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
 
             let item = ScheduleItem {
-                id,
+                id: id.clone(),
                 schedule_type: "desktopcal_memo".to_string(),
-                title,
+                title: title.clone(),
                 content: Some(content_trimmed),
                 start_date: Some(formatted_date.clone()),
                 end_date: Some(formatted_date),
                 is_all_day: true,
-                reference_id: Some(format!("dkcal_item_{}", it_id)),
+                reference_id: Some(ref_id.clone()),
                 color,
                 is_completed: false,
                 created_at: if cdate.is_empty() { now.clone() } else { cdate },
@@ -511,6 +590,8 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
                 format!("메모 가져오기 실패: {}", e)
             })?;
 
+            by_ref.insert(ref_id.clone(), id.clone());
+            by_local.insert((local_date, normalize_title(&title)), (id, Some(ref_id)));
             imported += 1;
         }
     }
@@ -542,6 +623,14 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
 
             if title.is_empty() { continue; }
 
+            let ref_id = format!("dkcal_event_{}", ev_id);
+            // Natural key first — a recurring event keeps one reference_id
+            // across all its expanded occurrences, so once imported, skip.
+            if by_ref.contains_key(&ref_id) {
+                skipped += 1;
+                continue;
+            }
+
             // Expand recurrence into concrete dates
             let expanded_dates = if ev_recurrence.is_empty() {
                 let date_part = if ev_start_date.len() >= 10 { &ev_start_date[..10] } else { &ev_start_date };
@@ -550,9 +639,21 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
                 expand_rrule(&ev_start_date, &ev_recurrence)
             };
 
+            let mut any_inserted_for_ref = false;
             for date in expanded_dates {
-                // Check for duplicates
-                if check_existing(&conn, &date, &title_norm)? {
+                let local_date = match chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+
+                // Date+title match → skip, and backfill ref on the matched row.
+                if let Some((schedule_id, existing_ref)) = by_local.get(&(local_date, title_norm.clone())).cloned() {
+                    if existing_ref.is_none() {
+                        backfill_ref(conn, &schedule_id, &ref_id)?;
+                        by_ref.insert(ref_id.clone(), schedule_id.clone());
+                        by_local.insert((local_date, title_norm.clone()), (schedule_id, Some(ref_id.clone())));
+                        any_inserted_for_ref = true;
+                    }
                     skipped += 1;
                     continue;
                 }
@@ -561,14 +662,14 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
                 let now = Utc::now().to_rfc3339();
 
                 let item = ScheduleItem {
-                    id,
+                    id: id.clone(),
                     schedule_type: "desktopcal_event".to_string(),
                     title: title.clone(),
                     content: None,
                     start_date: Some(date.clone()),
-                    end_date: Some(date),
+                    end_date: Some(date.clone()),
                     is_all_day: true,
-                    reference_id: Some(format!("dkcal_event_{}", ev_id)),
+                    reference_id: Some(ref_id.clone()),
                     color: color.clone(),
                     is_completed: false,
                     created_at: if ev_cdate.is_empty() { now.clone() } else { ev_cdate.clone() },
@@ -588,6 +689,11 @@ pub fn import_desktopcal_db(app: AppHandle, db_path: String) -> Result<ImportRes
                     format!("이벤트 가져오기 실패: {}", e)
                 })?;
 
+                by_local.insert((local_date, title_norm.clone()), (id.clone(), Some(ref_id.clone())));
+                if !any_inserted_for_ref {
+                    by_ref.insert(ref_id.clone(), id);
+                    any_inserted_for_ref = true;
+                }
                 imported += 1;
             }
         }
@@ -869,7 +975,7 @@ mod tests {
         create_schedule_impl(&conn, item).unwrap();
 
         // Read
-        let schedules = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string()).unwrap();
+        let schedules = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
         assert_eq!(schedules.len(), 1);
         assert_eq!(schedules[0].title, "Test Todo");
 
@@ -877,14 +983,170 @@ mod tests {
         let mut updated_item = schedules[0].clone();
         updated_item.title = "Updated Title".to_string();
         update_schedule_impl(&conn, id.clone(), updated_item.clone()).unwrap();
-        
-        let schedules_after_update = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string()).unwrap();
+
+        let schedules_after_update = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
         assert_eq!(schedules_after_update[0].title, "Updated Title");
 
         // Delete
         delete_schedule_impl(&conn, id.clone()).unwrap();
-        let schedules_after_delete = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string()).unwrap();
+        let schedules_after_delete = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
         assert!(schedules_after_delete.is_empty());
+    }
+
+    fn kst() -> chrono::FixedOffset {
+        chrono::FixedOffset::east_opt(9 * 3600).unwrap()
+    }
+
+    #[test]
+    fn test_extract_local_date_morning_in_kst() {
+        // 2025-05-14 23:00 UTC == 2025-05-15 08:00 KST → local date must be May 15.
+        let d = extract_local_date_with_tz("2025-05-14T23:00:00.000Z", &kst());
+        assert_eq!(d, chrono::NaiveDate::from_ymd_opt(2025, 5, 15));
+    }
+
+    #[test]
+    fn test_extract_local_date_plain_yyyymmdd() {
+        // Plain dates must be timezone-independent.
+        let d = extract_local_date_with_tz("2025-05-15", &kst());
+        assert_eq!(d, chrono::NaiveDate::from_ymd_opt(2025, 5, 15));
+        let d2 = extract_local_date_with_tz("2025-05-15", &chrono::Utc);
+        assert_eq!(d2, chrono::NaiveDate::from_ymd_opt(2025, 5, 15));
+    }
+
+    /// Hypercool-side row already exported to DeskTopCal in a previous sync.
+    /// On re-import, the natural key (`dkcal_item_*`) must dedup it.
+    #[test]
+    fn test_import_dedups_via_natural_key() {
+        let conn = setup_db();
+        let ext_conn = Connection::open_in_memory().unwrap();
+        create_desktopcal_schema(&ext_conn).unwrap();
+
+        // Pretend a prior sync already imported it: reference_id is set.
+        create_schedule_impl(&conn, ScheduleItem {
+            id: "existing-memo".to_string(),
+            schedule_type: "desktopcal_memo".to_string(),
+            title: "회의".to_string(),
+            content: Some("회의".to_string()),
+            start_date: Some("2025-05-15".to_string()),
+            end_date: Some("2025-05-15".to_string()),
+            is_all_day: true,
+            reference_id: Some("dkcal_item_42".to_string()),
+            color: None,
+            is_completed: false,
+            created_at: "2025-05-15T00:00:00Z".to_string(),
+            updated_at: "2025-05-15T00:00:00Z".to_string(),
+            is_deleted: false,
+        }).unwrap();
+
+        ext_conn.execute(
+            "INSERT INTO item_table (it_id, u_id, pj_id, u_mid, it_unique_id, it_bgcolor, it_content, it_history, it_appinfo, it_cdate, it_mdate, it_stime, it_mtime)
+             VALUES (42, 0, 0, '', 'dkcal_mdays_20250515', '', '회의', '', '', '', '', 0, 0)",
+            [],
+        ).unwrap();
+
+        let result = import_desktopcal_db_impl(&conn, &ext_conn).unwrap();
+        assert_eq!(result.imported, 0);
+        assert_eq!(result.skipped, 1);
+
+        // No duplicate row created.
+        let rows = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    /// Legacy hypercool row created before reference_id existed: must dedup
+    /// via (local_date, title) and backfill its reference_id so subsequent
+    /// syncs hit the fast natural-key path.
+    #[test]
+    fn test_import_backfills_reference_id_on_date_title_match() {
+        let conn = setup_db();
+        let ext_conn = Connection::open_in_memory().unwrap();
+        create_desktopcal_schema(&ext_conn).unwrap();
+
+        // A manual_todo with no reference_id and a plain-date start_date.
+        create_schedule_impl(&conn, ScheduleItem {
+            id: "todo-legacy".to_string(),
+            schedule_type: "manual_todo".to_string(),
+            title: "회의".to_string(),
+            content: Some("회의".to_string()),
+            start_date: Some("2025-05-15".to_string()),
+            end_date: Some("2025-05-15".to_string()),
+            is_all_day: false,
+            reference_id: None,
+            color: None,
+            is_completed: false,
+            created_at: "2025-05-15T00:00:00Z".to_string(),
+            updated_at: "2025-05-15T00:00:00Z".to_string(),
+            is_deleted: false,
+        }).unwrap();
+
+        ext_conn.execute(
+            "INSERT INTO item_table (it_id, u_id, pj_id, u_mid, it_unique_id, it_bgcolor, it_content, it_history, it_appinfo, it_cdate, it_mdate, it_stime, it_mtime)
+             VALUES (7, 0, 0, '', 'dkcal_mdays_20250515', '', '회의', '', '', '', '', 0, 0)",
+            [],
+        ).unwrap();
+
+        let result = import_desktopcal_db_impl(&conn, &ext_conn).unwrap();
+        assert_eq!(result.imported, 0);
+        assert_eq!(result.skipped, 1);
+
+        // The legacy row should have been backfilled with dkcal_item_7.
+        let rows = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "todo-legacy");
+        assert_eq!(rows[0].reference_id.as_deref(), Some("dkcal_item_7"));
+        // Importantly: the schedule_type is unchanged. We are NOT converting
+        // a manual_todo into a desktopcal_memo; we're just remembering that
+        // this row corresponds to a known DeskTopCal item for future dedup.
+        assert_eq!(rows[0].schedule_type, "manual_todo");
+    }
+
+    /// Multi-day period_schedule: DeskTopCal stores it as N item_table rows
+    /// (one per day). The middle days must NOT reimport as desktopcal_memo
+    /// duplicates — they match by (local_date, title) and backfill ref.
+    #[test]
+    fn test_import_does_not_fan_out_multiday_period_schedule() {
+        let conn = setup_db();
+        let ext_conn = Connection::open_in_memory().unwrap();
+        create_desktopcal_schema(&ext_conn).unwrap();
+
+        // A 3-day period_schedule (May 14-16) with no reference_id yet.
+        // NOTE: With only start_date stored as "2025-05-14", a strict
+        // (local_date, title) match only covers day 1. Days 2-3 still need
+        // a range-based dedup (future PR). This test pins current behaviour:
+        // day 1 dedups, days 2-3 do not (single backfill + 2 new rows).
+        create_schedule_impl(&conn, ScheduleItem {
+            id: "period-1".to_string(),
+            schedule_type: "period_schedule".to_string(),
+            title: "워크숍".to_string(),
+            content: Some("워크숍".to_string()),
+            start_date: Some("2025-05-14".to_string()),
+            end_date: Some("2025-05-16".to_string()),
+            is_all_day: true,
+            reference_id: None,
+            color: None,
+            is_completed: false,
+            created_at: "2025-05-14T00:00:00Z".to_string(),
+            updated_at: "2025-05-14T00:00:00Z".to_string(),
+            is_deleted: false,
+        }).unwrap();
+
+        for (it_id, date_key) in [(10, "20250514"), (11, "20250515"), (12, "20250516")] {
+            ext_conn.execute(
+                "INSERT INTO item_table (it_id, u_id, pj_id, u_mid, it_unique_id, it_bgcolor, it_content, it_history, it_appinfo, it_cdate, it_mdate, it_stime, it_mtime)
+                 VALUES (?1, 0, 0, '', ?2, '', '워크숍', '', '', '', '', 0, 0)",
+                params![it_id, format!("dkcal_mdays_{}", date_key)],
+            ).unwrap();
+        }
+
+        let result = import_desktopcal_db_impl(&conn, &ext_conn).unwrap();
+        // Day 1 (May 14) matches our period_schedule and is skipped + backfilled.
+        // Days 2-3 (May 15, 16) currently fall through and import (deferred to range-match PR).
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.imported, 2);
+
+        let rows = get_schedules_impl(&conn, "2000-01-01".to_string(), "2100-01-01".to_string(), false).unwrap();
+        let period = rows.iter().find(|r| r.id == "period-1").unwrap();
+        assert_eq!(period.reference_id.as_deref(), Some("dkcal_item_10"));
     }
 }
 

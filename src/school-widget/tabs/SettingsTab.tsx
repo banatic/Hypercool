@@ -33,7 +33,7 @@ interface Props {
   onSave: () => void;
 }
 
-const TOGGLEABLE_TABS: Tab[] = ['todo', 'meal', 'timetable', 'attendance', 'points'];
+const TOGGLEABLE_TABS: Tab[] = ['todo', 'meal', 'timetable', 'attendance', 'points', 'shortcut'];
 
 export default function SettingsTab({
   timetableSource, onTimetableSourceChange,

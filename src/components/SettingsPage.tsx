@@ -58,6 +58,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [autoStartCalendar, setAutoStartCalendar] = useState(false);
   const [autoStartSchool, setAutoStartSchool] = useState(false);
 
+  // 다운로드 헬퍼 설정
+  const [dlHelperEnabled, setDlHelperEnabled] = useState(true);
+  const [dlHelperAutoSave, setDlHelperAutoSave] = useState(true);
+
   // 탁상달력 동기화 상태
   const [desktopcalPath, setDesktopcalPath] = useState<string | null>(null);
   const [desktopcalLoading, setDesktopcalLoading] = useState(false);
@@ -85,6 +89,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       }
     };
     loadAutoStartSettings();
+
+    // 다운로드 헬퍼 설정 불러오기 (Rust가 단일 진실의 출처)
+    const loadDownloadHelperSettings = async () => {
+      try {
+        const settings = await invoke<{ enabled: boolean; auto_save: boolean }>(
+          'download_helper_get_settings'
+        );
+        setDlHelperEnabled(settings.enabled);
+        setDlHelperAutoSave(settings.auto_save);
+      } catch (error) {
+        console.error('다운로드 헬퍼 설정 불러오기 실패:', error);
+      }
+    };
+    loadDownloadHelperSettings();
 
     // 탁상달력 자동 감지
     const detectDesktopcal = async () => {
@@ -551,6 +569,48 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 />
                 <span>프로그램 실행 시 학교 위젯 자동 실행</span>
               </label>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="field">
+        <label>다운로드 헬퍼</label>
+        <div className="setting-item">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={dlHelperEnabled}
+              onChange={async (e) => {
+                const value = e.target.checked;
+                setDlHelperEnabled(value);
+                await invoke('download_helper_set_enabled', { enabled: value });
+              }}
+            />
+            <span>다운로드 헬퍼 사용</span>
+          </label>
+          <div className="field-description">
+            「메시지 관리함」 / 「개의 안읽은 메시지」 창에 첨부 파일 패널을 부착합니다.
+          </div>
+        </div>
+        {dlHelperEnabled && (
+          <div className="setting-sub-items">
+            <div className="setting-item">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={dlHelperAutoSave}
+                  onChange={async (e) => {
+                    const value = e.target.checked;
+                    setDlHelperAutoSave(value);
+                    await invoke('download_helper_set_auto_save', { enabled: value });
+                  }}
+                />
+                <span>첨부 파일 자동 다운로드</span>
+              </label>
+              <div className="field-description">
+                새 첨부가 발견되면 「모든파일 저장」 버튼을 자동으로 클릭합니다.
+              </div>
             </div>
           </div>
         )}

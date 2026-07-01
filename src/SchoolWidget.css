@@ -996,3 +996,246 @@ tr:last-child td {
 .cat-sprite:active {
     transform: scale(0.95);
 }
+
+/* Shortcut Section */
+.shortcut-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    position: relative;
+}
+
+.shortcut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding-right: 4px;
+    padding-bottom: 0.5rem;
+    align-content: start;
+}
+
+.shortcut-tile-wrap {
+    position: relative;
+    display: flex;
+}
+
+.shortcut-tile {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 0.6rem 0.4rem 0.5rem;
+    border-radius: 14px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+    min-width: 0;
+}
+
+.shortcut-tile:hover {
+    background: var(--hover-bg);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.shortcut-tile:active {
+    transform: scale(0.96);
+}
+
+.shortcut-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(99, 102, 241, 0.25));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+    position: relative;
+}
+
+.shortcut-icon img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+    position: relative;
+    z-index: 1;
+}
+
+.shortcut-icon-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.85);
+    z-index: 0;
+}
+
+.shortcut-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: center;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+.shortcut-add-tile {
+    border-style: dashed;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.shortcut-add-tile:hover {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.shortcut-add-icon {
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+}
+
+.shortcut-add-icon svg {
+    width: 22px;
+    height: 22px;
+}
+
+.shortcut-delete {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ef4444;
+    border: 2px solid rgba(25, 25, 30, 0.95);
+    color: white;
+    cursor: pointer;
+    padding: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+
+.shortcut-delete svg {
+    width: 10px;
+    height: 10px;
+}
+
+.shortcut-tile-wrap:hover .shortcut-delete {
+    display: flex;
+}
+
+.shortcut-empty {
+    text-align: center;
+    padding: 2rem 0;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.85rem;
+}
+
+/* Shortcut modal */
+.shortcut-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    animation: shortcutFadeIn 0.15s ease;
+}
+
+@keyframes shortcutFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.shortcut-modal {
+    width: min(320px, 90%);
+    background: rgba(40, 40, 50, 0.95);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.shortcut-modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.shortcut-input {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 0.6rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.shortcut-input:focus {
+    border-color: var(--accent-color);
+}
+
+.shortcut-error {
+    color: #f87171;
+    font-size: 0.8rem;
+}
+
+.shortcut-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 0.25rem;
+}
+
+.shortcut-btn-cancel,
+.shortcut-btn-save {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.shortcut-btn-cancel {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--border-color);
+}
+
+.shortcut-btn-cancel:hover {
+    background: var(--hover-bg);
+}
+
+.shortcut-btn-save {
+    background: var(--accent-color);
+    color: white;
+}
+
+.shortcut-btn-save:hover {
+    background: #2563eb;
+}

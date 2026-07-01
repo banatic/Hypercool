@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import './gif-widget.css';
+
+const SELF = getCurrentWebviewWindow();
+const BTN_LABEL = SELF.label.replace('gif-widget', 'gif-btn');
 
 interface GifItem {
   id: string;
@@ -103,6 +108,14 @@ function GifWidget() {
     try {
       await invoke('cmd_copy_html', { html });
       showToast('✅', '클립보드에 복사됨!');
+      setTimeout(async () => {
+        try {
+          await SELF.hide();
+          await emit('gif-panel-closed', BTN_LABEL);
+        } catch (e) {
+          console.error('GIF 패널 자동 닫기 실패:', e);
+        }
+      }, 350);
     } catch (err) {
       showToast('❌', '복사 실패: ' + String(err).slice(0, 40));
     }

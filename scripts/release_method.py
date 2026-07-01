@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
@@ -110,7 +109,9 @@ def config_from_args(args: argparse.Namespace) -> ReleaseConfig:
 
 def ensure_semver(value: str) -> str:
     if not SEMVER_RE.match(value):
-        raise SystemExit(f"[error] Invalid version '{value}'. Expected SemVer such as 0.1.5")
+        raise SystemExit(
+            f"[error] Invalid version '{value}'. Expected SemVer such as 0.1.5"
+        )
     return value
 
 
@@ -168,7 +169,9 @@ def update_cargo_toml(path: Path, new_version: str) -> str:
     pattern = re.compile(r'^(version\s*=\s*)"([^"]+)"', re.MULTILINE)
     match = pattern.search(content)
     if not match:
-        raise SystemExit("[error] Could not locate the package version entry inside Cargo.toml")
+        raise SystemExit(
+            "[error] Could not locate the package version entry inside Cargo.toml"
+        )
     old_version = match.group(2)
     new_content = pattern.sub(rf'\1"{new_version}"', content, count=1)
     path.write_text(new_content, encoding="utf-8")
@@ -177,19 +180,24 @@ def update_cargo_toml(path: Path, new_version: str) -> str:
 
 def run_build(root: Path) -> None:
     import os
+
     env_file = root / ".env"
     if env_file.exists():
         content = env_file.read_text(encoding="utf-8-sig")
-        for match in re.finditer(r'^([A-Za-z0-9_]+)=(?:"([^"]*)"|([^\n]*))', content, re.MULTILINE):
+        for match in re.finditer(
+            r'^([A-Za-z0-9_]+)=(?:"([^"]*)"|([^\n]*))', content, re.MULTILINE
+        ):
             key = match.group(1)
             val = match.group(2) if match.group(2) is not None else match.group(3)
-            val = val.replace('\\n', '\n')
+            val = val.replace("\\n", "\n")
             os.environ[key] = val
             print(f"[info] Loaded environment variable from .env: {key}")
 
     npm_exec = shutil.which("npm") or shutil.which("npm.cmd") or shutil.which("npm.exe")
     if not npm_exec:
-        raise SystemExit("[error] Could not find `npm` executable. Ensure Node.js/npm is installed and on PATH.")
+        raise SystemExit(
+            "[error] Could not find `npm` executable. Ensure Node.js/npm is installed and on PATH."
+        )
 
     print("[info] Running `npm run tauri build` ...")
     subprocess.run(
@@ -270,7 +278,7 @@ def build_download_url(
 ) -> str:
     # GitHub release 태그 형식에 맞춰 v를 붙임
     tag_version = f"v{version}"
-    
+
     # repo_download_url이 명시적으로 제공되면 사용
     if repo_download_url:
         base = repo_download_url.rstrip("/")
@@ -278,7 +286,11 @@ def build_download_url(
 
     # current_url에서 GitHub releases URL 패턴 추출
     # 예: https://github.com/banatic/Hypercool/releases/download/v0.2.2/HyperCool_0.2.2_x64_en-US.msi
-    if current_url and "github.com" in current_url and "/releases/download/" in current_url:
+    if (
+        current_url
+        and "github.com" in current_url
+        and "/releases/download/" in current_url
+    ):
         # GitHub releases URL 패턴에서 base URL 추출
         # https://github.com/banatic/Hypercool/releases/download 까지 추출
         parts = current_url.split("/releases/download/")
@@ -286,7 +298,7 @@ def build_download_url(
             base_url = parts[0] + "/releases/download"
             # 새 버전과 artifact_name으로 완전히 새 URL 구성
             return f"{base_url}/{tag_version}/{artifact_name}"
-    
+
     # 기본값: GitHub releases URL 구성 (banatic/Hypercool 기준)
     return f"https://github.com/banatic/Hypercool/releases/download/{tag_version}/{artifact_name}"
 
@@ -296,7 +308,7 @@ def get_git_remote_url(root: Path) -> Optional[str]:
     git_exec = shutil.which("git") or shutil.which("git.exe")
     if not git_exec:
         return None
-    
+
     try:
         result = subprocess.run(
             [git_exec, "remote", "get-url", "origin"],
@@ -308,7 +320,9 @@ def get_git_remote_url(root: Path) -> Optional[str]:
         url = result.stdout.strip()
         # Convert SSH URL to HTTPS if needed
         if url.startswith("git@github.com:"):
-            url = url.replace("git@github.com:", "https://github.com/").replace(".git", "")
+            url = url.replace("git@github.com:", "https://github.com/").replace(
+                ".git", ""
+            )
         elif url.endswith(".git"):
             url = url[:-4]
         return url
@@ -321,7 +335,7 @@ def check_gh_cli() -> bool:
     gh_exec = shutil.which("gh") or shutil.which("gh.exe")
     if not gh_exec:
         return False
-    
+
     try:
         # Check if authenticated
         subprocess.run(
@@ -344,31 +358,37 @@ def create_github_release(
     """Create a GitHub release with tag and upload MSI file."""
     gh_exec = shutil.which("gh") or shutil.which("gh.exe")
     if not gh_exec:
-        raise SystemExit("[error] GitHub CLI (gh) not found. Install it from https://cli.github.com/")
-    
+        raise SystemExit(
+            "[error] GitHub CLI (gh) not found. Install it from https://cli.github.com/"
+        )
+
     if not check_gh_cli():
-        raise SystemExit("[error] GitHub CLI not authenticated. Run `gh auth login` first.")
-    
+        raise SystemExit(
+            "[error] GitHub CLI not authenticated. Run `gh auth login` first."
+        )
+
     tag = f"v{version}"
     title = f"Release {tag}"
-    
+
     print(f"[info] Creating GitHub release {tag}...")
-    
+
     # Prepare files to upload
     files_to_upload = [str(msi_path)]
     if sig_path and sig_path.exists():
         files_to_upload.append(str(sig_path))
-    
+
     # Create release with files
     cmd = [
         gh_exec,
         "release",
         "create",
         tag,
-        "--title", title,
-        "--notes", notes,
+        "--title",
+        title,
+        "--notes",
+        notes,
     ] + files_to_upload
-    
+
     try:
         subprocess.run(cmd, cwd=root, check=True)
         print(f"[info] GitHub release {tag} created successfully.")
@@ -381,7 +401,7 @@ def git_add_commit_push(root: Path, version: str, latest_path: Path) -> None:
     git_exec = shutil.which("git") or shutil.which("git.exe")
     if not git_exec:
         raise SystemExit("[error] Git not found. Ensure Git is installed and on PATH.")
-    
+
     # Check if there are changes
     try:
         status_result = subprocess.run(
@@ -396,7 +416,7 @@ def git_add_commit_push(root: Path, version: str, latest_path: Path) -> None:
             return
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"[error] Failed to check git status: {exc}")
-    
+
     print("[info] Staging latest.json...")
     try:
         subprocess.run(
@@ -406,7 +426,7 @@ def git_add_commit_push(root: Path, version: str, latest_path: Path) -> None:
         )
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"[error] Failed to git add latest.json: {exc}")
-    
+
     print("[info] Committing changes...")
     commit_message = f"Update latest.json for version {version}"
     try:
@@ -417,7 +437,7 @@ def git_add_commit_push(root: Path, version: str, latest_path: Path) -> None:
         )
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"[error] Failed to git commit: {exc}")
-    
+
     print("[info] Pushing to remote...")
     try:
         subprocess.run(
@@ -521,8 +541,8 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.13",
-        notes="에듀파인 공문 MCP 추가: 공문 자동 감지·저장·검색, AI 연동 관리 탭 신설, 결재 전 공문 필터",
+        version="0.5.19",
+        notes="검색 개선 수정",
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,

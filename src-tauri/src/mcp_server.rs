@@ -540,27 +540,70 @@ fn open_db(db_path: &PathBuf) -> Result<Connection, String> {
 fn tool_search_messages(db_path: &PathBuf, query: &str, limit: i64) -> Result<Value, String> {
     let conn = open_db(db_path)?;
 
-    let escaped = query.replace('"', "\"\"").replace('*', "").replace(':', " ");
-    let fts_query = format!("\"{}\"*", escaped);
+    // 앱 본체 검색과 동일한 하이브리드 전략: 3글자 이상이면 trigram FTS, 아니면 content_text LIKE
+    let plan = match crate::search_db::plan_search_query(query) {
+        Some(p) => p,
+        None => {
+            return Ok(json!({ "content": [{ "type": "text", "text": "검색어가 비어 있습니다." }] }));
+        }
+    };
 
-    let sql = "SELECT m.id, m.sender, m.content, m.receive_date, m.file_paths
-               FROM messages_fts
-               JOIN messages m ON m.id = messages_fts.rowid
-               WHERE messages_fts MATCH ?1
-               ORDER BY m.receive_date DESC
-               LIMIT ?2";
+    type SearchRow = (i64, String, String, Option<String>, Vec<String>);
+    let map_row = |row: &rusqlite::Row| -> rusqlite::Result<SearchRow> {
+        let fp_json: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+        let file_paths: Vec<String> = serde_json::from_str(&fp_json).unwrap_or_default();
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, file_paths))
+    };
 
-    let mut stmt = conn.prepare(sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
+    let mut rows: Vec<SearchRow> = Vec::new();
 
-    let rows: Vec<(i64, String, String, Option<String>, Vec<String>)> = stmt
-        .query_map(rusqlite::params![fts_query, limit], |row| {
-            let fp_json: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
-            let file_paths: Vec<String> = serde_json::from_str(&fp_json).unwrap_or_default();
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, file_paths))
-        })
-        .map_err(|e| format!("쿼리 실패: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+    if let Some(fts_query) = &plan.fts_query {
+        let sql = "SELECT m.id, m.sender, m.content, m.receive_date, m.file_paths
+                   FROM messages_fts
+                   JOIN messages m ON m.id = messages_fts.rowid
+                   WHERE messages_fts MATCH ?1
+                   ORDER BY m.receive_date DESC
+                   LIMIT ?2";
+        let mut stmt = conn.prepare(sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
+        rows = stmt
+            .query_map(rusqlite::params![fts_query, limit], |row| map_row(row))
+            .map_err(|e| format!("쿼리 실패: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+    }
+
+    if rows.is_empty() {
+        let conditions: Vec<&str> = plan
+            .terms
+            .iter()
+            .map(|_| "(m.content_text LIKE ? ESCAPE '\\' OR m.sender LIKE ? ESCAPE '\\')")
+            .collect();
+        let sql = format!(
+            "SELECT m.id, m.sender, m.content, m.receive_date, m.file_paths
+             FROM messages m
+             WHERE {}
+             ORDER BY m.receive_date DESC
+             LIMIT ?",
+            conditions.join(" AND ")
+        );
+        let mut bind: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        for term in &plan.terms {
+            let pattern = crate::search_db::like_pattern(term);
+            bind.push(Box::new(pattern.clone()));
+            bind.push(Box::new(pattern));
+        }
+        bind.push(Box::new(limit));
+
+        let mut stmt = conn.prepare(&sql).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
+        rows = stmt
+            .query_map(
+                rusqlite::params_from_iter(bind.iter().map(|p| p.as_ref())),
+                |row| map_row(row),
+            )
+            .map_err(|e| format!("쿼리 실패: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+    }
 
     let text = if rows.is_empty() {
         format!("\"{}\" 검색 결과가 없습니다.", query)

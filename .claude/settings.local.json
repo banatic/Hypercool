@@ -45,7 +45,27 @@
       "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code} %{time_total}s\" \"https://tossinvest.com\")",
       "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code} %{time_total}s\" \"https://api.tossinvest.com\")",
       "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code} %{time_total}s\" \"https://wts-api.tossinvest.com\")",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(xxd \"/c/Program Files \\(x86\\)/압핀시간표/amc42.cfg\")",
+      "Bash(xxd \"/c/Program Files \\(x86\\)/압핀시간표/amc42.arm\")",
+      "Bash(xxd \"/c/Program Files \\(x86\\)/압핀시간표/amc42.afn\")",
+      "Bash(xxd)",
+      "Bash(dd if=\"/c/Program Files \\(x86\\)/압핀시간표/amc42.exe\" bs=1 skip=2967480 count=256)",
+      "Bash(dd if=\"/c/Program Files \\(x86\\)/압핀시간표/amc42.exe\" bs=1 skip=2967944 count=256)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(python scripts/verify_appin_parser.py --teacher 신민성 --date 2026-05-05 --swap-mode after)",
+      "Read(//tmp/**)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/verify_appin_parser.py --teacher 신민성 --swap-mode after)",
+      "Bash(cargo test *)",
+      "Bash(git check-ignore *)",
+      "Bash(npm install *)",
+      "Bash(node *)",
+      "PowerShell(cargo check *)",
+      "PowerShell(cargo test *)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30)",
+      "PowerShell(npm test *)",
+      "Bash(gh repo *)",
+      "Bash(claude --version)"
     ]
   }
 }

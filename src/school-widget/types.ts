@@ -32,10 +32,20 @@ export interface AppinTimetableSlot {
 export interface AppinData {
   teachers: string[];
   subjects: string[];
+  classes: string[];
+  events: string[];
   days: Record<string, Record<string, Record<string, AppinTimetableSlot>>>;
+  eventsByDateClass: Record<string, Record<string, string>>;
+  eventsByDateGrade: Record<string, (string | null)[]>;
 }
 
-export type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'settings' | 'stock';
+export type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'shortcut' | 'settings' | 'stock';
+
+export interface Shortcut {
+  id: string;
+  url: string;
+  name: string;
+}
 
 export type CatDirection = 'down' | 'right' | 'up' | 'left';
 export type CatActionPhase = 'enter' | 'hold' | 'exit';
@@ -131,5 +141,6 @@ export const ALL_TABS: { id: Tab; label: string }[] = [
   { id: 'timetable', label: '시간표' },
   { id: 'attendance', label: '출결' },
   { id: 'points', label: '상벌점' },
+  { id: 'shortcut', label: '바로가기' },
   { id: 'settings', label: '설정' },
 ];

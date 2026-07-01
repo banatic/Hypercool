@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, emit } from '@tauri-apps/api/event';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { AttachmentList } from './components/AttachmentList';
+import ResizeHandles from './components/ResizeHandles';
 import { ManualTodo, PeriodSchedule } from './types';
 import './styles.css';
 import './CalendarWidget.css';
@@ -69,7 +70,9 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
   useEffect(() => {
     let lastCall = 0;
-    const sendToBottom = () => {
+    const sendToBottom = (e?: Event) => {
+      // 리사이즈 핸들 위에서는 send-to-bottom 이 리사이즈 시작을 가로채지 않도록 건너뜀
+      if (e && e.target instanceof HTMLElement && e.target.closest('[data-resize-handle]')) return;
       const now = Date.now();
       if (now - lastCall < 500) return;
       lastCall = now;
@@ -900,7 +903,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
   const deleteTodo = async (todo: TodoItem) => {
     try {
-      await invoke('delete_schedule', { id: todo.id });
+      const scheduleId = referenceIdToScheduleId[todo.id] ?? todo.id;
+      await invoke('delete_schedule', { id: scheduleId });
 
       // Update local state
       if (todo.isManual) {
@@ -961,6 +965,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
 
   return (
     <div className="calendar-widget">
+      <ResizeHandles enabled={isPinned} />
       <div className="calendar-widget-header">
         <button onClick={goToPreviousMonth} className="calendar-nav-btn">‹</button>
         <div className="calendar-month-year">

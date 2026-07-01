@@ -1,9 +1,11 @@
+pub mod agent;
 pub mod commands;
 pub mod db;
 pub mod edufine_db;
 pub mod edufine_watcher;
 pub mod gif_clipboard;
 pub mod gif_watcher;
+pub mod download_watcher;
 pub mod mcp_server;
 pub mod models;
 pub mod school_data;

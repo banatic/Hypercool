@@ -45,11 +45,11 @@ function App() {
   } = useSchedules();
 
   const { 
-    allMessages, totalMessageCount, classified, saveClassified, isLoading: isLoadingMessages, 
-    loadUdbFile, searchResults, setSearchResults, 
-    activeSearchMessage, 
-    searchMessages, loadMessageById, 
-    isLoadingSearch, isLoadingActiveSearch 
+    allMessages, totalMessageCount, classified, saveClassified, isLoading: isLoadingMessages,
+    loadUdbFile, searchResults,
+    activeSearchMessage,
+    searchMessages, clearSearch, loadMessageById,
+    isLoadingSearch, isLoadingActiveSearch
   } = useMessages(udbPath);
 
   const { 
@@ -211,17 +211,14 @@ function App() {
   const [historyIndex, setHistoryIndex] = useState(0);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
 
-  // Debounced Search
+  // Search — 디바운스는 HistoryPage의 입력단에서 처리되므로 여기서는 즉시 실행
   useEffect(() => {
-    const handler = setTimeout(() => {
-      if (udbPath && historySearchTerm.trim() !== '') {
-        searchMessages(historySearchTerm);
-      } else {
-        setSearchResults(null);
-      }
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [historySearchTerm, udbPath, searchMessages, setSearchResults]);
+    if (udbPath && historySearchTerm.trim() !== '') {
+      searchMessages(historySearchTerm);
+    } else {
+      clearSearch();
+    }
+  }, [historySearchTerm, udbPath, searchMessages, clearSearch]);
 
   // Auto-select first search result - DISABLED FOR DEBUGGING
   // useEffect(() => {

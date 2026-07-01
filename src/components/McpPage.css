@@ -243,6 +243,62 @@
   border-radius: 3px;
 }
 
+/* 자동 일정화 (AI 브리핑) */
+.mcp-briefing-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-briefing-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #999);
+  line-height: 1.75;
+}
+
+.mcp-briefing-desc strong { color: var(--text-primary, #e0e0e0); font-weight: 600; }
+
+.mcp-briefing-desc code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.76rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.mcp-run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mcp-run-btn {
+  padding: 7px 16px;
+  border-radius: 7px;
+  border: none;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #3b82f6;
+  color: #fff;
+  transition: background 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.mcp-run-btn:hover:not(:disabled) { background: #2563eb; }
+.mcp-run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.mcp-run-result {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #aaa);
+}
+
+.mcp-run-result--error { color: #fca5a5; }
+
 /* 도움말 아이콘 */
 .mcp-help-icon {
   width: 28px;

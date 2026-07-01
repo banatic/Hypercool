@@ -29,6 +29,38 @@ XOR_KEY = b"7n1bmu"
 BASE_DATE = date(2026, 3, 2)
 
 
+def parse_events(records):
+    """record 1 (#hensa) → 1-based 행사명 카탈로그"""
+    if len(records) < 2:
+        return []
+    dec = decrypt_bytes(records[1])
+    pos = dec.find(b' ')
+    body = dec[pos+1:] if pos != -1 else dec
+    text = body.decode('euc-kr', errors='replace')
+    out = []
+    for item in text.split(','):
+        parts = item.split('^')
+        name = parts[1] if len(parts) >= 2 else parts[0]
+        out.append(name.strip().rstrip('\x00').rstrip('\x06'))
+    return out
+
+
+def parse_header_events(body_text: str):
+    """일별 레코드 헤더의 학년별 행사 인덱스 (1·2·3학년)"""
+    head = body_text.split('{', 1)[0]
+    fields = head.split(',')
+    out = [None, None, None]
+    for i in range(3):
+        if i + 1 < len(fields):
+            try:
+                v = int(fields[i + 1])
+                if v > 0:
+                    out[i] = v
+            except ValueError:
+                pass
+    return out
+
+
 # ── 복호화 ──────────────────────────────────────────────────────────────────
 
 def decrypt_bytes(raw: bytes) -> bytes:
@@ -122,13 +154,23 @@ def parse_classes(records: list[bytes]) -> list[str]:
 
 # ── 교시 슬롯 파싱 ───────────────────────────────────────────────────────────
 
+def _leading_int(s: str):
+    digits = ''
+    for c in s:
+        if c.isdigit():
+            digits += c
+        else:
+            break
+    return int(digits) if digits else None
+
+
 def parse_slot(pd_str: str, gt_mode: str) -> dict:
     """
     pd_str : 교시 필드 원본 문자열
     gt_mode: 'before' | 'after'  (> 기호 처리 방식)
-    반환: {'subject': int|None, 'teacher': int|None, 'room': int|None, '_raw': str}
+    반환: {'subject': int|None, 'teacher': int|None, 'room': int|None, 'event': int|None, '_raw': str}
     """
-    slot = {'subject': None, 'teacher': None, 'room': None, '_raw': pd_str}
+    slot = {'subject': None, 'teacher': None, 'room': None, 'event': None, '_raw': pd_str}
 
     core = pd_str.split('|')[0]  # | 앞부분만
     if '>' in core:
@@ -138,6 +180,15 @@ def parse_slot(pd_str: str, gt_mode: str) -> dict:
     core = core.strip()
     if not core:
         return slot
+
+    # <eventIdx>* 또는 ~<eventIdx>* prefix → 행사 슬롯으로 분류
+    probe = core[1:] if core.startswith('~') else core
+    ev = _leading_int(probe)
+    if ev is not None and ev > 0:
+        rest = probe[len(str(ev)):]
+        if rest.startswith('*'):
+            slot['event'] = ev
+            return slot
 
     if '(' in core:
         sp = core.split('(', 1)
@@ -183,7 +234,7 @@ def parse_slot(pd_str: str, gt_mode: str) -> dict:
 
 
 def parse_daily(body_text: str, gt_mode: str) -> dict:
-    """반환: {class_idx: {period_idx: slot}}"""
+    """반환: {class_idx: {'periods': {period: slot}, 'event': int|None}}"""
     tt = {}
     for sec in body_text.split('{')[1:]:
         fields = sec.split(',')
@@ -194,15 +245,20 @@ def parse_daily(body_text: str, gt_mode: str) -> dict:
         except ValueError:
             continue
         periods = {}
+        event_counts = {}
         max_p = min(9, len(fields) - 2)
         for pi in range(max_p):
             pd_str = fields[pi + 2]
             if not pd_str.strip():
                 continue
             slot = parse_slot(pd_str, gt_mode)
+            if slot['event'] is not None:
+                event_counts[slot['event']] = event_counts.get(slot['event'], 0) + 1
+                continue
             if slot['subject'] is not None or slot['teacher'] is not None or slot['room'] is not None:
                 periods[pi + 1] = slot
-        tt[cls] = periods
+        ev = max(event_counts, key=event_counts.get) if event_counts else None
+        tt[cls] = {'periods': periods, 'event': ev}
     return tt
 
 
@@ -210,26 +266,47 @@ def parse_daily(body_text: str, gt_mode: str) -> dict:
 
 def build_teacher_map(records, subjects, teachers, classes, gt_mode):
     """
-    반환: {teacher_name: {date_str: {period: {subject_name, class_name}}}}
+    반환:
+      teacher_map: {teacher_name: {date_str: {period: {subject_name, class_name}}}}
+      events_by_date_class: {date_str: {class_name: event_label}}
+      events_by_date_grade: {date_str: [g1, g2, g3]}
     """
+    events = parse_events(records)
+    def event_label(idx_1based):
+        if idx_1based is None or idx_1based <= 0 or idx_1based > len(events):
+            return None
+        name = events[idx_1based - 1].strip()
+        return name if name else None
+
     result = {t: {} for t in teachers}
+    events_by_date_class = {}
+    events_by_date_grade = {}
 
     for ri in range(8, len(records)):
         offset = ri - 9
         d = BASE_DATE + timedelta(days=offset)
-        if d.isoweekday() > 5:  # 토·일 제외
+        if d.isoweekday() > 5:
             continue
         body = decrypt_text(records[ri])
+        header_evs = parse_header_events(body)
         tt = parse_daily(body, gt_mode)
-        if not tt:
-            continue
-
         date_str = d.strftime("%Y-%m-%d")
-        for ci, periods in tt.items():
+
+        # 학년별 행사
+        grade_labels = [event_label(e) for e in header_evs]
+        if any(grade_labels):
+            events_by_date_grade[date_str] = grade_labels
+
+        # 반별 행사
+        for ci, info in tt.items():
             if ci == 0 or ci > len(classes):
                 continue
             class_name = classes[ci - 1]
-            for p, slot in periods.items():
+            ev = info.get('event')
+            label = event_label(ev)
+            if label:
+                events_by_date_class.setdefault(date_str, {})[class_name] = label
+            for p, slot in info['periods'].items():
                 t_idx = slot['teacher']
                 s_idx = slot['subject']
                 if t_idx is None or s_idx is None:
@@ -238,15 +315,11 @@ def build_teacher_map(records, subjects, teachers, classes, gt_mode):
                     continue
                 t_name = teachers[t_idx]
                 s_name = subjects[s_idx]
-                if t_name not in result:
-                    result[t_name] = {}
-                if date_str not in result[t_name]:
-                    result[t_name][date_str] = {}
-                result[t_name][date_str][p] = {
+                result.setdefault(t_name, {}).setdefault(date_str, {})[p] = {
                     'subject': s_name,
                     'class': class_name,
                 }
-    return result
+    return result, events_by_date_class, events_by_date_grade
 
 
 # ── 출력 헬퍼 ────────────────────────────────────────────────────────────────
@@ -254,28 +327,51 @@ def build_teacher_map(records, subjects, teachers, classes, gt_mode):
 WEEKDAY_KR = ['월', '화', '수', '목', '금']
 
 
-def print_teacher_schedule(teacher_map, teacher_name, filter_date=None, filter_period=None):
-    data = teacher_map.get(teacher_name)
-    if not data:
+def print_teacher_schedule(teacher_map, teacher_name, filter_date=None, filter_period=None,
+                           events_by_date_class=None, events_by_date_grade=None):
+    events_by_date_class = events_by_date_class or {}
+    events_by_date_grade = events_by_date_grade or {}
+    data = teacher_map.get(teacher_name) or {}
+
+    # 보여줄 날짜 = 교사 데이터가 있는 날 ∪ 행사일
+    all_dates = set(data.keys()) | set(events_by_date_class.keys()) | set(events_by_date_grade.keys())
+    if filter_date:
+        all_dates &= {filter_date}
+    if not all_dates:
         print(f"  [{teacher_name}] 데이터 없음")
         return
 
-    dates = sorted(data.keys())
-    if filter_date:
-        dates = [d for d in dates if d == filter_date]
-
-    for ds in dates:
+    for ds in sorted(all_dates):
         d = date.fromisoformat(ds)
         wd = WEEKDAY_KR[d.isoweekday() - 1]
-        periods = data[ds]
+        periods = data.get(ds, {})
         rows = sorted(periods.items())
         if filter_period:
             rows = [(p, v) for p, v in rows if p == filter_period]
-        if not rows:
+        ev_class_map = events_by_date_class.get(ds, {})
+        ev_grade_arr = events_by_date_grade.get(ds, [])
+
+        # 행사 라벨 요약
+        header_bits = []
+        if ev_class_map:
+            uniq = set(ev_class_map.values())
+            header_bits.append(f"행사(반): {sorted(uniq)}")
+        if any(ev_grade_arr):
+            header_bits.append(f"행사(학년): {ev_grade_arr}")
+
+        if not rows and not header_bits:
             continue
-        print(f"  {ds} ({wd})")
+        print(f"  {ds} ({wd})  " + ("  ".join(header_bits) if header_bits else ""))
         for p, v in rows:
-            print(f"    {p}교시: {v['subject']} / {v['class']}")
+            label = ev_class_map.get(v['class'])
+            if not label:
+                m = v['class'].split('-')
+                if m and m[0].isdigit():
+                    g = int(m[0])
+                    if 1 <= g <= len(ev_grade_arr):
+                        label = ev_grade_arr[g - 1]
+            tail = f"  ◀ 행사: {label}" if label else ""
+            print(f"    {p}교시: {v['subject']} / {v['class']}{tail}")
 
 
 def print_raw_slots(records, subjects, teachers, classes,
@@ -370,25 +466,31 @@ def main():
 
     # 비교 모드
     modes = ['before', 'after'] if args.swap_mode == 'both' else [args.swap_mode]
-    maps  = {m: build_teacher_map(records, subjects, teachers, classes, m) for m in modes}
+    bundles = {m: build_teacher_map(records, subjects, teachers, classes, m) for m in modes}
+
+    def show(m, t, fd, fp):
+        tm, ec, eg = bundles[m]
+        print_teacher_schedule(tm, t, fd, fp, ec, eg)
 
     if args.swap_mode == 'both' and args.teacher:
         print("─── > 앞부분 사용 (before) ───────────────────────")
-        print_teacher_schedule(maps['before'], args.teacher, args.date, args.period)
+        show('before', args.teacher, args.date, args.period)
         print("\n─── > 뒷부분 사용 (after, 현재 Rust 코드) ────────")
-        print_teacher_schedule(maps['after'],  args.teacher, args.date, args.period)
+        show('after', args.teacher, args.date, args.period)
     elif args.teacher:
         m = modes[0]
         print(f"=== {args.teacher} [{m}] ===")
-        print_teacher_schedule(maps[m], args.teacher, args.date, args.period)
+        show(m, args.teacher, args.date, args.period)
     else:
         # 전체 선생님 비교 — 차이나는 날짜/교시만 출력
         if args.swap_mode == 'both':
             print("=== before vs after 차이 목록 ===")
             diffs = []
+            tm_b = bundles['before'][0]
+            tm_a = bundles['after'][0]
             for t in teachers:
-                d_before = maps['before'].get(t, {})
-                d_after  = maps['after'].get(t, {})
+                d_before = tm_b.get(t, {})
+                d_after  = tm_a.get(t, {})
                 all_dates = set(d_before) | set(d_after)
                 for ds in sorted(all_dates):
                     p_before = d_before.get(ds, {})
@@ -410,10 +512,10 @@ def main():
         else:
             for t in (teachers[:10]):
                 m = modes[0]
-                data = maps[m].get(t, {})
+                data = bundles[m][0].get(t, {})
                 if data:
                     print(f"\n=== {t} ===")
-                    print_teacher_schedule(maps[m], t)
+                    show(m, t, None, None)
 
 
 if __name__ == '__main__':

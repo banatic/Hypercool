@@ -6,14 +6,16 @@ import { ScheduleItem } from './types/schedule';
 
 import {
   Tab, TimetableData, MealInfo, Latecomer, PointStatus,
-  AppinData, CatTypeId, CAT_TYPES,
+  AppinData, CatTypeId, CAT_TYPES, Shortcut,
 } from './school-widget/types';
 import TabBar from './school-widget/TabBar';
+import ResizeHandles from './components/ResizeHandles';
 import TodoTab from './school-widget/tabs/TodoTab';
 import MealTab from './school-widget/tabs/MealTab';
 import TimetableTab from './school-widget/tabs/TimetableTab';
 import AttendanceTab from './school-widget/tabs/AttendanceTab';
 import PointsTab from './school-widget/tabs/PointsTab';
+import ShortcutTab from './school-widget/tabs/ShortcutTab';
 import SettingsTab from './school-widget/tabs/SettingsTab';
 import StockTab from './school-widget/tabs/StockTab';
 import { useCatAnimation } from './school-widget/hooks/useCatAnimation';
@@ -129,9 +131,22 @@ export default function SchoolWidget() {
   const baseAppinTimetable = useMemo(() => {
     if (!selectedTeacher || !appinData || !parsedAppinTeachers[selectedTeacher]) return null;
     const dailyData = parsedAppinTeachers[selectedTeacher];
+
+    // Count days the teacher was present per weekday — a slot only becomes
+    // part of the base if it recurs on a majority of those days. Otherwise
+    // one-off 보강/대체 lessons would pollute the base and later empty slots
+    // would be falsely flagged as deletions.
+    const teacherDaysPerWeekday: Record<number, number> = {};
+    Object.keys(dailyData).forEach(dateStr => {
+      const dow = new Date(dateStr).getDay();
+      teacherDaysPerWeekday[dow] = (teacherDaysPerWeekday[dow] || 0) + 1;
+    });
+
     const base: Record<number, Record<number, { subject: string; className: string } | null>> = {};
     for (let d = 1; d <= 5; d++) {
       base[d] = {};
+      const totalForDay = teacherDaysPerWeekday[d] || 0;
+      const threshold = Math.max(2, Math.ceil(totalForDay / 2));
       for (let p = 1; p <= 7; p++) {
         const counts: Record<string, { count: number; data: { subject: string; className: string } }> = {};
         Object.entries(dailyData).forEach(([dateStr, periodMap]) => {
@@ -147,7 +162,7 @@ export default function SchoolWidget() {
         });
         let best: { count: number; data: { subject: string; className: string } } | null = null;
         Object.values(counts).forEach(c => { if (!best || c.count > best.count) best = c as any; });
-        base[d][p] = best ? (best as any).data : null;
+        base[d][p] = best && (best as any).count >= threshold ? (best as any).data : null;
       }
     }
     return base;
@@ -159,6 +174,18 @@ export default function SchoolWidget() {
   const [points, setPoints] = useState<PointStatus[]>([]);
   const [todos, setTodos] = useState<ScheduleItem[]>([]);
   const [newTodoText, setNewTodoText] = useState('');
+
+  const [shortcuts, setShortcuts] = useState<Shortcut[]>(() => {
+    try { return JSON.parse(localStorage.getItem('schoolShortcuts') || '[]'); } catch { return []; }
+  });
+  const persistShortcuts = (next: Shortcut[]) => {
+    setShortcuts(next);
+    localStorage.setItem('schoolShortcuts', JSON.stringify(next));
+  };
+  const handleAddShortcut = (sc: Shortcut) => persistShortcuts([...shortcuts, sc]);
+  const handleDeleteShortcut = (id: string) => persistShortcuts(shortcuts.filter(s => s.id !== id));
+  const handleUpdateShortcut = (sc: Shortcut) =>
+    persistShortcuts(shortcuts.map(s => s.id === sc.id ? sc : s));
 
   const [stockUnlocked, setStockUnlocked] = useState(() => localStorage.getItem('stockUnlocked') === 'true');
 
@@ -195,7 +222,8 @@ export default function SchoolWidget() {
     let lastCall = 0;
     const sendToBottom = (e?: Event) => {
       // tab-bar에서 startDragging()이 호출될 수 있으므로 건너뜀
-      if (e instanceof MouseEvent && (e.target as HTMLElement).closest('.tab-bar')) {
+      // 리사이즈 핸들 위에서는 리사이즈 시작을 가로채지 않도록 건너뜀
+      if (e instanceof MouseEvent && (e.target as HTMLElement).closest('.tab-bar, [data-resize-handle]')) {
         return;
       }
       const now = Date.now();
@@ -472,6 +500,7 @@ export default function SchoolWidget() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="school-widget-container">
+      <ResizeHandles enabled={schoolWidgetPinned} />
       <TabBar
         activeTab={activeTab}
         enabledTabs={enabledTabs}
@@ -499,6 +528,8 @@ export default function SchoolWidget() {
             selectedTeacher={selectedTeacher}
             parsedAppinTeachers={parsedAppinTeachers}
             baseAppinTimetable={baseAppinTimetable}
+            eventsByDateClass={appinData?.eventsByDateClass ?? {}}
+            eventsByDateGrade={appinData?.eventsByDateGrade ?? {}}
             appinWeekRange={appinWeekRange}
             onAppinWeekOffsetChange={setAppinWeekOffset}
             currentNow={currentNow}
@@ -530,6 +561,14 @@ export default function SchoolWidget() {
           <PointsTab
             points={points} loading={loadingStates.points}
             onRefresh={() => fetchPoints(true)}
+          />
+        )}
+        {activeTab === 'shortcut' && (
+          <ShortcutTab
+            shortcuts={shortcuts}
+            onAdd={handleAddShortcut}
+            onDelete={handleDeleteShortcut}
+            onUpdate={handleUpdateShortcut}
           />
         )}
         {activeTab === 'stock' && <StockTab />}

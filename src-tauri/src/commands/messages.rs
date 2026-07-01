@@ -2,7 +2,7 @@ use crate::models::{CacheState, Message, PaginatedMessages, SearchResultItem};
 use crate::utils::{decompress_brotli, decode_comp_zlib_utf16le, parse_file_paths, table_exists, apply_vibrancy_effect};
 use rusqlite::{Connection, ToSql, types::ValueRef};
 use std::fs;
-use tauri::{State, Manager, WebviewUrl};
+use tauri::{Manager, WebviewUrl};
 
 /// UDB 파일에서 메시지를 읽어오는 내부 함수 (watchdog 등에서 직접 호출 가능)
 pub fn read_udb_messages_internal(
@@ -56,68 +56,52 @@ pub fn read_udb_messages(
     read_udb_messages_internal(db_path, limit, offset, search_term, min_id)
 }
 
+/// 메시지 검색 — search DB(trigram FTS + LIKE 하이브리드)만 사용한다.
+/// UDB 직접 LIKE 폴백은 압축된 MessageText에는 매칭되지 않아 제거됨.
 #[tauri::command]
-pub fn search_messages(
+pub async fn search_messages(
     app: tauri::AppHandle,
-    db_path: String,
     search_term: String,
-    cache: State<'_, CacheState>,
 ) -> Result<Vec<SearchResultItem>, String> {
-    if search_term.is_empty() {
+    let term = search_term.trim().to_string();
+    if term.is_empty() {
         return Ok(Vec::new());
     }
 
-    // 1. Check cache first
-    {
-        let mut search_cache = cache.search_cache.lock().unwrap();
-        if let Some(cached_results) = search_cache.get(&search_term) {
-            return Ok(cached_results.clone());
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SearchResultItem>, String> {
+        let cache = app.state::<CacheState>();
+
+        // 1. Check cache first (sync_from_udb가 새 메시지 유입 시 비워준다)
+        {
+            let mut search_cache = cache.search_cache.lock().unwrap();
+            if let Some(cached_results) = search_cache.get(&term) {
+                return Ok(cached_results.clone());
+            }
         }
-    }
 
-    // 2. Try FTS5 search from search_db first
-    let fts_result = crate::search_db::search_fts_internal(&app, search_term.clone(), 1000);
-    
-    let results = match fts_result {
-        Ok(fts_results) if !fts_results.is_empty() => {
-            // FTS search succeeded
-            fts_results
+        // 2. Hybrid search from search_db
+        let results = crate::search_db::search_messages_internal(&app, term.clone(), 1000)?;
+
+        // 3. Store result in cache before returning
+        {
+            let mut search_cache = cache.search_cache.lock().unwrap();
+            search_cache.put(term, results.clone());
         }
-        _ => {
-            // 3. Fallback to direct UDB query (LIKE pattern)
-            let conn = Connection::open(&db_path).map_err(|e| format!("DB 연결 실패: {}", e))?;
-            let pattern = format!("%{}%", search_term);
-            let mut stmt = conn.prepare(
-                "SELECT MessageKey, Sender, substr(MessageText, 1, 100), ReceiveDate FROM tbl_recv WHERE Sender LIKE ?1 OR MessageText LIKE ?1 ORDER BY ReceiveDate DESC, MessageKey DESC LIMIT 100"
-            ).map_err(|e| format!("검색 쿼리 준비 실패: {}", e))?;
 
-            let iter = stmt
-                .query_map([&pattern], |row| {
-                    Ok(SearchResultItem {
-                        id: row.get(0)?,
-                        sender: row.get(1)?,
-                        snippet: row.get(2)?,
-                        receive_date: row.get(3)?,
-                    })
-                })
-                .map_err(|e| format!("검색 쿼리 실행 실패: {}", e))?;
-
-            let fallback_results: Result<Vec<_>, _> = iter.collect();
-            fallback_results.map_err(|e| format!("검색 결과 처리 실패: {}", e))?
-        }
-    };
-
-    // 4. Store result in cache before returning
-    {
-        let mut search_cache = cache.search_cache.lock().unwrap();
-        search_cache.put(search_term, results.clone());
-    }
-
-    Ok(results)
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("검색 작업 실패: {}", e))?
 }
 
 #[tauri::command]
-pub fn get_message_by_id(app: tauri::AppHandle, db_path: String, id: i64) -> Result<Message, String> {
+pub async fn get_message_by_id(app: tauri::AppHandle, db_path: String, id: i64) -> Result<Message, String> {
+    tauri::async_runtime::spawn_blocking(move || get_message_by_id_blocking(app, db_path, id))
+        .await
+        .map_err(|e| format!("메시지 조회 작업 실패: {}", e))?
+}
+
+fn get_message_by_id_blocking(app: tauri::AppHandle, db_path: String, id: i64) -> Result<Message, String> {
     // 1. Try to get from cached search DB first (fast path)
     if let Ok(Some(cached)) = crate::search_db::get_cached_message(app.clone(), id) {
         return Ok(Message {

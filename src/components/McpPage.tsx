@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import './McpPage.css';
 
 interface McpStatus {
@@ -18,6 +19,37 @@ interface EdufineStats {
 interface ClaudeConfigResult {
   path: string;
   already_configured: boolean;
+}
+
+interface BriefingStatus {
+  enabled: boolean;
+  claude_installed: boolean;
+  claude_path: string | null;
+  authed: boolean;
+  running: boolean;
+  last_run_at: string | null;
+  last_new_count: number;
+  last_error: string | null;
+  last_seen_id: number;
+}
+
+interface BriefingRunResult {
+  ran: boolean;
+  new_count: number;
+  skipped: number;
+  error: string | null;
+  reason: string | null;
+}
+
+function formatRunTime(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('ko-KR', {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
 }
 
 const CONFIG_JSON = `{
@@ -41,15 +73,21 @@ export const McpPage = () => {
   const [autoSetupTitle, setAutoSetupTitle] = useState('');
   const [autoSetupPath, setAutoSetupPath] = useState('');
   const [autoSetupError, setAutoSetupError] = useState('');
+  const [briefing, setBriefing] = useState<BriefingStatus | null>(null);
+  const [briefingToggling, setBriefingToggling] = useState(false);
+  const [briefingRunning, setBriefingRunning] = useState(false);
+  const [runResult, setRunResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [s, st] = await Promise.all([
+      const [s, st, b] = await Promise.all([
         invoke<McpStatus>('get_mcp_status'),
         invoke<EdufineStats>('get_edufine_stats'),
+        invoke<BriefingStatus>('get_briefing_agent_status'),
       ]);
       setStatus(s);
       setEdufineDocCount(st.total_docs);
+      setBriefing(b);
     } catch (e) {
       console.error('MCP 상태 로드 실패:', e);
     }
@@ -59,6 +97,46 @@ export const McpPage = () => {
     load();
     invoke<boolean>('check_node_installed').then(setNodeInstalled).catch(() => setNodeInstalled(false));
   }, [load]);
+
+  // 브리핑 에이전트 실행 상태 갱신(자동 실행/완료 시 백엔드가 emit).
+  useEffect(() => {
+    const unlisten = listen('briefing-status', () => {
+      invoke<BriefingStatus>('get_briefing_agent_status').then(setBriefing).catch(() => {});
+    });
+    return () => { void unlisten.then(u => u()); };
+  }, []);
+
+  const toggleBriefing = async () => {
+    if (!briefing || briefingToggling || !briefing.claude_installed) return;
+    setBriefingToggling(true);
+    try {
+      await invoke('set_briefing_agent_enabled', { enabled: !briefing.enabled });
+      const s = await invoke<BriefingStatus>('get_briefing_agent_status');
+      setBriefing(s);
+    } catch (e) {
+      console.error('브리핑 토글 실패:', e);
+    } finally {
+      setBriefingToggling(false);
+    }
+  };
+
+  const runBriefingNow = async () => {
+    if (briefingRunning || !briefing?.claude_installed) return;
+    setBriefingRunning(true);
+    setRunResult(null);
+    try {
+      const r = await invoke<BriefingRunResult>('run_briefing_agent_now');
+      if (r.error) setRunResult(`오류: ${r.error}`);
+      else if (!r.ran) setRunResult(r.reason || '실행하지 않았습니다.');
+      else setRunResult(`완료 · 신규 ${r.new_count}건${r.skipped ? ` (건너뜀 ${r.skipped})` : ''}`);
+      const s = await invoke<BriefingStatus>('get_briefing_agent_status');
+      setBriefing(s);
+    } catch (e: unknown) {
+      setRunResult(`오류: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBriefingRunning(false);
+    }
+  };
 
   const toggleEdufine = async () => {
     if (!status || edufineToggling) return;
@@ -148,6 +226,75 @@ export const McpPage = () => {
               활성화하면 에듀파인에서 공문을 열 때 자동으로 저장됩니다.
             </div>
           )}
+        </div>
+
+        {/* 새 메시지 자동 일정화 (AI 브리핑) 섹션 */}
+        <div className="mcp-section">
+          <div className="mcp-section-header">
+            <span className={`mcp-dot ${briefing?.enabled ? 'mcp-dot--on' : 'mcp-dot--off'}`} />
+            <div className="mcp-section-text">
+              <div className="mcp-section-title">새 메시지 자동 일정화 (AI)</div>
+              <div className="mcp-section-sub">
+                {!briefing?.claude_installed
+                  ? 'Claude Code CLI 미설치'
+                  : briefing.enabled
+                    ? (briefing.last_error
+                        ? `오류: ${briefing.last_error.slice(0, 40)}`
+                        : briefing.last_run_at
+                          ? `마지막 실행: ${formatRunTime(briefing.last_run_at)} · 신규 ${briefing.last_new_count}건`
+                          : '활성화됨 · 새 메시지 대기 중')
+                    : '비활성화'}
+              </div>
+            </div>
+            <button
+              className={`mcp-toggle ${briefing?.enabled ? 'mcp-toggle--on' : 'mcp-toggle--off'}`}
+              onClick={toggleBriefing}
+              disabled={briefingToggling || !briefing?.claude_installed}
+            >
+              <span className="mcp-toggle-knob" />
+            </button>
+          </div>
+
+          <div className="mcp-briefing-body">
+            <div className="mcp-briefing-desc">
+              새 쿨메신저 메시지가 오면 <strong>Claude Code</strong>가 내용·첨부를 읽어 할 일·마감을
+              자동으로 추출해 <strong>달력</strong>에 등록합니다. 로컬에서 실행되며 메시지를 <strong>읽기만</strong> 하고,
+              쓰기는 내 달력에만 합니다. 새 메시지 감지 후 약 45초 모아 한 번 실행합니다.
+              <br />
+              Claude 구독 로그인 또는 <code>ANTHROPIC_API_KEY</code>가 필요합니다. AI가 만든 일정은 보라색으로 표시됩니다.
+            </div>
+
+            {!briefing?.claude_installed && (
+              <div className="mcp-node-warning">
+                <span>⚠️</span>
+                <span>Claude Code CLI가 설치되어 있지 않습니다. 이 기능에 필요합니다.<br />
+                  <strong>https://claude.ai/download</strong> 또는 <code>npm i -g @anthropic-ai/claude-code</code> 설치 후 앱을 재시작하세요.</span>
+              </div>
+            )}
+            {briefing?.claude_installed && !briefing.authed && (
+              <div className="mcp-node-warning">
+                <span>🔑</span>
+                <span>Claude 인증이 확인되지 않았습니다. 터미널에서 <code>claude</code> 로그인 또는 <code>ANTHROPIC_API_KEY</code> 설정이 필요합니다.</span>
+              </div>
+            )}
+
+            {briefing?.enabled && (
+              <div className="mcp-run-row">
+                <button
+                  className="mcp-run-btn"
+                  onClick={runBriefingNow}
+                  disabled={briefingRunning || !briefing.claude_installed}
+                >
+                  {briefingRunning ? '실행 중…' : '지금 실행'}
+                </button>
+                {runResult && (
+                  <span className={`mcp-run-result ${runResult.startsWith('오류') ? 'mcp-run-result--error' : ''}`}>
+                    {runResult}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 도움말 */}

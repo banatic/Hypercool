@@ -179,7 +179,7 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
         Ok(Some(json_str)) => {
             if let Ok(bounds) = serde_json::from_str::<WindowBounds>(&json_str) {
                 if bounds.x < -10000.0 || bounds.y < -10000.0 {
-                    Some(WindowBounds { x: 0.0, y: 0.0, width: 300.0, height: 300.0 })
+                    Some(WindowBounds { x: 0.0, y: 0.0, width: 400.0, height: 500.0, logical: true })
                 } else {
                     Some(bounds)
                 }
@@ -189,7 +189,7 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
         }
         _ => None
     };
-    
+
     // 저장된 핀 상태 확인
     let is_pinned = match get_registry_value("CalendarWidgetPinned".to_string()) {
         Ok(Some(value)) => value.parse::<bool>().unwrap_or(false),
@@ -234,20 +234,32 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
     // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
     if let Some(bounds) = saved_bounds {
         std::thread::sleep(Duration::from_millis(100));
-        
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-            x: bounds.x as i32,
-            y: bounds.y as i32,
-        }));
-        
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-            width: bounds.width as u32,
-            height: bounds.height as u32,
-        }));
+
+        if bounds.logical {
+            // 신규 포맷: logical(DIP) 단위 — DPI 독립적으로 복원 + 최소 크기 보정
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                x: bounds.x,
+                y: bounds.y,
+            }));
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: bounds.width.max(350.0),
+                height: bounds.height.max(450.0),
+            }));
+        } else {
+            // 구버전 포맷: physical 단위 — 기존 동작 유지(크기 튐 방지). 다음 저장 시 logical 로 자동 이관됨
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: bounds.x as i32,
+                y: bounds.y as i32,
+            }));
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: bounds.width as u32,
+                height: bounds.height as u32,
+            }));
+        }
     }
-    
+
     apply_vibrancy_effect(&window);
-    
+
     #[cfg(target_os = "windows")]
     {
         let window_title = "달력 위젯";
@@ -278,34 +290,42 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
     // 디바운싱을 위한 타이머
     let save_timer: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
     
-    // 윈도우 위치와 크기를 저장하는 헬퍼 함수
+    // 윈도우 위치와 크기를 저장하는 헬퍼 함수 (logical 단위로 저장 → DPI 독립적)
     let save_bounds = |window: &WebviewWindow<_>| {
+        let scale = window.scale_factor().unwrap_or(1.0);
         if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
-            let x = position.x as f64;
-            let y = position.y as f64;
-            let width = size.width as f64;
-            let height = size.height as f64;
-            
-            if x < -10000.0 || y < -10000.0 {
+            let lpos = position.to_logical::<f64>(scale);
+            let lsize = size.to_logical::<f64>(scale);
+
+            if lpos.x < -10000.0 || lpos.y < -10000.0 {
                 return;
             }
-            
-            let bounds = WindowBounds { x, y, width, height };
+            // 생성/정착 중 비정상적으로 작은 크기는 저장하지 않음
+            if lsize.width < 100.0 || lsize.height < 100.0 {
+                return;
+            }
+
+            let bounds = WindowBounds { x: lpos.x, y: lpos.y, width: lsize.width, height: lsize.height, logical: true };
             if let Ok(json) = serde_json::to_string(&bounds) {
                 let _ = set_registry_value("CalendarWidgetBounds".to_string(), json);
             }
         }
     };
-    
+
     // 윈도우 위치와 크기 저장을 위한 이벤트 리스너
     let window_clone = window.clone();
     let save_timer_clone = save_timer.clone();
+    let created_at = Instant::now();
     window.on_window_event(move |event| {
         match event {
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                // 생성 직후 정착(DPI/acrylic) 과정의 이벤트는 무시하여 잘못된 크기 저장 방지
+                if created_at.elapsed() < Duration::from_millis(1500) {
+                    return;
+                }
                 let mut timer_guard = save_timer_clone.lock().unwrap();
                 let _ = timer_guard.take();
-                
+
                 let window_for_save = window_clone.clone();
                 let timer_clone = save_timer_clone.clone();
                 let handle = std::thread::spawn(move || {
@@ -318,7 +338,7 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
             _ => {}
         }
     });
-    
+
     Ok(())
 }
 
@@ -345,7 +365,7 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
         Ok(Some(json_str)) => {
             if let Ok(bounds) = serde_json::from_str::<WindowBounds>(&json_str) {
                 if bounds.x < -10000.0 || bounds.y < -10000.0 {
-                    Some(WindowBounds { x: 0.0, y: 0.0, width: 300.0, height: 300.0 })
+                    Some(WindowBounds { x: 0.0, y: 0.0, width: 900.0, height: 700.0, logical: true })
                 } else {
                     Some(bounds)
                 }
@@ -355,7 +375,7 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
         }
         _ => None
     };
-    
+
     // 저장된 핀 상태 확인
     let is_pinned = match get_registry_value("SchoolWidgetPinned".to_string()) {
         Ok(Some(value)) => value.parse::<bool>().unwrap_or(true), // 기본값은 true (resizable)
@@ -368,6 +388,7 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
         url,
     )
     .title("학교 위젯")
+    .min_inner_size(420.0, 400.0) // 최소 크기 바닥 (리사이즈/드리프트로 위젯이 사라지는 것 방지)
     .resizable(is_pinned) // 핀 상태에 따라 resizable 설정
     .decorations(false)
     .transparent(true)
@@ -399,20 +420,32 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     // 저장된 위치와 크기가 있으면 윈도우 생성 후 명시적으로 설정
     if let Some(bounds) = saved_bounds {
         std::thread::sleep(Duration::from_millis(100));
-        
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-            x: bounds.x as i32,
-            y: bounds.y as i32,
-        }));
-        
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-            width: bounds.width as u32,
-            height: bounds.height as u32,
-        }));
+
+        if bounds.logical {
+            // 신규 포맷: logical(DIP) 단위 — DPI 독립적으로 복원 + 최소 크기 보정
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                x: bounds.x,
+                y: bounds.y,
+            }));
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: bounds.width.max(420.0),
+                height: bounds.height.max(400.0),
+            }));
+        } else {
+            // 구버전 포맷: physical 단위 — 기존 동작 유지(크기 튐 방지). 다음 저장 시 logical 로 자동 이관됨
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: bounds.x as i32,
+                y: bounds.y as i32,
+            }));
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: bounds.width as u32,
+                height: bounds.height as u32,
+            }));
+        }
     }
-    
+
     apply_vibrancy_effect(&window);
-    
+
     #[cfg(target_os = "windows")]
     {
         let window_title = "학교 위젯";
@@ -443,34 +476,42 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     // 디바운싱을 위한 타이머
     let save_timer: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
     
-    // 윈도우 위치와 크기를 저장하는 헬퍼 함수
+    // 윈도우 위치와 크기를 저장하는 헬퍼 함수 (logical 단위로 저장 → DPI 독립적)
     let save_bounds = |window: &WebviewWindow<_>| {
+        let scale = window.scale_factor().unwrap_or(1.0);
         if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
-            let x = position.x as f64;
-            let y = position.y as f64;
-            let width = size.width as f64;
-            let height = size.height as f64;
-            
-            if x < -10000.0 || y < -10000.0 {
+            let lpos = position.to_logical::<f64>(scale);
+            let lsize = size.to_logical::<f64>(scale);
+
+            if lpos.x < -10000.0 || lpos.y < -10000.0 {
                 return;
             }
-            
-            let bounds = WindowBounds { x, y, width, height };
+            // 생성/정착 중 비정상적으로 작은 크기는 저장하지 않음
+            if lsize.width < 100.0 || lsize.height < 100.0 {
+                return;
+            }
+
+            let bounds = WindowBounds { x: lpos.x, y: lpos.y, width: lsize.width, height: lsize.height, logical: true };
             if let Ok(json) = serde_json::to_string(&bounds) {
                 let _ = set_registry_value("SchoolWidgetBounds".to_string(), json);
             }
         }
     };
-    
+
     // 윈도우 위치와 크기 저장을 위한 이벤트 리스너
     let window_clone = window.clone();
     let save_timer_clone = save_timer.clone();
+    let created_at = Instant::now();
     window.on_window_event(move |event| {
         match event {
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                // 생성 직후 정착(DPI/acrylic) 과정의 이벤트는 무시하여 잘못된 크기 저장 방지
+                if created_at.elapsed() < Duration::from_millis(1500) {
+                    return;
+                }
                 let mut timer_guard = save_timer_clone.lock().unwrap();
                 let _ = timer_guard.take();
-                
+
                 let window_clone_inner = window_clone.clone();
                 let handle = std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(500));
@@ -481,6 +522,6 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
             _ => {}
         }
     });
-    
+
     Ok(())
 }
