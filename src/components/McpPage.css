@@ -450,6 +450,69 @@
   line-height: 1.6;
 }
 
+/* 디버그 리포트 */
+.mcp-debug-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mcp-debug-summary {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.mcp-debug-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 14px;
+  color: var(--text-secondary, #9aa4b2);
+}
+
+.mcp-debug-grid span {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.72rem;
+}
+
+.mcp-debug-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: #fcd9a8;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.5;
+}
+
+.mcp-debug-notes li { font-size: 0.75rem; }
+
+.mcp-debug-raw summary {
+  cursor: pointer;
+  color: #7ec8f0;
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+.mcp-debug-raw pre {
+  margin: 6px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  background: #0f1923;
+  border: 1px solid #26364a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.72rem;
+  color: #b7c6d8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* 도움말 아이콘 */
 .mcp-help-icon {
   width: 28px;

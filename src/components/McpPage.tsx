@@ -41,6 +41,32 @@ interface BriefingRunResult {
   reason: string | null;
 }
 
+interface BriefingDebugReport {
+  claude_installed: boolean;
+  claude_path: string | null;
+  authed: boolean;
+  udb_path: string | null;
+  udb_max_id: number | null;
+  search_db_exists: boolean;
+  search_db_count: number;
+  search_db_max_id: number;
+  synced_new: number;
+  last_seen_id: number;
+  since_used: number;
+  target_messages: number;
+  ran_claude: boolean;
+  duration_ms: number;
+  claude_is_error: boolean;
+  raw_result: string | null;
+  raw_stderr_tail: string | null;
+  extracted_count: number;
+  registered_new: number;
+  skipped_dedup: number;
+  skipped_invalid: number;
+  error: string | null;
+  notes: string[];
+}
+
 function formatRunTime(iso: string | null): string {
   if (!iso) return '';
   try {
@@ -84,7 +110,8 @@ export const McpPage = () => {
   const [briefingRunning, setBriefingRunning] = useState(false);
   const [runResult, setRunResult] = useState<string | null>(null);
   const [debugRunning, setDebugRunning] = useState(false);
-  const [debugResult, setDebugResult] = useState<string | null>(null);
+  const [debugReport, setDebugReport] = useState<BriefingDebugReport | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -144,16 +171,20 @@ export const McpPage = () => {
     }
   };
 
-  // 디버그: 저장된 진행 위치를 바꾸지 않고 최근 10개 메시지로 강제 1회 실행(중복 자동 제외).
+  // 디버그: 검색 DB 동기화 → 최근 10개 메시지로 강제 1회 실행(진행 위치 미변경) → 상세 리포트.
   const runBriefingDebug = async () => {
     if (briefingRunning || debugRunning || !briefing?.claude_installed) return;
     setDebugRunning(true);
-    setDebugResult(null);
+    setDebugReport(null);
+    setDebugError(null);
     try {
-      const r = await invoke<BriefingRunResult>('run_briefing_agent_debug', { count: 10 });
-      setDebugResult(describeRun(r));
+      const r = await invoke<BriefingDebugReport>('run_briefing_agent_debug', { count: 10 });
+      setDebugReport(r);
+      // 등록된 항목이 생겼을 수 있으니 상태 갱신.
+      const s = await invoke<BriefingStatus>('get_briefing_agent_status');
+      setBriefing(s);
     } catch (e: unknown) {
-      setDebugResult(`오류: ${e instanceof Error ? e.message : String(e)}`);
+      setDebugError(`오류: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setDebugRunning(false);
     }
@@ -346,27 +377,68 @@ export const McpPage = () => {
                 </div>
               )}
 
-              {/* 디버그: 최근 10개로 강제 실행(진행 위치 미변경) */}
+              {/* 디버그: 최근 10개로 강제 실행(진행 위치 미변경) + 상세 진단 */}
               {briefing?.claude_installed && (
                 <div className="mcp-debug-box">
-                  <div className="mcp-debug-label">🧪 테스트</div>
+                  <div className="mcp-debug-label">🧪 테스트 / 진단</div>
                   <div className="mcp-run-row">
                     <button
                       className="mcp-run-btn mcp-run-btn--ghost"
                       onClick={runBriefingDebug}
                       disabled={briefingRunning || debugRunning}
                     >
-                      {debugRunning ? '테스트 중…' : '최근 10개 메시지로 실행'}
+                      {debugRunning ? '진단 중… (최대 수십 초)' : '최근 10개 메시지로 실행 + 진단'}
                     </button>
-                    {debugResult && (
-                      <span className={`mcp-run-result ${debugResult.startsWith('오류') ? 'mcp-run-result--error' : ''}`}>
-                        {debugResult}
-                      </span>
-                    )}
                   </div>
                   <div className="mcp-debug-hint">
-                    저장된 진행 위치(마지막 처리 지점)를 바꾸지 않고 최근 메시지로 동작을 시험합니다. 이미 등록된 일정은 자동으로 제외됩니다.
+                    검색 DB를 먼저 동기화한 뒤 최근 메시지로 동작을 시험합니다. 저장된 진행 위치는 바뀌지 않고, 이미 등록된 일정은 자동 제외됩니다.
                   </div>
+
+                  {debugError && (
+                    <div className="mcp-run-result mcp-run-result--error">{debugError}</div>
+                  )}
+
+                  {debugReport && (
+                    <div className="mcp-debug-report">
+                      <div className="mcp-debug-summary">
+                        추출 {debugReport.extracted_count} · 신규 {debugReport.registered_new} · 중복 {debugReport.skipped_dedup} · 제외 {debugReport.skipped_invalid}
+                        {debugReport.ran_claude ? ` · ${(debugReport.duration_ms / 1000).toFixed(1)}초` : ' · claude 미실행'}
+                        {debugReport.claude_is_error ? ' · ⚠️ claude 오류' : ''}
+                      </div>
+
+                      <div className="mcp-debug-grid">
+                        <span>검색DB: {debugReport.search_db_count}건 · 최신 #{debugReport.search_db_max_id}</span>
+                        <span>UDB 최신: {debugReport.udb_max_id ?? '—'}</span>
+                        <span>이번 동기화 신규: {debugReport.synced_new}건</span>
+                        <span>대상: id&gt;{debugReport.since_used} · {debugReport.target_messages}건</span>
+                        <span>last_seen: #{debugReport.last_seen_id}</span>
+                        <span>인증: {debugReport.authed ? 'OK' : '미확인'}</span>
+                      </div>
+
+                      {debugReport.notes.length > 0 && (
+                        <ul className="mcp-debug-notes">
+                          {debugReport.notes.map((n, i) => <li key={i}>{n}</li>)}
+                        </ul>
+                      )}
+
+                      {debugReport.error && (
+                        <div className="mcp-run-result mcp-run-result--error">{debugReport.error}</div>
+                      )}
+
+                      {debugReport.raw_result != null && (
+                        <details className="mcp-debug-raw">
+                          <summary>claude 응답 원문 (result)</summary>
+                          <pre>{debugReport.raw_result || '(빈 응답)'}</pre>
+                        </details>
+                      )}
+                      {debugReport.raw_stderr_tail && (
+                        <details className="mcp-debug-raw">
+                          <summary>stderr</summary>
+                          <pre>{debugReport.raw_stderr_tail}</pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
