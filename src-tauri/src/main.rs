@@ -382,6 +382,7 @@ fn main() {
             mcp_commands::open_edufine_watch_dir,
 
             agent::run_briefing_agent_now,
+            agent::run_briefing_agent_debug,
             agent::get_briefing_agent_status,
             agent::set_briefing_agent_enabled,
 

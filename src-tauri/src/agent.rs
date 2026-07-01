@@ -180,6 +180,21 @@ pub async fn run_briefing_agent_now(app: AppHandle) -> Result<BriefingRunResult,
         .map_err(|e| format!("실행 작업 실패: {}", e))
 }
 
+/// 디버그/테스트 실행: 최근 `count`(기본 10)개 메시지를 대상으로 강제 1회 실행한다.
+/// 저장된 last_seen_id 를 무시하고 전진시키지도 않으므로 자동 흐름에 영향을 주지 않는다.
+/// 등록은 여전히 멱등(id 중복 skip)이라 반복 실행해도 중복 일정이 생기지 않는다.
+#[tauri::command]
+pub async fn run_briefing_agent_debug(
+    app: AppHandle,
+    count: Option<i64>,
+) -> Result<BriefingRunResult, String> {
+    let n = count.unwrap_or(10).clamp(1, 100);
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || run_briefing_debug_locked(&app2, n))
+        .await
+        .map_err(|e| format!("실행 작업 실패: {}", e))
+}
+
 // ─── 트리거(watcher 연결) ─────────────────────────────────────────────────────
 
 /// 새 메시지 sync 성공 후 워처에서 호출한다. ENABLED + CLI 존재 시 debounce 실행.
@@ -233,7 +248,7 @@ fn run_briefing_locked(app: &AppHandle) -> BriefingRunResult {
 
     loop {
         PENDING.store(false, Ordering::SeqCst);
-        match run_pass(app) {
+        match run_pass(app, &PassOpts { since_override: None, advance: true }) {
             Ok((n, s)) => {
                 total_new += n;
                 total_skipped += s;
@@ -261,15 +276,58 @@ fn run_briefing_locked(app: &AppHandle) -> BriefingRunResult {
     }
 }
 
-/// 실제 1회 실행: claude 호출 → 파싱 → 검증 → 등록 → last_seen 전진.
+/// 디버그 실행(단일 flight). 최근 count 개를 대상으로 1회, last_seen 미전진.
+/// 지속 상태 스냅샷(마지막 실행 표시)은 건드리지 않고 결과만 인라인 반환한다.
+fn run_briefing_debug_locked(app: &AppHandle, count: i64) -> BriefingRunResult {
+    if RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return BriefingRunResult {
+            ran: false,
+            new_count: 0,
+            skipped: 0,
+            error: None,
+            reason: Some("이미 실행 중입니다.".to_string()),
+        };
+    }
+
+    let current_max = current_max_message_id(app);
+    let since = (current_max - count).max(0);
+    let (new_count, skipped, error) =
+        match run_pass(app, &PassOpts { since_override: Some(since), advance: false }) {
+            Ok((n, s)) => (n, s, None),
+            Err(e) => (0, 0, Some(e)),
+        };
+
+    RUNNING.store(false, Ordering::SeqCst);
+
+    BriefingRunResult {
+        ran: true,
+        new_count,
+        skipped,
+        error,
+        reason: None,
+    }
+}
+
+/// run_pass 옵션.
+struct PassOpts {
+    /// 프롬프트에 넣을 기준 id(이 값보다 큰 메시지만 신규). None 이면 저장된 last_seen 사용.
+    since_override: Option<i64>,
+    /// 성공 시 저장된 last_seen_id 를 current_max 로 전진시킬지. 디버그 실행은 false.
+    advance: bool,
+}
+
+/// 실제 1회 실행: claude 호출 → 파싱 → 검증 → 등록 → (옵션) last_seen 전진.
 /// 반환: (신규 등록 수, skip 수). 실패 시 Err(사유) — last_seen 은 전진하지 않음.
-fn run_pass(app: &AppHandle) -> Result<(i64, i64), String> {
+fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
     let claude = find_claude()
         .ok_or_else(|| "Claude Code CLI(claude)를 찾을 수 없습니다. 설치 후 다시 시도하세요.".to_string())?;
     let mcp_path = ensure_mcp_config(app)?;
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
-    let last_seen = read_last_seen_id();
+    let last_seen = opts.since_override.unwrap_or_else(read_last_seen_id);
     let current_max = current_max_message_id(app);
     // 신규 메시지가 없으면 claude 실행 없이 즉시 종료(증분).
     if current_max <= last_seen {
@@ -286,7 +344,9 @@ fn run_pass(app: &AppHandle) -> Result<(i64, i64), String> {
     let (new_count, skipped) = register_items(app, items, &today)?;
 
     // 성공(프로세스 정상 종료 + 파싱 성공)했으므로 last_seen 을 전진시킨다(추출 0건이어도).
-    write_last_seen_id(current_max);
+    if opts.advance {
+        write_last_seen_id(current_max);
+    }
 
     if new_count > 0 {
         // best-effort: 탁상달력에도 반영(실패 무시).

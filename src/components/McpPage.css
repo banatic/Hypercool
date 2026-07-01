@@ -19,8 +19,126 @@
 .mcp-header h2 {
   font-size: 1.3rem;
   font-weight: 600;
-  margin: 0 0 12px 0;
+  margin: 0 0 6px 0;
   color: var(--text-primary, #fff);
+}
+
+.mcp-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #8a94a6);
+  line-height: 1.6;
+  margin: 0 0 12px 0;
+}
+
+.mcp-server-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(72, 187, 120, 0.1);
+  border: 1px solid rgba(72, 187, 120, 0.25);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  color: #a7f3c0;
+}
+
+.mcp-server-pill code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.74rem;
+  color: #7ec8f0;
+  background: #1a2535;
+  padding: 1px 7px;
+  border-radius: 5px;
+}
+
+/* 섹션 그룹 */
+.mcp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px 2px;
+  flex-wrap: wrap;
+}
+
+.mcp-group-label-text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #8a94a6);
+}
+
+.mcp-group-label-desc {
+  font-size: 0.72rem;
+  color: rgba(160, 160, 160, 0.5);
+}
+
+/* 섹션 아이콘 아바타 */
+.mcp-section-icon {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mcp-section-icon--msg { background: rgba(72, 187, 120, 0.14); }
+.mcp-section-icon--doc { background: rgba(99, 179, 237, 0.14); }
+.mcp-section-icon--ai { background: rgba(139, 92, 246, 0.18); }
+
+.mcp-status-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #1b2130;
+}
+
+.mcp-status-dot--on {
+  background: #48bb78;
+  box-shadow: 0 0 5px rgba(72, 187, 120, 0.6);
+}
+
+.mcp-status-dot--off { background: #4a5568; }
+
+/* "항상 켜짐" 배지 */
+.mcp-always-on {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #68d391;
+  background: rgba(72, 187, 120, 0.12);
+  border: 1px solid rgba(72, 187, 120, 0.28);
+  border-radius: 999px;
+  padding: 3px 10px;
+  flex-shrink: 0;
+}
+
+/* 제목 옆 AI 배지 */
+.mcp-badge-ai {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  padding: 1px 6px;
+  border-radius: 5px;
+  margin-left: 7px;
+  vertical-align: middle;
 }
 
 .mcp-server-card {
@@ -72,7 +190,7 @@
 .mcp-sections {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 22px;
 }
 
 .mcp-section {
@@ -298,6 +416,39 @@
 }
 
 .mcp-run-result--error { color: #fca5a5; }
+
+.mcp-run-btn--ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+}
+
+.mcp-run-btn--ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+
+/* 디버그/테스트 박스 */
+.mcp-debug-box {
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mcp-debug-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #8a94a6);
+  text-transform: uppercase;
+}
+
+.mcp-debug-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+  line-height: 1.6;
+}
 
 /* 도움말 아이콘 */
 .mcp-help-icon {
