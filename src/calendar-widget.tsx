@@ -28,6 +28,7 @@ interface TodoItem {
   isCompleted?: boolean;
   file_paths?: string[];
   updatedAt?: string;
+  color?: string | null;
   isDeleted?: boolean;
 }
 
@@ -114,6 +115,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
         calendarTitle: t.calendarTitle || calendarTitles[t.id] || undefined,
         isCompleted: completedTodos.has(t.id),
         updatedAt: t.updatedAt,
+        color: t.color ?? null,
         isDeleted: t.isDeleted
       }))
     ].filter(t => !t.isDeleted);
@@ -158,6 +160,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             createdAt: item.createdAt,
             updatedAt: item.updatedAt,
             calendarTitle: item.title,
+            color: item.color ?? null,
             isDeleted: item.isDeleted
           });
         } else if (item.type === 'period_schedule' || item.type === 'desktopcal_event') {
@@ -488,6 +491,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                           )}
                           <div
                             className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'} ${draggedTodoId === todo.id ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                            style={todo.color ? { boxShadow: `inset 3px 0 0 ${todo.color}` } : undefined}
                             onMouseDown={(e) => handleMouseDown(e, todo)}
                             // onClick 제거: handleGlobalMouseUp에서 처리함
                             onContextMenu={(e) => {
@@ -515,6 +519,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                         <div
                           key={todo.id}
                           className={`calendar-todo-item calendar-todo-completed ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
+                          style={todo.color ? { boxShadow: `inset 3px 0 0 ${todo.color}` } : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedTodo(todo);

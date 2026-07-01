@@ -890,9 +890,12 @@ fn to_schedule_item(
 
     let now = chrono::Utc::now().to_rfc3339();
 
+    // 반드시 "manual_todo" 로 등록한다. 달력 위젯(calendar-widget.tsx loadTodos)은
+    // manual_todo/desktopcal_memo 만 그리드에 할 일로 렌더링한다. "message_task"(+숫자
+    // referenceId)는 "보관한 메시지에 붙는 마감" 메타로만 취급되어 달력에 안 뜬다.
     Some(crate::db::ScheduleItem {
         id,
-        schedule_type: "message_task".to_string(),
+        schedule_type: "manual_todo".to_string(),
         title,
         content: Some(content),
         start_date: Some(start_date.clone()),
@@ -1204,7 +1207,7 @@ mod tests {
         };
         let s = to_schedule_item(&item, today).unwrap();
         assert_eq!(s.id, "msg-6377");
-        assert_eq!(s.schedule_type, "message_task");
+        assert_eq!(s.schedule_type, "manual_todo");
         assert_eq!(s.reference_id.as_deref(), Some("6377"));
         assert_eq!(s.start_date.as_deref(), Some("2026-07-05T14:00:00+09:00"));
         assert!(!s.is_all_day);

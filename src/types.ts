@@ -29,6 +29,7 @@ export interface ManualTodo {
   createdAt: string;
   updatedAt: string;
   calendarTitle?: string; // 달력에 표시될 짧은 제목
+  color?: string | null;  // 항목 색상(AI 생성=보라색, 탁상달력 memo=원본 색)
   isDeleted?: boolean;
 }
 
