@@ -385,6 +385,8 @@ fn main() {
             agent::run_briefing_agent_debug,
             agent::get_briefing_agent_status,
             agent::set_briefing_agent_enabled,
+            agent::migrate_ai_schedules_content,
+            agent::get_coolmessenger_status,
 
             timetable_parser::get_timetable_data,
             appin_parser::get_appin_timetable_data,
@@ -439,6 +441,20 @@ fn main() {
 
                 // 브리핑 에이전트 활성 상태 복원(기본 OFF, 옵트인)
                 agent::restore_state(app.app_handle());
+
+                // 기등록 AI 일정 content 를 최신 형식(원문 전체·이모지 마커 제거)으로 보정.
+                // 멱등이라 매 시작 시 백그라운드로 안전하게 재실행 — 검색 DB 색인이 끝난 뒤에도
+                // 자기치유(변경분만 UPDATE)된다.
+                {
+                    let mig_app = app.app_handle().clone();
+                    std::thread::spawn(move || {
+                        match agent::migrate_ai_schedules_content(mig_app) {
+                            Ok(n) if n > 0 => eprintln!("[agent] AI 일정 content 마이그레이션: {}건 갱신", n),
+                            Ok(_) => {}
+                            Err(e) => eprintln!("[agent] AI 일정 content 마이그레이션 실패: {}", e),
+                        }
+                    });
+                }
             }
 
             // gif-btn-N / gif-widget-N 쌍 생성 (각 N은 메시지 전송창 하나에 대응)

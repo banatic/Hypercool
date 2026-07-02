@@ -8,6 +8,7 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { AttachmentList } from './components/AttachmentList';
 import ResizeHandles from './components/ResizeHandles';
 import { ManualTodo, PeriodSchedule } from './types';
+import { decodeEntities } from './utils/dateUtils';
 import './styles.css';
 import './CalendarWidget.css';
 
@@ -1371,13 +1372,6 @@ interface EditTodoModalWidgetProps {
 
 const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualTodos, deadlines, calendarTitles, onClose, onSave, parseDateFromText }) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
-
-  // HTML 엔티티 디코딩 함수
-  const decodeEntities = (html: string): string => {
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = html;
-    return textarea.value;
-  };
 
   // 날짜 포맷팅 함수
   const formatReceiveDate = (dateStr: string | null | undefined): string => {
