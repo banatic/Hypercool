@@ -30,55 +30,6 @@
   margin: 0 0 12px 0;
 }
 
-.mcp-server-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(72, 187, 120, 0.1);
-  border: 1px solid rgba(72, 187, 120, 0.25);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 0.8rem;
-  color: #a7f3c0;
-}
-
-.mcp-server-pill code {
-  font-family: 'Consolas', 'D2Coding', monospace;
-  font-size: 0.74rem;
-  color: #7ec8f0;
-  background: #1a2535;
-  padding: 1px 7px;
-  border-radius: 5px;
-}
-
-/* 섹션 그룹 */
-.mcp-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mcp-group-label {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 0 2px 2px;
-  flex-wrap: wrap;
-}
-
-.mcp-group-label-text {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-secondary, #8a94a6);
-}
-
-.mcp-group-label-desc {
-  font-size: 0.72rem;
-  color: rgba(160, 160, 160, 0.5);
-}
-
 /* 섹션 아이콘 아바타 */
 .mcp-section-icon {
   position: relative;
@@ -93,9 +44,9 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
-.mcp-section-icon--msg { background: rgba(72, 187, 120, 0.14); }
-.mcp-section-icon--doc { background: rgba(99, 179, 237, 0.14); }
-.mcp-section-icon--ai { background: rgba(139, 92, 246, 0.18); }
+.mcp-section-icon--msg { background: rgba(72, 187, 120, 0.16); color: #2f855a; }
+.mcp-section-icon--doc { background: rgba(99, 179, 237, 0.16); color: #2b6cb0; }
+.mcp-section-icon--ai { background: rgba(139, 92, 246, 0.18); color: #6d28d9; }
 
 .mcp-status-dot {
   position: absolute;
@@ -117,10 +68,10 @@
 /* "항상 켜짐" 배지 */
 .mcp-always-on {
   font-size: 0.72rem;
-  font-weight: 600;
-  color: #68d391;
-  background: rgba(72, 187, 120, 0.12);
-  border: 1px solid rgba(72, 187, 120, 0.28);
+  font-weight: 700;
+  color: #15803d;
+  background: rgba(72, 187, 120, 0.16);
+  border: 1px solid rgba(72, 187, 120, 0.4);
   border-radius: 999px;
   padding: 3px 10px;
   flex-shrink: 0;
@@ -132,58 +83,13 @@
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: #c4b5fd;
-  background: rgba(139, 92, 246, 0.2);
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.14);
   border: 1px solid rgba(139, 92, 246, 0.4);
   padding: 1px 6px;
   border-radius: 5px;
   margin-left: 7px;
   vertical-align: middle;
-}
-
-.mcp-server-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 12px 16px;
-}
-
-.mcp-server-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.mcp-server-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-primary, #e0e0e0);
-}
-
-.mcp-server-port {
-  font-family: 'Consolas', 'D2Coding', monospace;
-  font-size: 0.78rem;
-  color: #7ec8f0;
-  background: #1a2535;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-/* 상태 점 */
-.mcp-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.mcp-dot--on {
-  background: #48bb78;
-  box-shadow: 0 0 6px rgba(72, 187, 120, 0.6);
-}
-
-.mcp-dot--off {
-  background: #4a5568;
 }
 
 /* 섹션 */
@@ -194,14 +100,15 @@
 }
 
 .mcp-section {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .mcp-section--help {
-  border-color: rgba(99, 179, 237, 0.2);
+  border-color: rgba(99, 179, 237, 0.45);
 }
 
 .mcp-section-header {
@@ -209,21 +116,6 @@
   align-items: center;
   padding: 14px 16px;
   gap: 12px;
-}
-
-.mcp-section-header--btn {
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: inherit;
-  width: 100%;
-  text-align: left;
-  transition: background 0.1s;
-  justify-content: flex-start;
-}
-
-.mcp-section-header--btn:hover {
-  background: rgba(255, 255, 255, 0.03);
 }
 
 .mcp-section-text {
@@ -363,11 +255,11 @@
 
 /* 자동 일정화 (AI 브리핑) */
 .mcp-briefing-body {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border-color, #eceef1);
+  padding: 14px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .mcp-briefing-desc {
@@ -415,25 +307,25 @@
   color: var(--text-secondary, #aaa);
 }
 
-.mcp-run-result--error { color: #fca5a5; }
+.mcp-run-result--error { color: #dc2626; }
 
 .mcp-run-btn--ghost {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #cbd5e1;
+  background: #f1f5f9;
+  border: 1px solid var(--border-color, #cbd5e1);
+  color: #334155;
 }
 
-.mcp-run-btn--ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.mcp-run-btn--ghost:hover:not(:disabled) { background: #e2e8f0; }
 
 /* 디버그/테스트 박스 */
 .mcp-debug-box {
-  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border: 1px dashed var(--border-color, #cbd5e1);
   border-radius: 9px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .mcp-debug-label {
@@ -461,8 +353,8 @@
 .mcp-debug-summary {
   font-weight: 600;
   font-size: 0.8rem;
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #1f2937);
+  background: rgba(0, 0, 0, 0.04);
   border-radius: 6px;
   padding: 7px 10px;
 }
@@ -482,7 +374,7 @@
 .mcp-debug-notes {
   margin: 0;
   padding-left: 18px;
-  color: #fcd9a8;
+  color: #92400e;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -493,7 +385,7 @@
 
 .mcp-debug-raw summary {
   cursor: pointer;
-  color: #7ec8f0;
+  color: #2b6cb0;
   font-size: 0.75rem;
   user-select: none;
 }
@@ -606,24 +498,12 @@
   text-align: center;
 }
 
-/* Node.js */
-.mcp-node-ok {
-  font-size: 0.84rem;
-  color: #86efac;
-  margin-bottom: 12px;
-}
-
-.mcp-node-warning {
-  display: flex;
-  gap: 8px;
-  background: rgba(234, 179, 8, 0.08);
-  border: 1px solid rgba(234, 179, 8, 0.25);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  font-size: 0.84rem;
-  color: #fde68a;
-  line-height: 1.6;
+.mcp-warn-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #b45309;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 /* 도움말 단계 */
@@ -637,7 +517,7 @@
   display: flex;
   gap: 14px;
   padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .mcp-help-step:last-child { border-bottom: none; }
@@ -753,11 +633,147 @@
 }
 
 .mcp-example {
-  background: rgba(99, 179, 237, 0.07);
-  border-left: 3px solid rgba(99, 179, 237, 0.4);
+  background: rgba(99, 179, 237, 0.1);
+  border-left: 3px solid rgba(99, 179, 237, 0.6);
   border-radius: 0 6px 6px 0;
   padding: 7px 11px;
   font-size: 0.82rem;
-  color: #90cdf4;
+  color: #1d4ed8;
   font-style: italic;
+}
+
+/* 기능 카드 아이콘 변형 */
+.mcp-section-icon--query { background: rgba(99, 179, 237, 0.16); color: #2b6cb0; }
+.mcp-section-icon--sm { width: 30px; height: 30px; border-radius: 8px; font-size: 1rem; }
+
+/* 카드 안 준비 상태(칩 + 해결 안내) */
+.mcp-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-ready-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcp-ready-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #8a94a6);
+  margin-right: 2px;
+}
+
+.mcp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.mcp-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mcp-chip--ok {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.35);
+}
+.mcp-chip--ok .mcp-chip-dot { background: #16a34a; }
+
+.mcp-chip--todo {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.1);
+  border-color: rgba(217, 119, 6, 0.4);
+}
+.mcp-chip--todo .mcp-chip-dot { background: #d97706; }
+
+.mcp-ready-fix {
+  display: flex;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #4b5563);
+  line-height: 1.6;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  padding: 8px 11px;
+}
+
+.mcp-ready-fix strong { color: var(--text-primary, #1f2937); font-weight: 700; }
+
+.mcp-ready-fix code {
+  font-family: 'Consolas', 'D2Coding', monospace;
+  font-size: 0.74rem;
+  color: #2b6cb0;
+  background: rgba(43, 108, 176, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* 데이터 소스 서브 블록(외부 AI 카드 안) */
+.mcp-data-sources {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 4px 12px 6px;
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.mcp-data-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #8a94a6);
+  text-transform: uppercase;
+  padding: 8px 2px 4px;
+}
+
+.mcp-data-label span { font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+.mcp-data-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* 연결 방법 접이식 블록 */
+.mcp-help-collapse {
+  border: 1px solid rgba(99, 179, 237, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.mcp-help-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(99, 179, 237, 0.06);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  transition: background 0.1s;
+}
+
+.mcp-help-toggle:hover { background: rgba(99, 179, 237, 0.1); }
+
+.mcp-help-collapse .mcp-help-body {
+  border-top: 1px solid rgba(99, 179, 237, 0.2);
 }
