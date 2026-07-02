@@ -1,5 +1,5 @@
 import React from 'react';
-import { TimetableData, AppinData, PERIOD_START_TIMES } from '../types';
+import { TimetableData, AppinData, PERIOD_START_TIMES, PERIOD_TIMES } from '../types';
 
 function getSubjectColor(subjectName: string): string {
   if (!subjectName) return '';
@@ -137,32 +137,19 @@ export default function TimetableTab({
     const isWeekday = currentDay >= 1 && currentDay <= 5;
     const currentTime = now.getHours() * 60 + now.getMinutes();
 
-    const periodTimes = [
-      { start: 8 * 60 + 30, end: 9 * 60 + 20 },
-      { start: 9 * 60 + 30, end: 10 * 60 + 20 },
-      { start: 10 * 60 + 30, end: 11 * 60 + 20 },
-      { start: 11 * 60 + 30, end: 12 * 60 + 20 },
-      { start: 12 * 60 + 20, end: 13 * 60 + 20 },
-      { start: 13 * 60 + 20, end: 14 * 60 + 10 },
-      { start: 14 * 60 + 20, end: 15 * 60 + 10 },
-      { start: 15 * 60 + 20, end: 16 * 60 + 10 },
-    ];
-
+    // 각 행(교시·점심)은 "이 교시 시작 ~ 다음 행 시작" 구간을 나타낸다.
+    // 쉬는 시간을 앞 교시 셀에 포함시켜, 시간이 흘러도 인디케이터가 뒤로 튀지 않고
+    // 위→아래로 연속 이동하며 다음 교시 시작 순간 다음 셀로 넘어간다.
+    // 마지막 교시는 다음 행이 없으므로 자기 종료 시각까지만 채운다.
+    // 교시 시각은 types.ts 의 PERIOD_TIMES 를 공유(중복 정의 방지).
     const getCurrentTimeY = () => {
       if (currentDay < 1 || currentDay > 5) return null;
-      for (let i = 0; i < periodTimes.length; i++) {
-        const period = periodTimes[i];
-        if (currentTime >= period.start && currentTime <= period.end) {
-          const progress = (currentTime - period.start) / (period.end - period.start);
-          return { rowIndex: i, progress };
-        }
-      }
-      for (let i = 0; i < periodTimes.length - 1; i++) {
-        const periodEnd = periodTimes[i].end;
-        const nextPeriodStart = periodTimes[i + 1].start;
-        if (currentTime > periodEnd && currentTime < nextPeriodStart) {
-          const breakProgress = (currentTime - periodEnd) / (nextPeriodStart - periodEnd);
-          return { rowIndex: i, progress: 1 + breakProgress };
+      for (let i = 0; i < PERIOD_TIMES.length; i++) {
+        const spanStart = PERIOD_TIMES[i].start;
+        const spanEnd =
+          i + 1 < PERIOD_TIMES.length ? PERIOD_TIMES[i + 1].start : PERIOD_TIMES[i].end;
+        if (currentTime >= spanStart && currentTime < spanEnd) {
+          return { rowIndex: i, progress: (currentTime - spanStart) / (spanEnd - spanStart) };
         }
       }
       return null;
@@ -172,7 +159,7 @@ export default function TimetableTab({
 
     const renderLesson = (lesson: any, key: string, isToday: boolean, rowIndex: number) => {
       const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === rowIndex;
-      const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
+      const timeProgress = isCurrentTimeCell && timeY ? timeY.progress : undefined;
       const isEvent = lesson && lesson[3] === true;
       const subjectColor = lesson && lesson[0] && !isEvent ? getSubjectColor(lesson[0]) : '';
       const isDiff = lesson && lesson[2] === true;
@@ -222,7 +209,7 @@ export default function TimetableTab({
                 {days.map((_, dIdx) => {
                   const isToday = isWeekday && dIdx === currentDay - 1;
                   const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 4;
-                  const timeProgress = isCurrentTimeCell && timeY ? (timeY.progress < 1 ? timeY.progress : timeY.progress - 1) : undefined;
+                  const timeProgress = isCurrentTimeCell && timeY ? timeY.progress : undefined;
                   return (
                     <div
                       key={`lunch-${dIdx}`}
