@@ -1,11 +1,11 @@
 {
-    "version": "0.5.19",
-    "notes": "검색 개선 수정",
-    "pub_date": "2026-06-16T23:23:55.701Z",
+    "version": "0.5.21",
+    "notes": "AI 일정 등록 기능 추가",
+    "pub_date": "2026-07-03T00:28:30.161Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMlBoOWRiUHhwblYrNHNPNTh4OGx6a04yL1lhTE5Ya1BMbmpiWkppUTdBRzVhTk02MTRBWTBva2s1dXlzYXJzcnVvUFdMN3lhcWNKaEV1MzRCREl1TFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjUyMzU1CWZpbGU6SHlwZXJDb29sXzAuNS4xOV94NjRfZW4tVVMubXNpClpSYnhUaDRFWjRBK0p5Mm5lNDlZa0pGK0oxTENGY1NFc1RaRFBwRTFsam90bEVkTFRmNGZOTk83RFJFb0tKVEQ3dUkvQithUk5JOUltZUJTMjN3ZERRPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.19/HyperCool_0.5.19_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkNKRnZBazlIM2VDZW9EUnQ4aG43eVFuTnNSNUxtek5sWXNPdERSdmtzbUw1Yll6b0IvZWpLOUFrTit0dlFTYnBqMU5UV05CS2NLdm4zT3lyZG9qT3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMDM4NzQzCWZpbGU6SHlwZXJDb29sXzAuNS4yMV94NjRfZW4tVVMubXNpClpEcTNGYU5xSG85QUpIdVpXUG96SlAwMHVSOHAzUFdRTDZQWkxmVjd6VU5ZVm5GR1ZqOTh3UHBuQTVuNGlwS1UrQUI2cFRQaS9SY0t2RXU5YmJmQUNRPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.21/HyperCool_0.5.21_x64_en-US.msi"
         }
     }
 }
