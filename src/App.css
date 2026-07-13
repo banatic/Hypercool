@@ -1428,6 +1428,69 @@
   background: var(--primary-dark);
 }
 
+/* UDB 선택 모달 */
+.udb-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.udb-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.udb-candidate:hover {
+  border-color: var(--primary);
+}
+
+.udb-candidate.active {
+  border-color: var(--primary);
+  background: var(--primary-light, rgba(59, 130, 246, 0.08));
+}
+
+.udb-candidate-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.udb-candidate-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.udb-candidate-size {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.udb-candidate-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.udb-picker-modal .row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Auth Landing Styles */
 .auth-landing-container {
   background: var(--bg-light);

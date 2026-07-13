@@ -22,6 +22,7 @@ export function useSettings() {
     const [uiScale, setUiScale] = useState<number>(1.0);
     const [skippedUpdateVersion, setSkippedUpdateVersion] = useState<string | null>(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+    const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
 
     const saveToRegistry = useCallback(async (key: string, value: string) => {
         try {
@@ -73,6 +74,8 @@ export function useSettings() {
             }
         } catch (e) {
             console.warn('Settings load failed', e);
+        } finally {
+            setSettingsLoaded(true);
         }
     }, [saveToRegistry]);
 
@@ -91,6 +94,7 @@ export function useSettings() {
         setSkippedUpdateVersion,
         sidebarCollapsed,
         setSidebarCollapsed,
+        settingsLoaded,
         saveToRegistry,
         loadSettings,
     };

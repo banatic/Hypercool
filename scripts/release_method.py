@@ -541,16 +541,16 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.19",
-        notes="검색 개선 수정",
+        version="0.5.23",
+        notes=("달력 위젯 버그 수정\n"),
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,
         bundle_dir=Path("src-tauri/target/release/bundle/msi"),
         latest_path=Path("latest.json"),
         repo_download_url=None,
-        skip_github_release=False,  # GitHub release 자동 생성
-        skip_git_push=False,  # git push 자동 실행
+        skip_github_release=False,
+        skip_git_push=False,
     )
 
     raise SystemExit(run_release(CONFIG))

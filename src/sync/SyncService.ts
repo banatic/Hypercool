@@ -5,6 +5,33 @@ import { ScheduleService } from "../services/ScheduleService";
 
 const COLLECTION_EVENTS = "events";
 
+// 날짜 문자열을 iOS 가 파싱할 수 있는 형식(JS toISOString: 밀리초 + 'Z')으로 통일한다.
+// Rust 백엔드(브리핑 AI 등)는 chrono `to_rfc3339()` 로 `2026-07-02T01:08:34.222295300+00:00`
+// 같은 나노초 + '+00:00' 형식을 쓰는데, Swift 의 엄격한 ISO8601/Codable 디코더는 이걸
+// 파싱하지 못해 이벤트 문서를 통째로 버린다(웹은 느슨한 JS Date 라 보임 → iOS 에서만 누락).
+function toIsoZ(s: string | null | undefined): string {
+    if (!s) return s as string;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s : d.toISOString();
+}
+
+// Firestore 로 내보낼 때만 적용하는 정규화.
+//  1) 타입: 외부 리더는 manual_todo / period_schedule / message_task 만 인식한다.
+//     탁상달력에서 가져온 desktopcal_memo · desktopcal_event 를 리더가 아는 타입으로 매핑.
+//     (로컬 DB 타입은 그대로 둔다 — 탁상달력 역동기화가 그 타입으로 중복을 거른다.)
+//  2) 감사 날짜(createdAt/updatedAt): iOS 파싱 가능한 형식으로 통일.
+function normalizeForRemote(item: ScheduleItem): ScheduleItem {
+    let type = item.type;
+    if (type === 'desktopcal_memo') type = 'manual_todo';
+    else if (type === 'desktopcal_event') type = 'period_schedule';
+    return {
+        ...item,
+        type,
+        createdAt: toIsoZ(item.createdAt),
+        updatedAt: toIsoZ(item.updatedAt),
+    };
+}
+
 export const SyncService = {
     async syncData(lastSyncTime: string | null): Promise<string> {
         const user = auth.currentUser;
@@ -27,6 +54,40 @@ export const SyncService = {
 
         // 2. Get Remote Data
         const eventsRef = collection(db, "users", user.uid, COLLECTION_EVENTS);
+
+        // ── 일회성 전체 재푸시 마이그레이션 ────────────────────────────────
+        // 두 부류의 이벤트가 iOS 에서 누락돼 왔다:
+        //  (a) 탁상달력 유래 desktopcal_* 타입 (리더가 모르는 타입이라 버려짐)
+        //  (b) Rust(브리핑 AI 등)가 만든 이벤트 (createdAt/updatedAt 이 나노초
+        //      +00:00 형식 → iOS 디코더가 문서째 버림). 게다가 이들 updatedAt 은
+        //      대개 lastSyncTime 보다 과거라 증분 동기화로는 영영 다시 안 올라간다.
+        // → 전체 로컬 이벤트를 리더 친화 형식(normalizeForRemote)으로 한 번 다시
+        //   밀어넣어 기존 원격 문서를 덮어쓴다. 이후 신규/변경분은 일반 푸시 경로가
+        //   같은 정규화를 적용한다. (이미 올바른 문서도 동일 데이터로 덮어써 무해.)
+        {
+            const { invoke } = await import('@tauri-apps/api/core');
+            const RESYNC_KEY = 'EventDateFormatResyncV1Done';
+            const done = await invoke<string | null>('get_registry_value', { key: RESYNC_KEY });
+            if (done !== 'true') {
+                let migBatch = writeBatch(db);
+                let pending = 0;
+                let migrated = 0;
+                for (const item of localItems) {
+                    migBatch.set(doc(eventsRef, item.id), normalizeForRemote(item));
+                    pending++;
+                    migrated++;
+                    if (pending >= 450) {
+                        await migBatch.commit();
+                        migBatch = writeBatch(db);
+                        pending = 0;
+                    }
+                }
+                if (pending > 0) await migBatch.commit();
+                await invoke('set_registry_value', { key: RESYNC_KEY, value: 'true' });
+                console.log(`Event resync: re-pushed ${migrated} events for external readers`);
+            }
+        }
+
         let remoteItems: ScheduleItem[] = [];
 
         try {
@@ -126,9 +187,9 @@ export const SyncService = {
                 }
             }
 
-            // Push to remote
+            // Push to remote (외부 리더용으로 타입·날짜 정규화해서 저장)
             const docRef = doc(eventsRef, local.id);
-            batch.set(docRef, local);
+            batch.set(docRef, normalizeForRemote(local));
             batchCount++;
 
             if (batchCount >= 450) {

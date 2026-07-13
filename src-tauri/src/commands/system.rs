@@ -140,6 +140,75 @@ pub fn get_download_path() -> Result<Option<String>, String> {
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct UdbCandidate {
+    /// 파일 전체 경로
+    pub path: String,
+    /// 파일 이름 (확장자 포함)
+    pub name: String,
+    /// 파일 크기 (바이트)
+    pub size: u64,
+    /// 파일이 들어있는 폴더 이름 (예: "Memo", "CustomData")
+    pub folder: String,
+}
+
+/// 쿨메신저 기본 폴더(`%LOCALAPPDATA%\CoolMessenger`) 아래의 `.udb` 파일을 재귀 탐색해
+/// 후보 목록을 반환합니다. 크기가 큰(=실제 메시지가 들어있을 가능성이 높은) 순으로 정렬합니다.
+#[command]
+pub fn list_coolmessenger_udbs() -> Result<Vec<UdbCandidate>, String> {
+    let local_app_data = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA 환경변수를 찾을 수 없습니다.".to_string())?;
+    let root = std::path::PathBuf::from(&local_app_data).join("CoolMessenger");
+
+    let mut candidates: Vec<UdbCandidate> = Vec::new();
+    if root.is_dir() {
+        collect_udbs(&root, 0, &mut candidates);
+    }
+
+    // 큰 파일 우선 (실제 UDB 는 수백 MB, 빈 껍데기는 수 KB)
+    candidates.sort_by(|a, b| b.size.cmp(&a.size));
+    Ok(candidates)
+}
+
+/// `.udb` 파일을 재귀적으로 수집 (최대 깊이 4, 확장자 없는 `.udb` 껍데기는 제외).
+fn collect_udbs(dir: &std::path::Path, depth: usize, out: &mut Vec<UdbCandidate>) {
+    if depth > 4 {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_udbs(&path, depth + 1, out);
+        } else if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("udb")).unwrap_or(false) {
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            // 파일명이 ".udb" 처럼 비어있는 껍데기는 건너뜀
+            if name.eq_ignore_ascii_case(".udb") {
+                continue;
+            }
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let folder = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            out.push(UdbCandidate {
+                path: path.to_string_lossy().to_string(),
+                name,
+                size,
+                folder,
+            });
+        }
+    }
+}
+
 /// 파일이 존재하는지 확인
 #[command]
 pub fn check_file_exists(file_path: String) -> Result<bool, String> {

@@ -117,6 +117,22 @@ pub fn apply_vibrancy_effect<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     }
 }
 
+/// Windows 11: 창(아크릴 포함)의 모서리를 둥글게 클리핑해 사각 블러 잔상을 제거.
+/// 핸들을 직접 사용하므로 타이틀 검색이 필요 없다.
+pub fn apply_rounded_corners<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(hwnd) = window.hwnd() {
+            let hwnd_windows = windows::Win32::Foundation::HWND(hwnd.0 as _);
+            window_blur::enable_rounded_corners(hwnd_windows);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+}
+
 /// HHMM 형식 문자열을 NaiveTime으로 변환하는 헬퍼 함수
 fn parse_hhmm(hhmm: &str) -> Option<NaiveTime> {
     if hhmm.len() != 4 {

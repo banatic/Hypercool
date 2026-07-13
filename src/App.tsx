@@ -11,6 +11,7 @@ import { HelpPage } from './components/HelpPage';
 import { McpPage } from './components/McpPage';
 import { ScheduleModal } from './components/ScheduleModal';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal';
+import { UdbPickerModal } from './components/UdbPickerModal';
 import { AuthService } from './auth/AuthService';
 
 import { useSettings } from './hooks/useSettings';
@@ -36,7 +37,8 @@ function App() {
     uiScale, setUiScale, 
     skippedUpdateVersion, setSkippedUpdateVersion,
     sidebarCollapsed, setSidebarCollapsed,
-    saveToRegistry 
+    settingsLoaded,
+    saveToRegistry
   } = useSettings();
 
   const { 
@@ -197,13 +199,34 @@ function App() {
   };
   const { onMouseDown } = dragHandlers();
 
-  const pickUdb = useCallback(async () => {
+  const [udbPickerOpen, setUdbPickerOpen] = useState(false);
+  // 자동으로 한 번만 띄우기 위한 플래그 (사용자가 닫으면 다시 자동으로 뜨지 않음)
+  const [udbPickerAutoShown, setUdbPickerAutoShown] = useState(false);
+
+  const applyUdbPath = useCallback(async (path: string) => {
+    setUdbPath(path);
+    await saveToRegistry('UdbPath', path);
+  }, [saveToRegistry, setUdbPath]);
+
+  // 파일 탐색기로 직접 UDB 선택
+  const pickUdbFile = useCallback(async () => {
     const selected = await open({ filters: [{ name: 'UDB Files', extensions: ['udb'] }], multiple: false });
     if (typeof selected === 'string') {
-      setUdbPath(selected);
-      await saveToRegistry('UdbPath', selected);
+      await applyUdbPath(selected);
+      setUdbPickerOpen(false);
     }
-  }, [saveToRegistry, setUdbPath]);
+  }, [applyUdbPath]);
+
+  // "파일 선택"/"찾기" 버튼 → 후보 목록 모달 열기
+  const openUdbPicker = useCallback(async () => { setUdbPickerOpen(true); }, []);
+
+  // 첫 실행 시(UDB 미설정) 자동으로 후보 선택 모달을 띄움
+  useEffect(() => {
+    if (settingsLoaded && !udbPath && !udbPickerAutoShown) {
+      setUdbPickerOpen(true);
+      setUdbPickerAutoShown(true);
+    }
+  }, [settingsLoaded, udbPath, udbPickerAutoShown]);
 
 
 
@@ -249,7 +272,7 @@ function App() {
         {page === 'classify' && (
           <ClassifierPage
             udbPath={udbPath}
-            pickUdb={pickUdb}
+            pickUdb={openUdbPicker}
             visibleMessages={visibleMessages}
             onMouseDown={onMouseDown}
             classify={classify}
@@ -292,7 +315,7 @@ function App() {
           <SettingsPage
             udbPath={udbPath}
             setUdbPath={setUdbPath}
-            pickUdb={pickUdb}
+            pickUdb={openUdbPicker}
             saveToRegistry={saveToRegistry}
             classTimes={classTimes}
             setClassTimes={(times) => {
@@ -325,6 +348,17 @@ function App() {
           udbPath={udbPath}
           allMessages={[]}  // Empty - ScheduleModal loads content on demand
           schedules={schedules}
+        />
+      )}
+
+      {udbPickerOpen && (
+        <UdbPickerModal
+          onSelect={async (path) => {
+            await applyUdbPath(path);
+            setUdbPickerOpen(false);
+          }}
+          onPickFile={pickUdbFile}
+          onClose={() => setUdbPickerOpen(false)}
         />
       )}
 

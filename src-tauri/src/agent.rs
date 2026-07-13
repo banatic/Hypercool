@@ -7,6 +7,8 @@
 //! - 트리거는 배치·단일 실행. sync 성공 후 debounce 로 모아 1회, single-flight 로 동시 1개.
 //! - 증분 처리. `BriefingLastSeenId` 보다 큰 메시지만 대상으로 하고, 성공 시에만 전진.
 //! - 멱등. event id 는 메시지 ID 기반 결정적 값(`msg-<id>`)이며, 이미 있으면 skip → 사용자 편집 보존.
+//!   재전송·정정처럼 메시지 ID 가 달라도 내용이 사실상 같은 경우는 (날짜, 제목/원문 유사도)
+//!   기준의 내용 중복 판정으로 이중 등록을 막는다.
 //! - CLI 미설치/미인증 시 기능 자동 비활성화, 앱 크래시 없음.
 
 use std::path::PathBuf;
@@ -37,6 +39,13 @@ const AI_MARKER_LEGACY: &str = "🤖 AI 자동 생성";
 /// [원문] 섹션 구분선+제목. to_schedule_item 과 마이그레이션이 공유(형식 동기화).
 const ORIGINAL_SECTION_HEADER: &str =
     "<hr><div style=\"color:#888;font-size:12px;margin-bottom:4px\">원문</div>";
+
+/// 내용 중복 판정: 같은 날짜의 AI 일정과 제목 유사도(문자 bigram Dice)가 이 값 이상이면 중복.
+const TITLE_SIM_THRESHOLD: f64 = 0.85;
+/// 내용 중복 판정: 원문 유사도가 이 값 이상이면 재전송/정정 메시지로 본다.
+const BODY_SIM_THRESHOLD: f64 = 0.90;
+/// 원문 유사도 비교를 적용할 최소 길이(정규화 후 문자 수) — 짧은 본문의 우연 일치 방지.
+const MIN_BODY_CHARS: usize = 20;
 
 const REG_ENABLED: &str = "BriefingAgentEnabled";
 const REG_LAST_SEEN: &str = "BriefingLastSeenId";
@@ -450,9 +459,7 @@ fn run_claude_debug(app: &AppHandle, claude: &PathBuf, since: i64) -> Result<Cla
     let mcp_path = ensure_mcp_config(app)?;
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let today = seoul_today();
-    let prompt = load_prompt_template(app)
-        .replace("{{TODAY}}", &today)
-        .replace("{{LAST_SEEN_ID}}", &since.to_string());
+    let prompt = build_prompt(app, &today, since);
 
     let (stdout, stderr) = spawn_claude(claude, &prompt, &mcp_path, &app_data_dir)?;
     let stderr_tail = {
@@ -509,45 +516,8 @@ fn run_claude_debug(app: &AppHandle, claude: &PathBuf, since: i64) -> Result<Cla
 
 /// register_items 와 동일하되 (신규, 중복skip, 검증skip) breakdown 을 반환.
 fn register_items_breakdown(app: &AppHandle, items: Vec<ExtractedItem>, today: &str) -> (i64, i64, i64) {
-    let dir = match app.path().app_data_dir() {
-        Ok(d) => d,
-        Err(_) => return (0, 0, items.len() as i64),
-    };
-    let conn = match Connection::open(dir.join("hypercool.db")) {
-        Ok(c) => c,
-        Err(_) => return (0, 0, items.len() as i64),
-    };
-    let today_date = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").ok();
-
-    let (mut new_c, mut dedup_c, mut invalid_c) = (0i64, 0i64, 0i64);
-    for item in items {
-        let full = item.source_message_id.and_then(|mid| fetch_message_html(app, mid));
-        let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
-            Some(s) => s,
-            None => {
-                invalid_c += 1;
-                continue;
-            }
-        };
-        let exists = conn
-            .query_row(
-                "SELECT 1 FROM tbl_schedules WHERE id = ?1 LIMIT 1",
-                rusqlite::params![sched.id],
-                |_| Ok(true),
-            )
-            .optional()
-            .unwrap_or(None)
-            .unwrap_or(false);
-        if exists {
-            dedup_c += 1;
-            continue;
-        }
-        match crate::db::create_schedule_impl(&conn, sched) {
-            Ok(_) => new_c += 1,
-            Err(_) => invalid_c += 1,
-        }
-    }
-    (new_c, dedup_c, invalid_c)
+    let total = items.len() as i64;
+    register_items_core(app, items, today).unwrap_or((0, 0, total))
 }
 
 /// 검색 DB 통계: (존재, 메시지 수, 최신 id).
@@ -645,7 +615,8 @@ pub fn migrate_ai_schedules_content(app: AppHandle) -> Result<u32, String> {
         mapped.filter_map(Result::ok).collect()
     };
 
-    let now = chrono::Utc::now().to_rfc3339();
+    // 밀리초 + 'Z' (iOS 파싱 가능). to_rfc3339() 의 나노초+'+00:00' 은 iOS 가 버린다.
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let mut updated = 0u32;
     for (id, content, ref_id) in rows {
         let old = content.unwrap_or_default();
@@ -738,9 +709,7 @@ fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
     }
 
     let today = seoul_today();
-    let prompt = load_prompt_template(app)
-        .replace("{{TODAY}}", &today)
-        .replace("{{LAST_SEEN_ID}}", &last_seen.to_string());
+    let prompt = build_prompt(app, &today, last_seen);
 
     let (stdout, _stderr) = spawn_claude(&claude, &prompt, &mcp_path, &app_data_dir)?;
     let items = parse_items_from_output(&stdout)?;
@@ -900,26 +869,41 @@ fn register_items(
     items: Vec<ExtractedItem>,
     today: &str,
 ) -> Result<(i64, i64), String> {
+    register_items_core(app, items, today).map(|(new_c, dedup_c, invalid_c)| (new_c, dedup_c + invalid_c))
+}
+
+/// 등록 공통 경로: (신규, 중복 skip, 검증/실패 skip)을 반환.
+/// 중복 방지는 2단계다.
+/// ① 결정적 id(msg-<id>) 존재 여부 — 같은 메시지의 재처리를 막는다.
+/// ② 내용 기반 — 재전송·정정으로 메시지 ID 가 달라져도 같은 날짜에 사실상 같은
+///    일정이 이미 있으면 skip. 프롬프트에 기등록 일정을 주입해 claude 가 1차로
+///    거르지만, LLM 출력은 비결정적이므로 여기서 결정적으로 한 번 더 막는다.
+fn register_items_core(
+    app: &AppHandle,
+    items: Vec<ExtractedItem>,
+    today: &str,
+) -> Result<(i64, i64, i64), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = dir.join("hypercool.db");
-    let conn = Connection::open(&db_path).map_err(|e| format!("일정 DB 연결 실패: {}", e))?;
+    let conn = Connection::open(dir.join("hypercool.db"))
+        .map_err(|e| format!("일정 DB 연결 실패: {}", e))?;
 
     let today_date = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").ok();
 
-    let mut new_count = 0i64;
-    let mut skipped = 0i64;
+    let (mut new_c, mut dedup_c, mut invalid_c) = (0i64, 0i64, 0i64);
+    // 이번 배치에서 등록한 항목 키 — 한 실행 안에서 온 재전송 메시지끼리도 중복 방지.
+    let mut batch_keys: Vec<DedupKey> = Vec::new();
 
     for item in items {
         let full = item.source_message_id.and_then(|mid| fetch_message_html(app, mid));
         let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
-                skipped += 1;
+                invalid_c += 1;
                 continue;
             }
         };
 
-        // 멱등: 같은 id 가 이미 있으면(사용자가 완료/수정/삭제했더라도) 덮어쓰지 않고 skip.
+        // ① 멱등: 같은 id 가 이미 있으면(사용자가 완료/수정/삭제했더라도) 덮어쓰지 않고 skip.
         let exists = conn
             .query_row(
                 "SELECT 1 FROM tbl_schedules WHERE id = ?1 LIMIT 1",
@@ -927,20 +911,201 @@ fn register_items(
                 |_| Ok(true),
             )
             .optional()
-            .map_err(|e| e.to_string())?
+            .unwrap_or(None)
             .unwrap_or(false);
         if exists {
-            skipped += 1;
+            dedup_c += 1;
             continue;
         }
 
+        // ② 내용 기반: 같은 날짜의 기존 일정(삭제·완료 포함 — 사용자 결정 존중)과
+        //    제목/원문이 사실상 같으면 skip.
+        let key = dedup_key_for(&sched);
+        if let Some(k) = &key {
+            let dup_in_batch = batch_keys.iter().any(|b| keys_similar(k, b, true));
+            if dup_in_batch || find_semantic_duplicate(&conn, k).is_some() {
+                dedup_c += 1;
+                continue;
+            }
+        }
+
         match crate::db::create_schedule_impl(&conn, sched) {
-            Ok(_) => new_count += 1,
-            Err(_) => skipped += 1,
+            Ok(_) => {
+                new_c += 1;
+                if let Some(k) = key {
+                    batch_keys.push(k);
+                }
+            }
+            Err(_) => invalid_c += 1,
         }
     }
 
-    Ok((new_count, skipped))
+    Ok((new_c, dedup_c, invalid_c))
+}
+
+// ─── 내용 기반 중복 판정 ──────────────────────────────────────────────────────
+
+/// 중복 판정 키: 달력 날짜 + 정규화 제목 + 정규화 원문 + 출처 메시지 id.
+struct DedupKey {
+    date: String,
+    norm_title: String,
+    norm_body: String,
+    source_ref: Option<String>,
+}
+
+fn dedup_key_for(sched: &crate::db::ScheduleItem) -> Option<DedupKey> {
+    let date = sched.start_date.as_deref()?.get(..10)?.to_string();
+    Some(DedupKey {
+        date,
+        norm_title: normalize_for_match(&sched.title),
+        norm_body: normalized_original_body(sched.content.as_deref().unwrap_or("")),
+        source_ref: sched.reference_id.clone(),
+    })
+}
+
+/// 두 키가 "사실상 같은 일정"인지. `fuzzy` 가 false 면(수동 일정과 비교) 제목 완전 일치만 본다.
+fn keys_similar(a: &DedupKey, b: &DedupKey, fuzzy: bool) -> bool {
+    if a.date != b.date {
+        return false;
+    }
+    if !a.norm_title.is_empty() && a.norm_title == b.norm_title {
+        return true;
+    }
+    if !fuzzy {
+        return false;
+    }
+    // 제목의 숫자열이 다르면(1학년 vs 2학년, 3반 vs 4반 …) 유사해 보여도 별개 일정로 본다.
+    if digits_of(&a.norm_title) != digits_of(&b.norm_title) {
+        return false;
+    }
+    if bigram_dice(&a.norm_title, &b.norm_title) >= TITLE_SIM_THRESHOLD {
+        return true;
+    }
+    // 원문 비교는 서로 다른 메시지에서 온 항목끼리만 — 한 메시지에서 분리된 여러
+    // 항목은 원문이 같을 수밖에 없으므로 제외.
+    let different_source = match (&a.source_ref, &b.source_ref) {
+        (Some(x), Some(y)) => x != y,
+        _ => true,
+    };
+    different_source
+        && a.norm_body.chars().count() >= MIN_BODY_CHARS
+        && b.norm_body.chars().count() >= MIN_BODY_CHARS
+        && bigram_dice(&a.norm_body, &b.norm_body) >= BODY_SIM_THRESHOLD
+}
+
+/// 같은 날짜의 기존 일정 중 후보와 사실상 같은 것을 찾는다(삭제·완료 포함 — 사용자
+/// 결정 존중). AI 생성 일정(color = AI_COLOR)과는 유사도까지, 그 외(수동 등)와는
+/// 제목 완전 일치만 비교해 오탐을 줄인다. 반환: 기존 일정 id.
+fn find_semantic_duplicate(conn: &Connection, key: &DedupKey) -> Option<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, content, color, reference_id FROM tbl_schedules
+             WHERE substr(COALESCE(start_date, ''), 1, 10) = ?1",
+        )
+        .ok()?;
+    let rows = stmt
+        .query_map([&key.date], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .ok()?;
+    for row in rows.flatten() {
+        let (id, title, content, color, ref_id) = row;
+        let existing = DedupKey {
+            date: key.date.clone(),
+            norm_title: normalize_for_match(&title),
+            norm_body: normalized_original_body(content.as_deref().unwrap_or("")),
+            source_ref: ref_id,
+        };
+        let fuzzy = color.as_deref() == Some(AI_COLOR);
+        if keys_similar(key, &existing, fuzzy) {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// content 의 [원문] 섹션(<hr> 이후)을 비교용 평문으로 정규화. 원문 섹션이 없으면 빈 문자열.
+fn normalized_original_body(content: &str) -> String {
+    let orig = match content.find(ORIGINAL_SECTION_HEADER) {
+        Some(i) => &content[i + ORIGINAL_SECTION_HEADER.len()..],
+        None => match content.find("<hr>") {
+            Some(i) => &content[i + "<hr>".len()..],
+            None => "",
+        },
+    };
+    normalize_for_match(&strip_html_tags(orig))
+}
+
+/// 태그 제거 + 대표 엔티티 복원(비교용 단순 변환 — 렌더링 용도 아님).
+fn strip_html_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// 비교용 정규화: 문자·숫자만 남기고 소문자화(공백·구두점·서식 차이 무시).
+fn normalize_for_match(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// 문자열의 숫자만 순서대로 추출(제목 속 학년·반·차수 구분용).
+fn digits_of(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+/// 문자 bigram Dice 유사도(0.0~1.0). 빈 문자열 또는 1글자 불일치면 0.0.
+fn bigram_dice(a: &str, b: &str) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    if a == b {
+        return 1.0;
+    }
+    let bigrams = |s: &str| {
+        let cs: Vec<char> = s.chars().collect();
+        cs.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>()
+    };
+    let (mut xa, mut xb) = (bigrams(a), bigrams(b));
+    if xa.is_empty() || xb.is_empty() {
+        return 0.0;
+    }
+    xa.sort_unstable();
+    xb.sort_unstable();
+    let (mut i, mut j, mut inter) = (0usize, 0usize, 0usize);
+    while i < xa.len() && j < xb.len() {
+        match xa[i].cmp(&xb[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                inter += 1;
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    2.0 * inter as f64 / (xa.len() + xb.len()) as f64
 }
 
 /// ExtractedItem → db::ScheduleItem 변환 및 검증. 등록 불가(날짜 없음/과거)면 None.
@@ -990,14 +1155,21 @@ fn to_schedule_item(
     }
     let date_str = date.format("%Y-%m-%d").to_string();
 
-    let all_day = item.all_day.unwrap_or(item.time.is_none());
-    let start_date = if !all_day {
-        match item.time.as_deref().and_then(parse_start_time) {
-            Some(t) => format!("{}T{}:00+09:00", date_str, t),
-            None => date_str.clone(),
-        }
-    } else {
-        date_str.clone()
+    // 시각 결정: 명시 time 우선, 없으면 교시(period)를 학교 시간표로 환산한다.
+    // (예: "6교시" → 14:20) 교시만 있는 메시지도 종일이 아니라 해당 슬롯 시각에 배치된다.
+    let resolved_time = item
+        .time
+        .as_deref()
+        .and_then(parse_start_time)
+        .or_else(|| item.period.as_deref().and_then(period_to_start_time));
+    // 시각(명시 또는 교시 환산)이 잡히면 시간 지정 일정. 그 외에는 all_day(LLM 값 우선, 기본 종일).
+    let all_day = match &resolved_time {
+        Some(_) => false,
+        None => item.all_day.unwrap_or(true),
+    };
+    let start_date = match &resolved_time {
+        Some(t) => format!("{}T{}:00+09:00", date_str, t),
+        None => date_str.clone(),
     };
 
     // content(HTML): 요점/교시/발신 + AI 마커 + <hr> + 원문 HTML.
@@ -1039,7 +1211,9 @@ fn to_schedule_item(
         content.push_str(&orig);
     }
 
-    let now = chrono::Utc::now().to_rfc3339();
+    // iOS 의 엄격한 날짜 디코더가 파싱할 수 있도록 밀리초 + 'Z' 형식으로 쓴다.
+    // (기본 to_rfc3339() 는 나노초 + '+00:00' 이라 iOS 가 문서째 버린다.)
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     // 반드시 "manual_todo" 로 등록한다. 달력 위젯(calendar-widget.tsx loadTodos)은
     // manual_todo/desktopcal_memo 만 그리드에 할 일로 렌더링한다. "message_task"(+숫자
@@ -1105,6 +1279,77 @@ fn ensure_mcp_config(app: &AppHandle) -> Result<PathBuf, String> {
     )
     .map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+/// 프롬프트 템플릿 치환: 오늘 날짜 + 기준 id + 기등록 일정 목록.
+/// 기등록 일정을 주입해 claude 가 재전송·정정·표현만 다른 동일 업무를 의미 수준에서
+/// 거를 수 있게 한다(등록 측의 내용 중복 백스톱과 이중 방어).
+fn build_prompt(app: &AppHandle, today: &str, since: i64) -> String {
+    load_prompt_template(app)
+        .replace("{{TODAY}}", today)
+        .replace("{{LAST_SEEN_ID}}", &since.to_string())
+        .replace("{{EXISTING_SCHEDULES}}", &existing_schedules_snippet(app, today))
+}
+
+/// 프롬프트에 주입할 "이미 등록된 일정" 목록. 오늘 이후 일정만:
+/// - AI 생성분(color = AI_COLOR)은 삭제·완료된 것도 포함 — 사용자가 지운/끝낸 일정을
+///   재전송 메시지로 되살리지 않도록 상태를 함께 보여준다.
+/// - 수동 일정(manual_todo/desktopcal_memo)은 살아있는 것만.
+fn existing_schedules_snippet(app: &AppHandle, today: &str) -> String {
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d,
+        Err(_) => return "(조회 실패)".to_string(),
+    };
+    let conn = match Connection::open(dir.join("hypercool.db")) {
+        Ok(c) => c,
+        Err(_) => return "(조회 실패)".to_string(),
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT substr(COALESCE(start_date, ''), 1, 10), title, color, reference_id, is_completed, is_deleted
+         FROM tbl_schedules
+         WHERE substr(COALESCE(start_date, ''), 1, 10) >= ?1
+           AND (color = ?2 OR (is_deleted = 0 AND type IN ('manual_todo', 'desktopcal_memo')))
+         ORDER BY 1
+         LIMIT 150",
+    ) {
+        Ok(s) => s,
+        Err(_) => return "(조회 실패)".to_string(),
+    };
+    let rows = stmt.query_map(rusqlite::params![today, AI_COLOR], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, bool>(4)?,
+            r.get::<_, bool>(5)?,
+        ))
+    });
+    let mut lines = Vec::new();
+    if let Ok(rows) = rows {
+        for (date, title, color, ref_id, done, deleted) in rows.flatten() {
+            let source = if color.as_deref() == Some(AI_COLOR) {
+                match ref_id {
+                    Some(r) => format!("AI(msg-{})", r),
+                    None => "AI".to_string(),
+                }
+            } else {
+                "수동".to_string()
+            };
+            let mut line = format!("- {} | {} | {}", date, title, source);
+            if deleted {
+                line.push_str(" (삭제됨)");
+            } else if done {
+                line.push_str(" (완료)");
+            }
+            lines.push(line);
+        }
+    }
+    if lines.is_empty() {
+        "(없음)".to_string()
+    } else {
+        lines.join("\n")
+    }
 }
 
 /// 런타임 프롬프트 템플릿: 번들 resource 우선, 실패 시 컴파일 임베드본 폴백.
@@ -1251,6 +1496,35 @@ fn parse_date_loose(s: &str) -> Option<chrono::NaiveDate> {
     None
 }
 
+/// "N교시" → 시작 시각 "HH:MM"(학교 위젯 types.ts PERIOD_TIMES / main.rs get_current_period 과 동일).
+/// 점심(인덱스 4)은 교시가 아니므로 5~7교시는 한 칸 밀어 인덱싱한다. 1~7교시 외에는 None.
+fn period_to_start_time(period: &str) -> Option<String> {
+    // (시작시, 분) — types.ts PERIOD_TIMES 시작값과 동일. 점심(index 4) 포함 8칸.
+    const PERIOD_START: [(u32, u32); 8] = [
+        (8, 30),  // 1교시
+        (9, 30),  // 2교시
+        (10, 30), // 3교시
+        (11, 30), // 4교시
+        (12, 20), // 점심(교시 아님)
+        (13, 20), // 5교시
+        (14, 20), // 6교시
+        (15, 20), // 7교시
+    ];
+    let n: u32 = period
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()?;
+    if !(1..=7).contains(&n) {
+        return None;
+    }
+    // 점심(4) 슬롯을 건너뛰어 5교시부터 한 칸 민다.
+    let idx = if n <= 4 { (n - 1) as usize } else { n as usize };
+    let (h, m) = PERIOD_START[idx];
+    Some(format!("{:02}:{:02}", h, m))
+}
+
 /// "HH:MM" 또는 "HH:MM~HH:MM"/"HH:MM-HH:MM"에서 시작 시각 "HH:MM"을 정규화.
 fn parse_start_time(s: &str) -> Option<String> {
     let first = s.split(['~', '-']).next()?.trim();
@@ -1308,6 +1582,48 @@ mod tests {
         assert_eq!(parse_start_time("9:05").as_deref(), Some("09:05"));
         assert_eq!(parse_start_time("25:00"), None);
         assert_eq!(parse_start_time("점심"), None);
+    }
+
+    #[test]
+    fn period_to_start_time_matches_school_timetable() {
+        // 1~4교시는 그대로, 5~7교시는 점심 슬롯을 건너뛴 시각.
+        assert_eq!(period_to_start_time("1교시").as_deref(), Some("08:30"));
+        assert_eq!(period_to_start_time("4교시").as_deref(), Some("11:30"));
+        assert_eq!(period_to_start_time("5교시").as_deref(), Some("13:20"));
+        assert_eq!(period_to_start_time("6교시").as_deref(), Some("14:20"));
+        assert_eq!(period_to_start_time("7교시").as_deref(), Some("15:20"));
+        // 범위 밖/무효.
+        assert_eq!(period_to_start_time("8교시"), None);
+        assert_eq!(period_to_start_time("교시"), None);
+        assert_eq!(period_to_start_time("점심"), None);
+    }
+
+    #[test]
+    fn to_schedule_item_derives_time_from_period_when_no_explicit_time() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        // 교시만 있고 명시 시각이 없는 메시지(LLM 이 all_day=true 로 보내도) → 교시 시각으로 배치.
+        let item = ExtractedItem {
+            source_message_id: Some(6472),
+            date: Some("2026-07-09".to_string()),
+            all_day: Some(true),
+            period: Some("6교시".to_string()),
+            title: Some("성적 확인".to_string()),
+            ..Default::default()
+        };
+        let s = to_schedule_item(&item, today, None).unwrap();
+        assert!(!s.is_all_day);
+        assert_eq!(s.start_date.as_deref(), Some("2026-07-09T14:20:00+09:00"));
+        // 명시 time 이 있으면 교시보다 time 우선.
+        let item2 = ExtractedItem {
+            source_message_id: Some(6473),
+            date: Some("2026-07-09".to_string()),
+            time: Some("09:00".to_string()),
+            period: Some("6교시".to_string()),
+            title: Some("회의".to_string()),
+            ..Default::default()
+        };
+        let s2 = to_schedule_item(&item2, today, None).unwrap();
+        assert_eq!(s2.start_date.as_deref(), Some("2026-07-09T09:00:00+09:00"));
     }
 
     #[test]
@@ -1400,6 +1716,194 @@ mod tests {
         assert!(!rebuilt.contains("잘린 원문"));
         // 멱등: 같은 입력으로 다시 돌리면 동일.
         assert_eq!(rebuild_ai_content(&rebuilt, Some("<p>전체 원문 본문</p>")), rebuilt);
+    }
+
+    fn mem_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE tbl_schedules (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                is_all_day BOOLEAN NOT NULL DEFAULT 0,
+                reference_id TEXT,
+                color TEXT,
+                is_completed BOOLEAN NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                is_deleted BOOLEAN NOT NULL DEFAULT 0
+            )",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn normalize_and_dice_basics() {
+        assert_eq!(normalize_for_match("[필독] 창체 소감문, 제출!"), "필독창체소감문제출");
+        assert_eq!(bigram_dice("창체소감문제출", "창체소감문제출"), 1.0);
+        // 학년만 다른 제목은 임계값 미만이어야 한다.
+        assert!(bigram_dice("1학년급식지도", "2학년급식지도") < TITLE_SIM_THRESHOLD);
+        // 꼬리에 "안내"만 붙은 재안내 제목은 임계값 이상.
+        assert!(bigram_dice("창체소감문제출", "창체소감문제출안내") >= TITLE_SIM_THRESHOLD);
+    }
+
+    #[test]
+    fn semantic_dedup_blocks_resent_message_with_new_id() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let conn = mem_conn();
+        let body = "<p>7월 10일(금)까지 창의적 체험활동 소감문을 학년부로 제출해 주시기 바랍니다.</p><p>미제출 학급은 담임 선생님께서 명단을 회신해 주시기 바랍니다.</p>";
+
+        let first = ExtractedItem {
+            source_message_id: Some(100),
+            date: Some("2026-07-10".to_string()),
+            title: Some("창체 소감문 제출".to_string()),
+            ..Default::default()
+        };
+        let s1 = to_schedule_item(&first, today, Some(body)).unwrap();
+        crate::db::create_schedule_impl(&conn, s1).unwrap();
+
+        // 같은 내용이 새 메시지 ID(110)로 재전송 — id 는 다르지만 내용으로 중복 감지.
+        let resent = ExtractedItem {
+            source_message_id: Some(110),
+            date: Some("2026-07-10".to_string()),
+            title: Some("창체 소감문 제출 안내".to_string()),
+            ..Default::default()
+        };
+        let s2 = to_schedule_item(&resent, today, Some(body)).unwrap();
+        assert_eq!(s2.id, "msg-110");
+        let k2 = dedup_key_for(&s2).unwrap();
+        assert_eq!(find_semantic_duplicate(&conn, &k2).as_deref(), Some("msg-100"));
+    }
+
+    #[test]
+    fn semantic_dedup_blocks_near_identical_body_even_when_title_differs() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let conn = mem_conn();
+        let body1 = "<p>7월 10일(금)까지 창의적 체험활동 소감문을 학년부로 제출해 주시기 바랍니다.</p><p>미제출 학급은 담임 선생님께서 명단을 회신해 주시기 바랍니다.</p><p>제출 양식은 지난주 배부한 안내문을 참고해 주세요.</p>";
+        // 사소한 문구 정정("학년부로" → "교무실로")만 다른 재공지.
+        let body2 = "<p>7월 10일(금)까지 창의적 체험활동 소감문을 교무실로 제출해 주시기 바랍니다.</p><p>미제출 학급은 담임 선생님께서 명단을 회신해 주시기 바랍니다.</p><p>제출 양식은 지난주 배부한 안내문을 참고해 주세요.</p>";
+
+        let first = ExtractedItem {
+            source_message_id: Some(100),
+            date: Some("2026-07-10".to_string()),
+            title: Some("소감문 수거".to_string()),
+            ..Default::default()
+        };
+        crate::db::create_schedule_impl(&conn, to_schedule_item(&first, today, Some(body1)).unwrap()).unwrap();
+
+        let corrected = ExtractedItem {
+            source_message_id: Some(110),
+            date: Some("2026-07-10".to_string()),
+            title: Some("소감문 제출 요청".to_string()),
+            ..Default::default()
+        };
+        let s2 = to_schedule_item(&corrected, today, Some(body2)).unwrap();
+        let k2 = dedup_key_for(&s2).unwrap();
+        // 제목 유사도는 낮지만 원문이 거의 같아 중복으로 잡혀야 한다.
+        assert!(find_semantic_duplicate(&conn, &k2).is_some());
+    }
+
+    #[test]
+    fn different_grade_titles_stay_separate_despite_template_body() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let conn = mem_conn();
+        let body = "<p>7월 10일(금) 오전에 학년별 백신 접종이 있습니다. 담임 선생님께서는 접종 동의서를 미리 확인해 주시기 바랍니다.</p>";
+
+        let g1 = ExtractedItem {
+            source_message_id: Some(100),
+            date: Some("2026-07-10".to_string()),
+            title: Some("1학년 백신접종".to_string()),
+            ..Default::default()
+        };
+        crate::db::create_schedule_impl(&conn, to_schedule_item(&g1, today, Some(body)).unwrap()).unwrap();
+
+        // 학년(숫자)만 다른 같은 형식의 메시지 — 별개 일정으로 유지되어야 한다.
+        let g2 = ExtractedItem {
+            source_message_id: Some(101),
+            date: Some("2026-07-10".to_string()),
+            title: Some("2학년 백신접종".to_string()),
+            ..Default::default()
+        };
+        let s2 = to_schedule_item(&g2, today, Some(body)).unwrap();
+        let k2 = dedup_key_for(&s2).unwrap();
+        assert!(find_semantic_duplicate(&conn, &k2).is_none());
+    }
+
+    #[test]
+    fn items_from_same_message_are_not_body_deduped() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let body = "<p>7월 10일까지 설문 입력과 미참여 학생 명단 제출을 부탁드립니다. 자세한 내용은 첨부 문서를 확인해 주시기 바랍니다.</p>";
+
+        let a = ExtractedItem {
+            id: Some("msg-200".to_string()),
+            source_message_id: Some(200),
+            date: Some("2026-07-10".to_string()),
+            title: Some("설문 입력".to_string()),
+            ..Default::default()
+        };
+        let b = ExtractedItem {
+            id: Some("msg-200-1".to_string()),
+            source_message_id: Some(200),
+            date: Some("2026-07-10".to_string()),
+            title: Some("명단 제출".to_string()),
+            ..Default::default()
+        };
+        let ka = dedup_key_for(&to_schedule_item(&a, today, Some(body)).unwrap()).unwrap();
+        let kb = dedup_key_for(&to_schedule_item(&b, today, Some(body)).unwrap()).unwrap();
+        // 한 메시지에서 분리된 두 항목은 원문이 같아도 중복이 아니다.
+        assert!(!keys_similar(&ka, &kb, true));
+    }
+
+    #[test]
+    fn manual_schedule_dedups_by_exact_title_only() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let conn = mem_conn();
+        let now = "2026-07-01T00:00:00Z".to_string();
+        // 사용자가 직접 만든 일정(color 없음).
+        crate::db::create_schedule_impl(
+            &conn,
+            crate::db::ScheduleItem {
+                id: "manual-1".to_string(),
+                schedule_type: "manual_todo".to_string(),
+                title: "교직원 회의".to_string(),
+                content: None,
+                start_date: Some("2026-07-10".to_string()),
+                end_date: Some("2026-07-10".to_string()),
+                is_all_day: true,
+                reference_id: None,
+                color: None,
+                is_completed: false,
+                created_at: now.clone(),
+                updated_at: now,
+                is_deleted: false,
+            },
+        )
+        .unwrap();
+
+        // 같은 제목의 AI 항목은 수동 일정에 막힌다(완전 일치).
+        let same = ExtractedItem {
+            source_message_id: Some(300),
+            date: Some("2026-07-10".to_string()),
+            title: Some("교직원 회의".to_string()),
+            ..Default::default()
+        };
+        let ks = dedup_key_for(&to_schedule_item(&same, today, None).unwrap()).unwrap();
+        assert_eq!(find_semantic_duplicate(&conn, &ks).as_deref(), Some("manual-1"));
+
+        // 비슷하지만 다른 제목은 수동 일정과는 fuzzy 비교하지 않으므로 통과.
+        let similar = ExtractedItem {
+            source_message_id: Some(301),
+            date: Some("2026-07-10".to_string()),
+            title: Some("교직원 회식".to_string()),
+            ..Default::default()
+        };
+        let kd = dedup_key_for(&to_schedule_item(&similar, today, None).unwrap()).unwrap();
+        assert!(find_semantic_duplicate(&conn, &kd).is_none());
     }
 
     #[test]

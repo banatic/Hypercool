@@ -401,6 +401,25 @@ fn file_poll_loop(
 
 // ─── 파일 메타 ──────────────────────────────────────────────────────────
 
+/// 파일 열기 시점 등에서 단일 경로의 존재/메타를 즉석 재확인한 결과.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileMeta {
+    pub exists: bool,
+    pub size: Option<u64>,
+    pub modified: Option<String>,
+}
+
+/// 폴링 루프와 독립적으로 특정 경로의 현재 디스크 상태를 재조회한다.
+/// (메신저 엔트리 텍스트가 그대로여서 폴링이 재emit 하지 않는 상황에서 사용)
+pub fn recheck_file(path: &str) -> FileMeta {
+    let (exists, size, modified) = file_meta(path);
+    FileMeta {
+        exists,
+        size,
+        modified,
+    }
+}
+
 fn file_meta(path: &str) -> (bool, Option<u64>, Option<String>) {
     match std::fs::metadata(path) {
         Ok(m) => {

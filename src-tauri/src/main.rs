@@ -19,7 +19,7 @@ use hypercool::commands::window::LAST_HIDE_AT;
 use hypercool::commands::messages::{read_udb_messages_internal, get_latest_message_id_internal};
 #[cfg(target_os = "windows")]
 use hypercool::commands::system::register_custom_scheme;
-use hypercool::utils::apply_vibrancy_effect;
+use hypercool::utils::{apply_vibrancy_effect, apply_rounded_corners};
 
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
@@ -267,6 +267,15 @@ fn download_panel_set_expanded(app: tauri::AppHandle, label: String, expanded: b
     Ok(())
 }
 
+/// 특정 첨부파일 경로의 현재 디스크 상태(존재/크기/수정시각)를 즉석 재조회.
+/// 폴링 루프가 메신저 엔트리 텍스트 변화에만 재emit 하므로, 저장 직후처럼
+/// 텍스트는 그대로인데 디스크에는 파일이 생긴 경우 stale 한 `exists` 를 갱신하기 위함.
+/// (파일 열기 행위 시점에 프런트에서 호출)
+#[tauri::command]
+fn download_panel_recheck_file(path: String) -> download_watcher::FileMeta {
+    download_watcher::recheck_file(&path)
+}
+
 /// 다운로드 헬퍼 ON/OFF (전역). 레지스트리에도 반영.
 #[tauri::command]
 fn download_helper_set_enabled(enabled: bool) -> Result<(), String> {
@@ -316,6 +325,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(cache_state)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -341,6 +351,7 @@ fn main() {
             system::get_registry_value,
             system::set_registry_value,
             system::get_download_path,
+            system::list_coolmessenger_udbs,
             system::check_file_exists,
             system::open_file,
             system::set_auto_start,
@@ -356,6 +367,10 @@ fn main() {
             window::set_school_widget_pinned,
             window::get_school_widget_pinned,
             window::send_window_to_bottom,
+            window::toggle_search_modal,
+            window::hide_search_modal,
+            window::get_search_hotkey,
+            window::set_search_hotkey,
             
             db::get_schedules,
             db::create_schedule,
@@ -402,6 +417,7 @@ fn main() {
             resize_class_btn,
 
             download_panel_set_expanded,
+            download_panel_recheck_file,
             download_helper_set_enabled,
             download_helper_set_auto_save,
             download_helper_get_settings,
@@ -468,6 +484,31 @@ fn main() {
                         tauri::WebviewUrl::App(path.into())
                     }
                 };
+
+                // search-modal: 전역 단축키로 토글되는 화면 중앙 검색 창.
+                // 즉시 표시되도록 숨김 상태로 미리 빌드해 둔다.
+                if let Ok(search_win) = tauri::WebviewWindowBuilder::new(
+                    app, "search-modal", make_url("search-modal.html"))
+                    .title("메시지 검색")
+                    .inner_size(960.0, 620.0)
+                    .min_inner_size(720.0, 480.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .center()
+                    .visible(false)
+                    .build()
+                {
+                    apply_vibrancy_effect(&search_win);
+                    // 아크릴이 사각 창 밖으로 삐져나오지 않도록 창 자체를 둥글게 클리핑
+                    apply_rounded_corners(&search_win);
+                }
+
+                // 저장된(또는 기본) 검색 단축키 등록
+                window::init_search_hotkey(app.app_handle());
 
                 for &btn_label in gif_watcher::POOL {
                     let widget_label = btn_label.replace("gif-btn", "gif-widget");

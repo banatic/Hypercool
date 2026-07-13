@@ -47,7 +47,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 const newSchedules: PeriodSchedule[] = [];
 
                 items.forEach(item => {
-                    if (item.type === 'manual_todo') {
+                    if (item.type === 'manual_todo' || item.type === 'desktopcal_memo') {
                         newTodos.push({
                             id: item.id,
                             content: item.content || '',
@@ -58,7 +58,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                             isDeleted: item.isDeleted,
                             referenceId: item.referenceId
                         });
-                    } else if (item.type === 'period_schedule') {
+                    } else if (item.type === 'period_schedule' || item.type === 'desktopcal_event') {
                         newSchedules.push({
                             id: item.id,
                             content: item.content || '',

@@ -33,7 +33,7 @@ export interface PeriodSchedule {
 
 export interface ScheduleItem {
     id: string;
-    type: 'manual_todo' | 'period_schedule' | 'message_task';
+    type: 'manual_todo' | 'period_schedule' | 'message_task' | 'desktopcal_memo' | 'desktopcal_event';
     title: string;
     content?: string;
     startDate?: string;

@@ -3,7 +3,8 @@ use crate::utils::apply_vibrancy_effect;
 use crate::commands::system::{get_registry_value, set_registry_value};
 use std::sync::{Mutex, OnceLock, Arc};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 #[cfg(target_os = "windows")]
 use std::ffi::OsStr;
 #[cfg(target_os = "windows")]
@@ -524,4 +525,114 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+// ── 검색 모달 (전역 단축키) ──────────────────────────────────────────────
+//
+// 화면 중앙에 뜨는 스포트라이트형 쿨메신저 검색 창. main.rs::setup 에서 숨김
+// 상태로 미리 빌드해 두고, 전역 단축키로 토글한다. 단축키 accelerator 는
+// global_hotkey 형식(예: "Control+Shift+Space") — 프론트 레코더가 KeyboardEvent.code
+// (KeyK/Digit1/Space/F1…) 를 그대로 토큰으로 사용하므로 파서와 호환된다.
+
+/// 기본 검색 단축키 (레지스트리에 저장된 값이 없을 때)
+const DEFAULT_SEARCH_HOTKEY: &str = "Control+Shift+Space";
+
+/// 현재 등록된 accelerator (변경 시 이전 것을 unregister 하기 위해 보관)
+static REGISTERED_HOTKEY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn registered_hotkey_slot() -> &'static Mutex<Option<String>> {
+    REGISTERED_HOTKEY.get_or_init(|| Mutex::new(None))
+}
+
+/// 검색 모달을 화면 중앙에 표시 + 포커스 + 프론트에 초기화 이벤트 전송
+fn show_search_modal(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("search-modal") {
+        let _ = win.center();
+        let _ = win.show();
+        let _ = win.set_focus();
+        // 프론트가 쿼리/결과를 비우고 입력창에 포커스하도록 신호
+        let _ = win.emit("search-modal-open", ());
+    }
+}
+
+/// 검색 모달 토글 (커맨드와 단축키 핸들러가 공유)
+fn toggle_search_modal_internal(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("search-modal") {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+        } else {
+            show_search_modal(app);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn toggle_search_modal(app: AppHandle) {
+    toggle_search_modal_internal(&app);
+}
+
+#[tauri::command]
+pub fn hide_search_modal(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("search-modal") {
+        let _ = win.hide();
+    }
+}
+
+#[tauri::command]
+pub fn get_search_hotkey() -> String {
+    match get_registry_value("SearchHotkey".to_string()) {
+        Ok(Some(v)) if !v.trim().is_empty() => v,
+        _ => DEFAULT_SEARCH_HOTKEY.to_string(),
+    }
+}
+
+/// 새 단축키를 등록하고(성공 시) 이전 것을 해제 + 레지스트리 저장.
+/// 파싱/등록 실패(형식 오류·타 앱과 충돌) 시 Err 를 돌려주고 기존 단축키를 유지한다.
+#[tauri::command]
+pub fn set_search_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
+    let accel = accelerator.trim().to_string();
+    if accel.is_empty() {
+        return Err("단축키가 비어 있습니다".into());
+    }
+    register_hotkey_replacing(&app, &accel)?;
+    set_registry_value("SearchHotkey".to_string(), accel)?;
+    Ok(())
+}
+
+/// 기존 등록을 해제하고 새 단축키를 등록하는 공용 헬퍼.
+/// 새 것 등록에 성공한 뒤에만 이전 것을 해제해 "빈 상태"가 생기지 않게 한다.
+fn register_hotkey_replacing(app: &AppHandle, accel: &str) -> Result<(), String> {
+    // 이미 동일 단축키가 등록돼 있으면 재등록(중복 오류) 방지
+    if let Ok(cur) = registered_hotkey_slot().lock() {
+        if cur.as_deref() == Some(accel) {
+            return Ok(());
+        }
+    }
+
+    let gs = app.global_shortcut();
+    let handler_app = app.clone();
+    gs.on_shortcut(accel, move |_app, _shortcut, event| {
+        // Pressed 만 처리 (Released 도 콜백되므로 토글이 두 번 일어나지 않게)
+        if event.state == ShortcutState::Pressed {
+            toggle_search_modal_internal(&handler_app);
+        }
+    })
+    .map_err(|e| format!("단축키 등록 실패: {}", e))?;
+
+    // 등록 성공 → 이전 것 해제하고 현재 값 갱신
+    if let Ok(mut cur) = registered_hotkey_slot().lock() {
+        if let Some(prev) = cur.take() {
+            let _ = gs.unregister(prev.as_str());
+        }
+        *cur = Some(accel.to_string());
+    }
+    Ok(())
+}
+
+/// 시작 시 저장된(또는 기본) 단축키를 등록. main.rs::setup 에서 호출.
+pub fn init_search_hotkey(app: &AppHandle) {
+    let accel = get_search_hotkey();
+    if let Err(e) = register_hotkey_replacing(app, &accel) {
+        eprintln!("[search] 검색 단축키 등록 실패({}): {}", accel, e);
+    }
 }

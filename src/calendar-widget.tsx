@@ -1028,12 +1028,13 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             setSelectedDate(null);
           }}
           onSave={async (content: string, calendarTitle: string, deadlineDate: string, deadlineTime: string) => {
-            if (!calendarTitle.trim()) {
-              // alert('달력 제목을 입력해주세요.'); // Removed
+            // 달력 제목 또는 내용 중 하나만 있어도 등록되게 한다.
+            const finalTitle = calendarTitle.trim() || content.trim();
+            const finalContent = content.trim() || finalTitle;
+
+            if (!finalTitle) {
               return;
             }
-
-            const finalContent = content.trim() || calendarTitle.trim();
 
             const newId = crypto.randomUUID();
             const deadline = deadlineDate && deadlineTime
@@ -1048,7 +1049,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                 item: {
                   id: newId,
                   type: 'manual_todo',
-                  title: calendarTitle.trim(),
+                  title: finalTitle,
                   content: finalContent,
                   startDate: deadline,
                   endDate: deadline,
@@ -1070,16 +1071,14 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                 createdAt: now,
                 updatedAt: now,
                 isDeleted: false,
-                calendarTitle: calendarTitle.trim() || undefined,
+                calendarTitle: finalTitle,
               };
 
               setManualTodos(prev => [...prev, newTodo]);
               if (deadline) {
                 setDeadlines(prev => ({ ...prev, [newId]: deadline }));
               }
-              if (calendarTitle.trim()) {
-                setCalendarTitles(prev => ({ ...prev, [newId]: calendarTitle.trim() }));
-              }
+              setCalendarTitles(prev => ({ ...prev, [newId]: finalTitle }));
 
               void emit('calendar-update');
               setAddTodoModalOpen(false);
@@ -1153,8 +1152,12 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
             setAddPeriodModalOpen(false);
           }}
           onSave={async (content: string, calendarTitle: string, startDate: string, endDate: string) => {
-            if (!content.trim()) {
-              // alert('일정 내용을 입력해주세요.'); // Removed
+            // 달력 제목 또는 내용 중 하나만 있어도 등록되게 한다.
+            // (예전엔 내용이 비면 조용히 실패해서 "제목만 입력 → 등록 안 됨"이 발생)
+            const finalTitle = calendarTitle.trim() || content.trim();
+            const finalContent = content.trim() || finalTitle;
+
+            if (!finalTitle) {
               return;
             }
 
@@ -1176,8 +1179,8 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                 item: {
                   id: newId,
                   type: 'period_schedule',
-                  title: calendarTitle.trim(),
-                  content: content.trim(),
+                  title: finalTitle,
+                  content: finalContent,
                   startDate: startDate,
                   endDate: endDate,
                   isAllDay: true,
@@ -1193,13 +1196,13 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
               // Update local state
               const newSchedule: PeriodSchedule = {
                 id: newId,
-                content: content.trim(),
+                content: finalContent,
                 startDate,
                 endDate,
                 createdAt: now,
                 updatedAt: now,
                 isDeleted: false,
-                calendarTitle: calendarTitle.trim() || undefined,
+                calendarTitle: calendarTitle.trim() || finalTitle,
               };
               setPeriodSchedules(prev => [...prev, newSchedule]);
 
@@ -1592,12 +1595,10 @@ const AddPeriodModalWidget: React.FC<AddPeriodModalWidgetProps> = ({ onClose, on
   const [endDate, setEndDate] = useState<string>(defaultEndDate);
 
   const handleSave = async () => {
+    // 초기화하지 않는다: 저장 성공 시 부모가 모달을 닫아 컴포넌트가 언마운트되고,
+    // 다음에 열 때 useState 기본값으로 새로 마운트된다. 검증 실패로 저장이 안 된
+    // 경우에도 여기서 초기화하면 사용자가 입력한 내용이 그대로 날아간다.
     await onSave(content, calendarTitle, startDate, endDate);
-    // 저장 후 상태 초기화
-    setContent('');
-    setCalendarTitle('');
-    setStartDate(defaultStartDate);
-    setEndDate(defaultEndDate);
   };
 
   const handleClose = () => {
@@ -1787,13 +1788,9 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
   };
 
   const handleSave = async () => {
+    // 초기화하지 않는다: 저장 성공 시 부모가 모달을 닫아 언마운트되고, 다음에
+    // 열 때 새로 마운트된다. 검증 실패 시 초기화하면 입력 내용이 날아간다.
     await onSave(content, calendarTitle, deadlineDate, deadlineTime);
-    // 저장 후 상태 초기화
-    setContent('');
-    setCalendarTitle('');
-    setDeadlineDate(defaultDate);
-    setDeadlineTime(defaultTime);
-    setParsedDateInfo({ date: null, time: null });
   };
 
   const handleClose = () => {

@@ -29,6 +29,10 @@ src-tauri/target/*
 .tauri
 .tauri/*
 
+# Python
+__pycache__/
+*.pyc
+
 # Python 프로토타이핑 테스트용
 python_test/*
 

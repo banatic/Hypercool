@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { getVersion } from '@tauri-apps/api/app';
 import { PageHeader } from './PageHeader';
 import { AuthLanding } from './AuthLanding';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import { eventToAccelerator, prettifyAccelerator } from '../utils/hotkey';
 
 interface SettingsPageProps {
   udbPath: string;
@@ -51,6 +53,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isInstalling, setIsInstalling] = useState(false);
   const [isLatestVersion, setIsLatestVersion] = useState(false);
   const [updateLogs, setUpdateLogs] = useState<Array<{ time: string; message: string; type: 'info' | 'error' | 'success' }>>([]);
+  const [appVersion, setAppVersion] = useState<string>('');
 
   // 자동 실행 설정 상태
   const [autoStart, setAutoStart] = useState(false);
@@ -62,6 +65,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [dlHelperEnabled, setDlHelperEnabled] = useState(true);
   const [dlHelperAutoSave, setDlHelperAutoSave] = useState(true);
 
+  // 검색 단축키 설정
+  const [searchHotkey, setSearchHotkey] = useState('Control+Shift+Space');
+  const [hotkeyDraft, setHotkeyDraft] = useState<string | null>(null);
+  const [recordingHotkey, setRecordingHotkey] = useState(false);
+  const [hotkeyMsg, setHotkeyMsg] = useState<{ text: string; error: boolean } | null>(null);
+
   // 탁상달력 동기화 상태
   const [desktopcalPath, setDesktopcalPath] = useState<string | null>(null);
   const [desktopcalLoading, setDesktopcalLoading] = useState(false);
@@ -71,6 +80,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   // 설정 불러오기
   useEffect(() => {
+    // 현재 앱 버전 불러오기 (tauri.conf.json 의 version)
+    getVersion()
+      .then(setAppVersion)
+      .catch((error) => console.error('앱 버전 불러오기 실패:', error));
+
     const loadAutoStartSettings = async () => {
       try {
         const autoStartValue = await invoke<string | null>('get_registry_value', { key: REG_KEY_AUTO_START });
@@ -298,6 +312,39 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
+  // 검색 단축키: 저장된 값 로드
+  useEffect(() => {
+    invoke<string>('get_search_hotkey').then(setSearchHotkey).catch(() => {});
+  }, []);
+
+  // 레코더에서 캡처한 키 조합을 accelerator 로 변환
+  const handleHotkeyKeyDown = (e: React.KeyboardEvent) => {
+    if (!recordingHotkey) return;
+    e.preventDefault();
+    if (e.key === 'Escape') {
+      setRecordingHotkey(false);
+      return;
+    }
+    const accel = eventToAccelerator(e);
+    if (accel) {
+      setHotkeyDraft(accel);
+      setRecordingHotkey(false);
+      setHotkeyMsg(null);
+    }
+  };
+
+  const saveHotkey = async () => {
+    if (!hotkeyDraft) return;
+    try {
+      await invoke('set_search_hotkey', { accelerator: hotkeyDraft });
+      setSearchHotkey(hotkeyDraft);
+      setHotkeyDraft(null);
+      setHotkeyMsg({ text: '단축키가 저장되었습니다.', error: false });
+    } catch (e) {
+      setHotkeyMsg({ text: `저장 실패: ${e}. 다른 조합을 사용해 보세요.`, error: true });
+    }
+  };
+
   return (
     <div className="settings page-content">
       <PageHeader title="설정" />
@@ -321,6 +368,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="field">
         <label>업데이트</label>
         <div className="update-container">
+          <div className="current-version-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>현재 버전</span>
+            <span className="current-version-number" style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {appVersion ? `v${appVersion}` : '불러오는 중...'}
+            </span>
+          </div>
           <div className="row" style={{ marginBottom: isLatestVersion || updateInfo ? '12px' : '0' }}>
             <button
               onClick={checkForUpdates}
@@ -500,6 +553,47 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
         <div className="field-description">
           전체 UI의 크기를 조정합니다. (50% ~ 200%)
+        </div>
+      </div>
+
+      <div className="field">
+        <label>검색 단축키</label>
+        <div className="row">
+          <button
+            type="button"
+            className="hotkey-recorder"
+            onClick={() => { setRecordingHotkey(true); setHotkeyMsg(null); }}
+            onBlur={() => setRecordingHotkey(false)}
+            onKeyDown={handleHotkeyKeyDown}
+            style={{
+              flex: 1,
+              textAlign: 'center',
+              fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '0.02em',
+              outline: recordingHotkey ? '2px solid #3b82f6' : undefined,
+            }}
+            title="클릭 후 원하는 키 조합을 누르세요"
+          >
+            {recordingHotkey ? '키 조합을 누르세요…' : prettifyAccelerator(hotkeyDraft ?? searchHotkey)}
+          </button>
+          <button
+            type="button"
+            onClick={saveHotkey}
+            disabled={!hotkeyDraft || hotkeyDraft === searchHotkey}
+          >
+            저장
+          </button>
+          <button type="button" onClick={() => invoke('toggle_search_modal').catch(() => {})}>
+            지금 열기
+          </button>
+        </div>
+        {hotkeyMsg && (
+          <div className="field-description" style={{ color: hotkeyMsg.error ? '#dc2626' : '#16a34a' }}>
+            {hotkeyMsg.text}
+          </div>
+        )}
+        <div className="field-description">
+          전역 단축키로 어디서든 메시지 검색 창을 화면 중앙에 띄웁니다. 입력란을 클릭하고 원하는 조합(예: Ctrl+Shift+K)을 누른 뒤 저장하세요.
         </div>
       </div>
 

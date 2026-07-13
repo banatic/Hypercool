@@ -50,6 +50,7 @@ export default defineConfig(async () => ({
         'gif-btn': './gif-btn.html',
         'class-btn': './class-btn.html',
         'download-panel': './download-panel.html',
+        'search-modal': './search-modal.html',
       },
     },
   },

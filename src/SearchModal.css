@@ -1,0 +1,267 @@
+/* SearchModal.css — 학교 위젯과 동일한 다크 글래스모피즘 */
+
+html,
+body,
+#root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+}
+
+:root {
+    --sm-text: #ffffff;
+    --sm-text-dim: rgba(255, 255, 255, 0.45);
+    --sm-accent: #3b82f6;
+    --sm-border: rgba(255, 255, 255, 0.1);
+    --sm-hover: rgba(255, 255, 255, 0.06);
+    --sm-selected: rgba(59, 130, 246, 0.22);
+}
+
+body {
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--sm-text);
+    user-select: none;
+}
+
+.search-modal-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: rgba(25, 25, 30, 0.35);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    /* DWM 이 창 자체를 ~8px 라운딩하므로 그 값에 맞춰 아크릴/컨텐츠 모서리를 정렬 */
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    overflow: hidden;
+}
+
+/* ── 상단 검색 바 (드래그 영역) ─────────────────────────────── */
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--sm-border);
+    -webkit-app-region: drag;
+}
+
+.search-bar .search-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    color: var(--sm-text-dim);
+}
+
+.search-bar input {
+    -webkit-app-region: no-drag;
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--sm-text);
+    font-size: 1.05rem;
+    font-family: inherit;
+}
+
+.search-bar input::placeholder {
+    color: var(--sm-text-dim);
+}
+
+.search-bar .spinner {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--sm-accent);
+    border-radius: 50%;
+    animation: sm-spin 0.7s linear infinite;
+}
+
+@keyframes sm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── 본문 2열 ──────────────────────────────────────────────── */
+.search-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.results-list {
+    /* 좌:우 ≈ 1:3 */
+    flex: 0 0 25%;
+    max-width: 25%;
+    overflow-y: auto;
+    border-right: 1px solid var(--sm-border);
+    padding: 6px;
+}
+
+.result-item {
+    padding: 9px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.result-item:hover {
+    background: var(--sm-hover);
+}
+
+.result-item.selected {
+    background: var(--sm-selected);
+}
+
+.result-item .ri-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+}
+
+.result-item .ri-sender {
+    font-size: 0.95rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.result-item .ri-date {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    color: var(--sm-text-dim);
+}
+
+.result-item .ri-snippet {
+    font-size: 0.86rem;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* 검색어 하이라이트 */
+.result-item mark.hl {
+    background: rgba(59, 130, 246, 0.42);
+    color: #ffffff;
+    border-radius: 3px;
+    padding: 0 1px;
+}
+
+/* ── 미리보기 패널 ─────────────────────────────────────────── */
+.preview-panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.preview-header {
+    flex: 0 0 auto;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--sm-border);
+}
+
+.preview-header .ph-sender {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.preview-header .ph-date {
+    font-size: 0.72rem;
+    color: var(--sm-text-dim);
+    margin-top: 2px;
+}
+
+.preview-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    margin: 12px;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    /* 본문은 흰 카드에 어두운 글자 (message-viewer 와 동일한 가독성) */
+    background: rgba(255, 255, 255, 0.92);
+    color: #1a1a1a;
+    border-radius: 10px;
+}
+
+.preview-content img {
+    max-width: 100%;
+    height: auto;
+}
+
+.preview-content table {
+    max-width: 100%;
+}
+
+/* ── 빈/안내 상태 ──────────────────────────────────────────── */
+.sm-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--sm-text-dim);
+    padding: 24px;
+    text-align: center;
+}
+
+.sm-empty .sm-empty-icon {
+    width: 40px;
+    height: 40px;
+    opacity: 0.5;
+}
+
+.sm-empty .sm-empty-title {
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.sm-empty .sm-empty-hint {
+    font-size: 0.78rem;
+}
+
+.sm-empty kbd {
+    display: inline-block;
+    padding: 2px 7px;
+    margin: 0 2px;
+    font-size: 0.72rem;
+    font-family: inherit;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--sm-border);
+    border-radius: 5px;
+}
+
+/* ── 스크롤바 ──────────────────────────────────────────────── */
+.results-list::-webkit-scrollbar,
+.preview-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.results-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+}
+
+.preview-content::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.results-list::-webkit-scrollbar-track,
+.preview-content::-webkit-scrollbar-track {
+    background: transparent;
+}

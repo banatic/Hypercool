@@ -25,7 +25,9 @@ pub fn enable_acrylic(hwnd: HWND) {
         let mut accent = ACCENT_POLICY {
             accent_state: ACCENT_ENABLE_ACRYLICBLURBEHIND,
             accent_flags: 0,
-            gradient_color: 0x1818187D, // RGBA: (18, 18, 18, 125) - 약간 어두운 반투명 배경
+            // ABGR(0xAABBGGRR) 순서. 0x18181818 = R24 G24 B24 A24 → 중립 회색 틴트.
+            // (이전 0x1818187D 는 알파값이 R 채널로 들어가 은은한 붉은끼가 있었음)
+            gradient_color: 0x18181818,
             animation_id: 0,
         };
 
@@ -51,13 +53,33 @@ pub fn enable_acrylic(hwnd: HWND) {
                     HWND,
                     *mut WINDOWCOMPOSITIONATTRIBDATA,
                 ) -> windows::Win32::Foundation::BOOL;
-                
-                let set_window_composition_attribute: SetWindowCompositionAttributeFn = 
+
+                let set_window_composition_attribute: SetWindowCompositionAttributeFn =
                     std::mem::transmute(proc);
-                
+
                 let _ = set_window_composition_attribute(hwnd, &mut data);
             }
         }
+    }
+}
+
+/// Windows 11: DWM 으로 창(아크릴 블러 포함)의 모서리를 둥글게 클리핑한다.
+/// 투명 창 전체에 입혀진 아크릴이 CSS 둥근 모서리 밖으로 사각형으로 삐져나오는
+/// 잔상을 없앤다. Win10 등 미지원 환경에서는 조용히 무시된다.
+#[cfg(target_os = "windows")]
+pub fn enable_rounded_corners(hwnd: HWND) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+        DWM_WINDOW_CORNER_PREFERENCE,
+    };
+    let preference = DWMWCP_ROUND;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const DWM_WINDOW_CORNER_PREFERENCE as *const core::ffi::c_void,
+            std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        );
     }
 }
 
