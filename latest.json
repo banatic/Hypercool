@@ -1,11 +1,11 @@
 {
-    "version": "0.5.23",
-    "notes": "달력 위젯 버그 수정",
-    "pub_date": "2026-07-09T08:44:45.818Z",
+    "version": "0.5.24",
+    "notes": "전역 단축키(Ctrl+Shift+Space)로 여는 메시지 검색 창 추가\n아크릴 블러 색상 중립화",
+    "pub_date": "2026-07-13T04:16:57.341Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkpzd3NnYkJNSTUwZjNxOEpJbmdiVjFRc1BUY2V5RUFvYURudFFwVjg4SXV3ZzMzcjQ1MzBJK25OUzBCbURkR21reFdkVE5DR1dIL1c3NTN6K1ZhbGdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzNTg3MDEzCWZpbGU6SHlwZXJDb29sXzAuNS4yM194NjRfZW4tVVMubXNpCmp0aXorKzVOV0t1RERveS9VLzBPekFqeWIybWJpUmRva1FoU3kreTIweGI4SEtZbW9vTFMxWkxzNmVRaXFXT01xVVNMTHc4bzR1YzRmeDk5My9ldUNBPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.23/HyperCool_0.5.23_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkpYd1UwTXlGREc0NUtIZ3A5VElYdFFRNkgvcXZLMCtxNFJpaUxuUEVTL2dqVUpaL214TFJYOTBhb1hVZkc5Mi9UeUUzZ3lHMFJwK0YrWEVNdXErZEFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzOTE2NTY1CWZpbGU6SHlwZXJDb29sXzAuNS4yNF94NjRfZW4tVVMubXNpCmQ5NW5EVGJnMi9sQldad0RVbHVmRUhsZUdFeElpRHJ4U0xNT1lqRUs0QXlleEdTRmZjaVByMnR2UHZrajhOYW0rblhMNkpNemxiN0ZLcUMyYW9mL0JBPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.24/HyperCool_0.5.24_x64_en-US.msi"
         }
     }
 }
