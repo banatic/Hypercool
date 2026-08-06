@@ -1,11 +1,11 @@
 {
-    "version": "0.5.25",
-    "notes": "압핀 시간표에서 담당 교사와 다른 사람의 시간표가 표시되던 오류 수정\n메시지 카드 스와이프 제스처 개선\nMCP·기록 화면 밝은 테마 대응 및 UI 다듬기",
-    "pub_date": "2026-08-03T00:03:31.570Z",
+    "version": "0.5.26",
+    "notes": "용량이 큰 메시지가 동기화되지 않던 오류 수정\n본문에 포함된 이미지를 자동으로 압축해 동기화 (기존에는 내용이 잘려 나감)\n메시지 하나가 실패해도 전체 동기화가 멈추지 않도록 개선",
+    "pub_date": "2026-08-06T06:00:57.088Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMlBUd0tmeXg4OXVxQWtHYXNUOUFaR1FjbWdiaEJTcVpsaFQ0bThTZ2FKL0lSbzRDOWFqWHgrQThLaVVDN25IUUJGNG94Ny9SbHZBcklLd0FiSzQzQUFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NzE1NjIwCWZpbGU6SHlwZXJDb29sXzAuNS4yNV94NjRfZW4tVVMubXNpCjhqaEVkVCtoNWdXQU92N2txNU5LMS9JYlRkOWZwbUpDaTEzV3VuU0VIM2xTOTJJY2hKU1A3QmozZkpRREU4UWpFaGJUWUtXVzN2d25qLzV5QytmT0F3PT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.25/HyperCool_0.5.25_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkhvQ0pFTy9QWXJLdVRmSzRXeWgvcWhHcVRGZXJxdW5GYnZSZnVVbGVSMWpVbGVNSHczUlk1ckpCVjdYUk5FRzc2ZjhvdVZCSkJDZHdRNlRhRk00NWc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1OTk2MzU4CWZpbGU6SHlwZXJDb29sXzAuNS4yNl94NjRfZW4tVVMubXNpCndwNzdsbitTUHJxOHdKa2RkOERiRWtIUGpoS0VYZXBnUUxNZVd0MjJXL1VhSWo5aUFXNStKSlppV1ZOYk9FRDh6SnJCRVJVL0ZOQ01yenFDWE5kTUFBPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.26/HyperCool_0.5.26_x64_en-US.msi"
         }
     }
 }
