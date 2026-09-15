@@ -1,11 +1,11 @@
 {
-    "version": "0.5.27",
-    "notes": "학교위젯 시간표: 2학기 시간표가 1학기 기준으로 비교되어 변경 표시(빨간 테두리)가 잘못 표시되던 문제 수정",
-    "pub_date": "2026-08-26T11:41:16.389Z",
+    "version": "0.5.28",
+    "notes": "AI 일정 등록: Claude Code뿐 아니라 Codex CLI도 선택해 사용할 수 있도록 지원\nCodex 모델 목록을 동적으로 불러오고, 구조화된 JSON 응답 및 MCP 조회 안정성 개선",
+    "pub_date": "2026-09-15T12:07:35.967Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkZXYzhNOTBid2pQL2p4Q3Zxd0pCMHVOTjN4dFRGaDBJRGlGeCtGa2U1K2hBWmMveWVpb292U21jYVAzOGRmdzZlWDRLUlZmRDZzajV6TzZwNk9SY0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NzQ0ODcxCWZpbGU6SHlwZXJDb29sXzAuNS4yN194NjRfZW4tVVMubXNpClhWSlloazVTYTl3NkxNYmhROVZGTThTazJxam9ZclFuczNoUHpocytPalROYWY2K3lEb0Fucm14OVY1RnBRNjgyZTdsSWJNWFpIQy9uMk9lZjc0MkFnPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.27/HyperCool_0.5.27_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk5xa3ZBWkpBbktrTFRnMjJuTXlsYytqL2t4alVNc1BGVHppKzFxczlleDhQRkQ4SDY0elBRV2dPY0tiY2NJYlNFbGczK3lRcG8wVnp2WDk5WW1PTUFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NDc0NDE4CWZpbGU6SHlwZXJDb29sXzAuNS4yOF94NjRfZW4tVVMubXNpClk4Sy9vajl1N2Z5SktCR2ZDVE1uK1VsR0RUS3llaWZWQjNBbVEzUXJ3RE9aSnl3b2RYSUhuZWZ3NkdaTXpTWGFiZWhNMGhES3N2NUFvWVAzODFGTUFRPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.28/HyperCool_0.5.28_x64_en-US.msi"
         }
     }
 }
