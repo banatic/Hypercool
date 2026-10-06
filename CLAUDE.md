@@ -75,7 +75,7 @@ Crate is named `hypercool`. Key modules — all re-exported from `lib.rs` for bo
 - `edufine_db.rs` / `edufine_watcher.rs` — optional document watcher for the "에듀파인" school-finance system; toggled via `mcp_commands::toggle_edufine_mcp`.
 - `school_data.rs` — meal/attendance/points scrapers and a stock-quote endpoint for the school widget.
 - `timetable_parser.rs` — parser for the school's timetable export.
-- `appin_parser.rs` — XOR-decrypt + EUC-KR parser for the `.dat` files of the "AppIn" timetable system (XOR key `7n1bmu`). Validate changes against `scripts/verify_appin_parser.py` and the fixture `src-appin/amc42_complete.json`.
+- `appin_parser.rs` — XOR-decrypt + EUC-KR parser for the `.dat` files of the "AppIn" timetable system (XOR key `7n1bmu`). Full format spec (reverse-engineered from amc42.exe): `docs/appin_amc42_format.md`; reference decoder `scripts/appin_amc42.py` (`--check` round-trips the real file byte-for-byte). Slots use the *current* value of `원+새` pairs (보강 교사), and event cells only replace lessons when the `#hensa` kind is not 1 (교과수업병행).
 - `gif_watcher.rs` / `gif_clipboard.rs` / `tenor.rs` — Tenor search backend and the Win32-glue that detects compose windows, positions the GIF panel, and pastes HTML to the clipboard.
 - `download_watcher.rs` — 메시지 관리함 감시자. `gif_watcher` 패턴(WinEvent hook + 풀 슬롯) 위에 100ms 파일 폴링 스레드를 얹어 첨부파일 enumerate, "모든파일 저장 (Ctrl+S)" 버튼을 `BM_CLICK` 으로 자동 클릭. 다운로드 경로는 `HKCU\Software\Jiransoft\CoolMsg50\Option\GetFile\DownPath` 에서 읽음. 토글 2개: `DownloadHelperEnabled`, `DownloadHelperAutoSave` (HyperCool 레지스트리). 자동 클릭은 같은 슬롯에 대해 1초 디바운스.
 - `utils.rs` — `is_class_time`, vibrancy/acrylic helpers; `dummy_window.rs` and `window_blur.rs` provide platform-specific window tricks.

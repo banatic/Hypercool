@@ -1,5 +1,5 @@
 import React from 'react';
-import { TimetableData, AppinData, PERIOD_START_TIMES, PERIOD_TIMES } from '../types';
+import { TimetableData, AppinData, AppinChange, AppinLesson, PERIOD_START_TIMES, PERIOD_TIMES } from '../types';
 
 function getSubjectColor(subjectName: string): string {
   if (!subjectName) return '';
@@ -9,6 +9,23 @@ function getSubjectColor(subjectName: string): string {
   }
   const hue = Math.abs(hash) % 360;
   return `hsla(${hue}, 45%, 72%, 0.42)`;
+}
+
+// 보강·결강·이동 표시: 셀 클래스, 학반 옆 작은 태그, 툴팁
+function describeChange(change: AppinChange): { cls: string; tag: string; title: string } {
+  if (change.kind === 'cover') {
+    return change.reason
+      ? { cls: 'cover', tag: '보강', title: `${change.absentTeacher} ${change.reason} · 보강` }
+      : { cls: 'cover', tag: '교체', title: `${change.absentTeacher} 수업 교체` };
+  }
+  if (change.kind === 'covered') {
+    return change.reason
+      ? { cls: 'covered', tag: '결강', title: `${change.reason} · ${change.substitute} 보강` }
+      : { cls: 'covered', tag: '교체', title: `${change.substitute} 수업으로 교체` };
+  }
+  const [date, period] = change.from.split('/');
+  const [, m, d] = date.split('-').map(Number);
+  return { cls: 'moved', tag: '이동', title: `원래 ${m}/${d} ${period}교시` };
 }
 
 interface WeekRange {
@@ -22,7 +39,7 @@ interface Props {
   timetableData: TimetableData | null;
   appinData: AppinData | null;
   selectedTeacher: string;
-  parsedAppinTeachers: Record<string, Record<string, Record<string, { subject: string; className: string }>>>;
+  parsedAppinTeachers: Record<string, Record<string, Record<string, AppinLesson>>>;
   baseAppinTimetable: Record<number, Record<number, { subject: string; className: string } | null>> | null;
   eventsByDateClass: Record<string, Record<string, string>>;
   eventsByDateGrade: Record<string, (string | null)[]>;
@@ -73,6 +90,33 @@ export default function TimetableTab({
     return null;
   };
 
+  // 압핀 시정표(#sjp)가 있으면 실제 교시 시각을 쓴다. 오늘 → 표시 중인 주 순서로 찾고,
+  // 그리드가 '4교시 후 점심, 7교시' 배치로 고정이라 1~7교시가 모두 있는 날만 적용한다.
+  const bell = (() => {
+    const fallback = { rows: PERIOD_TIMES, starts: PERIOD_START_TIMES, lunch: '12:20' };
+    if (timetableSource !== 'appin' || !appinData?.periodTimes) return fallback;
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const weekDates = Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(appinWeekRange.mondayDate);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+    const toMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+    for (const d of [currentNow, ...weekDates]) {
+      const day = appinData.periodTimes[fmt(d)];
+      const times = [1, 2, 3, 4, 5, 6, 7].map(p => day?.[p]);
+      if (times.some(t => !t)) continue;
+      const spans = times.map(t => ({ start: toMin(t![0]), end: toMin(t![1]) }));
+      return {
+        rows: [...spans.slice(0, 4), { start: spans[3].end, end: spans[4].start }, ...spans.slice(4)],
+        starts: Object.fromEntries(times.map((t, i) => [i + 1, t![0]])) as Record<number, string>,
+        lunch: times[3]![1],
+      };
+    }
+    return fallback;
+  })();
+
   const renderGrid = () => {
     if (loading) return <div className="loading">로딩 중...</div>;
     if (error) return (
@@ -83,6 +127,8 @@ export default function TimetableTab({
     );
 
     let schedule: any[][][] = [];
+    // 학교 전체가 하루 종일 행사인 요일은 그 열의 모든 칸에 행사 이름을 쓴다
+    const allDay: (string | null)[] = Array(5).fill(null);
     if (timetableSource === 'appin') {
       if (!appinData || !selectedTeacher || !parsedAppinTeachers[selectedTeacher] || !baseAppinTimetable)
         return <div className="error-message">No Data</div>;
@@ -98,6 +144,7 @@ export default function TimetableTab({
         const month = String(targetDate.getMonth() + 1).padStart(2, '0');
         const day = String(targetDate.getDate()).padStart(2, '0');
         const dateStr = `${year}-${month}-${day}`;
+        allDay[dIdx] = appinData.fullDayEvents?.[dateStr] ?? null;
 
         for (let pIdx = 0; pIdx < 7; pIdx++) {
           const pStr = (pIdx + 1).toString();
@@ -105,14 +152,14 @@ export default function TimetableTab({
           const baseSlot = baseAppinTimetable[dIdx + 1]?.[pIdx + 1];
           const dateHasData = !!teacherData[dateStr];
 
-          // 행사 라벨 우선 — 평소 그 시간에 수업이 있던 셀에만 표기
-          const eventLabel = baseSlot ? lookupEventLabel(dateStr, baseSlot.className) : null;
+          // 행사 라벨 우선 — 하루 종일 행사면 모든 칸, 아니면 평소 그 시간에 수업이 있던 칸에만
+          const eventLabel = allDay[dIdx] ?? (baseSlot ? lookupEventLabel(dateStr, baseSlot.className) : null);
 
           if (eventLabel) {
             schedule[pIdx][dIdx] = [eventLabel, '', true, true];
           } else if (slot) {
             const isDiff = !baseSlot || baseSlot.subject !== slot.subject || baseSlot.className !== slot.className;
-            schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff, false];
+            schedule[pIdx][dIdx] = [slot.subject, slot.className, isDiff, false, slot.change];
           } else if (baseSlot && dateHasData) {
             schedule[pIdx][dIdx] = ['', '', true, false];
           } else if (baseSlot) {
@@ -141,13 +188,13 @@ export default function TimetableTab({
     // 쉬는 시간을 앞 교시 셀에 포함시켜, 시간이 흘러도 인디케이터가 뒤로 튀지 않고
     // 위→아래로 연속 이동하며 다음 교시 시작 순간 다음 셀로 넘어간다.
     // 마지막 교시는 다음 행이 없으므로 자기 종료 시각까지만 채운다.
-    // 교시 시각은 types.ts 의 PERIOD_TIMES 를 공유(중복 정의 방지).
+    // 교시 시각은 압핀 시정표, 없으면 types.ts 의 PERIOD_TIMES (중복 정의 방지).
     const getCurrentTimeY = () => {
       if (currentDay < 1 || currentDay > 5) return null;
-      for (let i = 0; i < PERIOD_TIMES.length; i++) {
-        const spanStart = PERIOD_TIMES[i].start;
-        const spanEnd =
-          i + 1 < PERIOD_TIMES.length ? PERIOD_TIMES[i + 1].start : PERIOD_TIMES[i].end;
+      const rows = bell.rows;
+      for (let i = 0; i < rows.length; i++) {
+        const spanStart = rows[i].start;
+        const spanEnd = i + 1 < rows.length ? rows[i + 1].start : rows[i].end;
         if (currentTime >= spanStart && currentTime < spanEnd) {
           return { rowIndex: i, progress: (currentTime - spanStart) / (spanEnd - spanStart) };
         }
@@ -161,23 +208,28 @@ export default function TimetableTab({
       const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === rowIndex;
       const timeProgress = isCurrentTimeCell && timeY ? timeY.progress : undefined;
       const isEvent = lesson && lesson[3] === true;
-      const subjectColor = lesson && lesson[0] && !isEvent ? getSubjectColor(lesson[0]) : '';
-      const isDiff = lesson && lesson[2] === true;
+      const chg = lesson && lesson[4] ? describeChange(lesson[4] as AppinChange) : null;
+      const subjectColor = lesson && lesson[0] && !isEvent && chg?.cls !== 'covered' ? getSubjectColor(lesson[0]) : '';
+      const isDiff = lesson && lesson[2] === true && !chg;
+      const stateClass = chg ? ` chg-${chg.cls}` : isDiff ? ' chg-diff' : '';
       return (
         <div
           key={key}
-          className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}${isEvent ? ' event-cell' : ''}`}
+          className={`timetable-cell${isToday ? ' is-today' : ''}${isCurrentTimeCell ? ' current-time-cell' : ''}${isEvent ? ' event-cell' : ''}${stateClass}`}
+          title={chg?.title}
           style={{
             ...(timeProgress !== undefined ? { '--time-progress': timeProgress } : {}),
             ...(subjectColor ? { backgroundColor: subjectColor } : {}),
             ...(isEvent ? { backgroundColor: 'rgba(255, 217, 102, 0.28)' } : {}),
-            ...(isDiff ? { border: '2px solid red', boxSizing: 'border-box' } : {}),
           } as React.CSSProperties}
         >
           {lesson ? (
             <>
               <span className="subject-name" style={isEvent ? { fontWeight: 700 } : undefined}>{lesson[0]}</span>
-              <span className="room-name">{lesson[1]}</span>
+              <span className="room-name">
+                {lesson[1]}
+                {chg && <span className="chg-note">{chg.tag}</span>}
+              </span>
             </>
           ) : null}
         </div>
@@ -198,15 +250,18 @@ export default function TimetableTab({
               <React.Fragment key={`period-group-${p}`}>
                 <div className="timetable-cell period">
                   <span className="period-label">4</span>
-                  <span className="period-time">11:30</span>
+                  <span className="period-time">{bell.starts[4]}</span>
                 </div>
                 {days.map((_, dIdx) => renderLesson(schedule[3]?.[dIdx], `4-${dIdx}`, isWeekday && dIdx === currentDay - 1, 3))}
 
                 <div className="timetable-cell period lunch">
                   <span className="period-label">점심</span>
-                  <span className="period-time">12:20</span>
+                  <span className="period-time">{bell.lunch}</span>
                 </div>
                 {days.map((_, dIdx) => {
+                  if (allDay[dIdx]) {
+                    return renderLesson([allDay[dIdx], '', false, true], `lunch-${dIdx}`, isWeekday && dIdx === currentDay - 1, 4);
+                  }
                   const isToday = isWeekday && dIdx === currentDay - 1;
                   const isCurrentTimeCell = isToday && timeY !== null && timeY.rowIndex === 4;
                   const timeProgress = isCurrentTimeCell && timeY ? timeY.progress : undefined;
@@ -223,7 +278,7 @@ export default function TimetableTab({
 
                 <div className="timetable-cell period">
                   <span className="period-label">5</span>
-                  <span className="period-time">13:20</span>
+                  <span className="period-time">{bell.starts[5]}</span>
                 </div>
                 {days.map((_, dIdx) => renderLesson(schedule[4]?.[dIdx], `5-${dIdx}`, isWeekday && dIdx === currentDay - 1, 5))}
               </React.Fragment>
@@ -239,7 +294,7 @@ export default function TimetableTab({
             <React.Fragment key={p}>
               <div className="timetable-cell period">
                 <span className="period-label">{p}</span>
-                <span className="period-time">{PERIOD_START_TIMES[p]}</span>
+                <span className="period-time">{bell.starts[p]}</span>
               </div>
               {days.map((_, dIdx) => renderLesson(schedule[scheduleIdx]?.[dIdx], `${p}-${dIdx}`, isWeekday && dIdx === currentDay - 1, actualRowIndex))}
             </React.Fragment>

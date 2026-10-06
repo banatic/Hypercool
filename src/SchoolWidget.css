@@ -553,6 +553,49 @@ body {
     margin-top: 2px;
 }
 
+/* 압핀 수업 변동: 학반 옆 작은 글자(보강·교체·이동·결강), 상세는 툴팁.
+   강조색은 현재 시간 인디케이터와 같은 호박색 하나만 쓴다 */
+.chg-note {
+    margin-left: 3px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: hsl(38, 95%, 72%);
+}
+
+.timetable-cell.chg-cover,
+.timetable-cell.chg-moved {
+    box-shadow: inset 0 0 0 1.5px hsla(38, 95%, 68%, 0.85);
+}
+
+.timetable-cell.chg-covered {
+    background-color: rgba(255, 255, 255, 0.035);
+}
+
+.chg-covered .subject-name {
+    opacity: 0.42;
+}
+
+.chg-covered .chg-note {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* 사유를 알 수 없는 변동은 모서리 점만 */
+.timetable-cell.chg-diff {
+    position: relative;
+}
+
+.timetable-cell.chg-diff::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: hsl(38, 95%, 68%);
+}
+
 .period-label {
     font-size: 0.7rem;
     font-weight: 700;

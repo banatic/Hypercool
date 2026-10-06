@@ -26,7 +26,17 @@ export interface PointStatus {
 export interface AppinTimetableSlot {
   subject: number | null;
   teacher: number | null;
-  classroom?: string;
+  room?: number | null;
+  /** 보강·교체로 교사가 바뀐 경우 원래 교사 */
+  origTeacher?: number;
+  /** 결강 사유 (absences 인덱스) */
+  absence?: number;
+  /** 결강 교사 (다른 수업을 옮겨와 보강하면 origTeacher 없이 여기에만 있음) */
+  absentTeacher?: number;
+  /** 다른 시간에서 옮겨온 수업의 원래 위치 "YYYY-MM-DD/교시" */
+  movedFrom?: string;
+  /** 분반: 같은 학반·교시에 동시에 진행되는 나머지 수업 */
+  extra?: AppinTimetableSlot[];
 }
 
 export interface AppinData {
@@ -34,9 +44,26 @@ export interface AppinData {
   subjects: string[];
   classes: string[];
   events: string[];
+  rooms: string[];
+  absences: string[];
   days: Record<string, Record<string, Record<string, AppinTimetableSlot>>>;
   eventsByDateClass: Record<string, Record<string, string>>;
   eventsByDateGrade: Record<string, (string | null)[]>;
+  /** 학교 전체가 하루 종일 행사인 날 → 행사 이름 (공휴일·방학·체육대회 등) */
+  fullDayEvents: Record<string, string>;
+  /** 압핀 시정표: 날짜 → 교시 → [시작, 종료] ("HH:MM") */
+  periodTimes: Record<string, Record<string, [string, string]>>;
+}
+
+export type AppinChange =
+  | { kind: 'cover'; absentTeacher: string; reason?: string }   // 내가 들어가는 보강·교체
+  | { kind: 'covered'; substitute: string; reason?: string }    // 내 수업을 다른 교사가 맡음
+  | { kind: 'moved'; from: string };                            // 다른 시간에서 옮겨온 수업
+
+export interface AppinLesson {
+  subject: string;
+  className: string;
+  change?: AppinChange;
 }
 
 export type Tab = 'todo' | 'meal' | 'timetable' | 'attendance' | 'points' | 'shortcut' | 'settings' | 'stock';

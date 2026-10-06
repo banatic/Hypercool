@@ -6,7 +6,7 @@ import { ScheduleItem } from './types/schedule';
 
 import {
   Tab, TimetableData, MealInfo, Latecomer, PointStatus,
-  AppinData, CatTypeId, CAT_TYPES, Shortcut,
+  AppinData, AppinLesson, CatTypeId, CAT_TYPES, Shortcut,
 } from './school-widget/types';
 import TabBar from './school-widget/TabBar';
 import ResizeHandles from './components/ResizeHandles';
@@ -100,44 +100,106 @@ export default function SchoolWidget() {
   });
 
   const filteredTeachers = useMemo(() => {
-    const list = timetableSource === 'appin' && appinData
+    // 압핀 교사 배열은 슬롯 인덱스와 1:1로 맞추기 위해 빈 항목을 유지하므로 목록에서만 걸러낸다
+    const list = (timetableSource === 'appin' && appinData
       ? appinData.teachers
-      : (timetableData?.teachers ?? []);
+      : (timetableData?.teachers ?? [])).filter((t: string) => !!t && !!t.trim());
     if (!debouncedTeacherSearch) return list;
     return list.filter((t: string) => t.toLowerCase().includes(debouncedTeacherSearch.toLowerCase()));
   }, [timetableData, appinData, timetableSource, debouncedTeacherSearch]);
 
   const parsedAppinTeachers = useMemo(() => {
     if (!appinData) return {};
-    const result: Record<string, Record<string, Record<string, { subject: string; className: string }>>> = {};
+    const result: Record<string, Record<string, Record<string, AppinLesson>>> = {};
     appinData.teachers.forEach((t: string) => { result[t] = {}; });
+    // 결강 표시는 그 교사의 실제 수업이 같은 시간에 있으면 덮어쓰지 않는다
+    const put = (tName: string, dateStr: string, period: string, lesson: AppinLesson) => {
+      if (!result[tName]) result[tName] = {};
+      if (!result[tName][dateStr]) result[tName][dateStr] = {};
+      const prev = result[tName][dateStr][period];
+      const isCovered = lesson.change?.kind === 'covered';
+      if (prev && isCovered) return;
+      if (prev && prev.change?.kind !== 'covered' && !isCovered) return;
+      result[tName][dateStr][period] = lesson;
+    };
     Object.entries(appinData.days).forEach(([dateStr, classMap]) => {
       Object.entries(classMap).forEach(([className, periodMap]) => {
-        Object.entries(periodMap).forEach(([period, slot]) => {
-          if (slot.teacher !== null && slot.teacher !== undefined && slot.subject !== null && slot.subject !== undefined) {
-            const tName = appinData.teachers[slot.teacher!];
-            if (tName) {
-              if (!result[tName]) result[tName] = {};
-              if (!result[tName][dateStr]) result[tName][dateStr] = {};
-              result[tName][dateStr][period] = { subject: appinData.subjects[slot.subject!], className };
+        Object.entries(periodMap).forEach(([period, cell]) => {
+          [cell, ...(cell.extra ?? [])].forEach(slot => {
+            if (slot.teacher === null || slot.teacher === undefined || slot.subject === null || slot.subject === undefined) return;
+            const tName = appinData.teachers[slot.teacher];
+            if (!tName) return;
+            const subject = appinData.subjects[slot.subject];
+            const reason = slot.absence !== undefined ? appinData.absences?.[slot.absence] : undefined;
+            const origIdx = slot.origTeacher ?? (slot.absentTeacher !== slot.teacher ? slot.absentTeacher : undefined);
+            const origName = origIdx !== undefined ? appinData.teachers[origIdx] : undefined;
+            put(tName, dateStr, period, {
+              subject, className,
+              change: origName ? { kind: 'cover', absentTeacher: origName, reason }
+                : slot.movedFrom ? { kind: 'moved', from: slot.movedFrom } : undefined,
+            });
+            if (origName) {
+              put(origName, dateStr, period, { subject, className, change: { kind: 'covered', substitute: tName, reason } });
             }
-          }
+          });
         });
       });
     });
     return result;
   }, [appinData]);
 
+  // 학기(연속 수업 구간) 경계 — 전체 날짜에서 2주 이상 공백(방학)을 기준으로 분할
+  const appinTerms = useMemo(() => {
+    const terms: { start: string; end: string }[] = [];
+    if (!appinData) return terms;
+    const dates = Object.keys(appinData.days).sort();
+    let start: string | null = null;
+    let prev = '';
+    for (const d of dates) {
+      if (start === null) { start = d; prev = d; continue; }
+      const gapDays = (new Date(d).getTime() - new Date(prev).getTime()) / 86400000;
+      if (gapDays > 14) { terms.push({ start, end: prev }); start = d; }
+      prev = d;
+    }
+    if (start !== null) terms.push({ start, end: prev });
+    return terms;
+  }, [appinData]);
+
   const baseAppinTimetable = useMemo(() => {
     if (!selectedTeacher || !appinData || !parsedAppinTeachers[selectedTeacher]) return null;
     const dailyData = parsedAppinTeachers[selectedTeacher];
+
+    // 학기마다 시간표가 갈리므로 표시 중인 주가 속한 학기 구간의 날짜만으로
+    // base를 계산한다. 전체 기간 다수결을 쓰면 표본이 많은 학기가 항상 이겨서
+    // 다른 학기 전체가 '변경'으로 표시된다.
+    const fmtDate = (dt: Date) =>
+      `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const mondayStr = fmtDate(appinWeekRange.mondayDate);
+    const fridayDate = new Date(appinWeekRange.mondayDate);
+    fridayDate.setDate(fridayDate.getDate() + 4);
+    const fridayStr = fmtDate(fridayDate);
+
+    let term = appinTerms.find(t => mondayStr <= t.end && fridayStr >= t.start) ?? null;
+    if (!term && appinTerms.length > 0) {
+      // 방학 등 구간 밖의 주는 가장 가까운 학기 구간을 사용
+      let bestDist = Infinity;
+      for (const t of appinTerms) {
+        const dist = mondayStr > t.end
+          ? new Date(mondayStr).getTime() - new Date(t.end).getTime()
+          : new Date(t.start).getTime() - new Date(fridayStr).getTime();
+        if (dist < bestDist) { bestDist = dist; term = t; }
+      }
+    }
+    const termEntries = Object.entries(dailyData).filter(([dateStr]) =>
+      !term || (dateStr >= term.start && dateStr <= term.end)
+    );
 
     // Count days the teacher was present per weekday — a slot only becomes
     // part of the base if it recurs on a majority of those days. Otherwise
     // one-off 보강/대체 lessons would pollute the base and later empty slots
     // would be falsely flagged as deletions.
     const teacherDaysPerWeekday: Record<number, number> = {};
-    Object.keys(dailyData).forEach(dateStr => {
+    termEntries.forEach(([dateStr]) => {
       const dow = new Date(dateStr).getDay();
       teacherDaysPerWeekday[dow] = (teacherDaysPerWeekday[dow] || 0) + 1;
     });
@@ -149,7 +211,7 @@ export default function SchoolWidget() {
       const threshold = Math.max(2, Math.ceil(totalForDay / 2));
       for (let p = 1; p <= 7; p++) {
         const counts: Record<string, { count: number; data: { subject: string; className: string } }> = {};
-        Object.entries(dailyData).forEach(([dateStr, periodMap]) => {
+        termEntries.forEach(([dateStr, periodMap]) => {
           const dateObj = new Date(dateStr);
           if (dateObj.getDay() === d) {
             const slot = periodMap[p.toString()];
@@ -166,7 +228,7 @@ export default function SchoolWidget() {
       }
     }
     return base;
-  }, [selectedTeacher, appinData, parsedAppinTeachers]);
+  }, [selectedTeacher, appinData, parsedAppinTeachers, appinTerms, appinWeekRange]);
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const [mealInfo, setMealInfo] = useState<MealInfo>({ lunch: 'Loading...', dinner: 'Loading...' });

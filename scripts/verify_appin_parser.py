@@ -127,14 +127,14 @@ def parse_subjects(records: list[bytes]) -> list[str]:
 
 
 def parse_teachers(records: list[bytes]) -> list[str]:
+    """교사 목록. 슬롯이 1-based 인덱스로 참조하므로 '^코드'가 없는 항목도 건너뛰지 않는다."""
     dec = decrypt_bytes(records[4])
     body = parse_meta(dec)
     teachers = []
     for item in body.split(b','):
         pos = item.find(b'^')
-        if pos != -1:
-            name = decode_euc_kr(item[:pos]).replace('\x00', '')
-            teachers.append(name)
+        chunk = item[:pos] if pos != -1 else item
+        teachers.append(decode_euc_kr(chunk).replace('\x00', '').strip('\x06').strip())
     return teachers
 
 

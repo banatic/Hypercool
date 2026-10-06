@@ -115,7 +115,8 @@ fn lookup_appin_subject(
         None => return (String::new(), None),
     };
     for (class_name, period_map) in day_data {
-        if let Some(slot) = period_map.get(&period_str) {
+        let Some(cell) = period_map.get(&period_str) else { continue };
+        for slot in cell.all() {
             if slot.teacher == Some(teacher_idx) {
                 let subject = slot.subject
                     .and_then(|si| data.subjects.get(si))
