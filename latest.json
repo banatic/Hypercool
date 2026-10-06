@@ -1,11 +1,11 @@
 {
-    "version": "0.5.28",
-    "notes": "AI 일정 등록: Claude Code뿐 아니라 Codex CLI도 선택해 사용할 수 있도록 지원\nCodex 모델 목록을 동적으로 불러오고, 구조화된 JSON 응답 및 MCP 조회 안정성 개선",
-    "pub_date": "2026-09-15T12:07:35.967Z",
+    "version": "0.5.29",
+    "notes": "압핀 파싱 개선",
+    "pub_date": "2026-10-06T03:05:57.891Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMk5xa3ZBWkpBbktrTFRnMjJuTXlsYytqL2t4alVNc1BGVHppKzFxczlleDhQRkQ4SDY0elBRV2dPY0tiY2NJYlNFbGczK3lRcG8wVnp2WDk5WW1PTUFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NDc0NDE4CWZpbGU6SHlwZXJDb29sXzAuNS4yOF94NjRfZW4tVVMubXNpClk4Sy9vajl1N2Z5SktCR2ZDVE1uK1VsR0RUS3llaWZWQjNBbVEzUXJ3RE9aSnl3b2RYSUhuZWZ3NkdaTXpTWGFiZWhNMGhES3N2NUFvWVAzODFGTUFRPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.28/HyperCool_0.5.28_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkpoWStjcnJRUHVOVUhaMXpLVXdTQndudWJ4a1A1OTU4VTJzakg2aTE5YXIybjI2U0lROU5MMVVkSGZDK0ZNWGQvRGNZMkVlTi9IRUlmRy9BbVhKVUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMjU2MjY3CWZpbGU6SHlwZXJDb29sXzAuNS4yOV94NjRfZW4tVVMubXNpCkhxNFBYYVdTKzcwa1JxRzF3RzcyUVZvR1RQNEpXRDRwZmZJTEYrRnhDaVI3bDYvZlB2WTlkL3N3dGc0QWRRYTF1MkF1bHJPeFNnQ1d1VWZEQkd4NUNBPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.29/HyperCool_0.5.29_x64_en-US.msi"
         }
     }
 }
