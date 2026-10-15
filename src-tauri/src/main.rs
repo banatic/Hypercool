@@ -400,7 +400,9 @@ fn main() {
             agent::run_briefing_agent_now,
             agent::run_briefing_agent_debug,
             agent::get_briefing_agent_status,
+            agent::get_briefing_agent_models,
             agent::set_briefing_agent_enabled,
+            agent::set_briefing_agent_config,
             agent::migrate_ai_schedules_content,
             agent::get_coolmessenger_status,
 

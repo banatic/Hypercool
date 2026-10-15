@@ -23,8 +23,14 @@ interface ClaudeConfigResult {
 
 interface BriefingStatus {
   enabled: boolean;
+  provider: 'claude' | 'codex';
+  model: string | null;
+  agent_installed: boolean;
+  agent_path: string | null;
   claude_installed: boolean;
   claude_path: string | null;
+  codex_installed: boolean;
+  codex_path: string | null;
   authed: boolean;
   running: boolean;
   last_run_at: string | null;
@@ -41,9 +47,18 @@ interface BriefingRunResult {
   reason: string | null;
 }
 
+interface BriefingModelOption {
+  id: string;
+  label: string;
+  description: string;
+  is_default: boolean;
+}
+
 interface BriefingDebugReport {
-  claude_installed: boolean;
-  claude_path: string | null;
+  provider: 'claude' | 'codex';
+  model: string | null;
+  agent_installed: boolean;
+  agent_path: string | null;
   authed: boolean;
   udb_path: string | null;
   udb_max_id: number | null;
@@ -54,9 +69,9 @@ interface BriefingDebugReport {
   last_seen_id: number;
   since_used: number;
   target_messages: number;
-  ran_claude: boolean;
+  ran_agent: boolean;
   duration_ms: number;
-  claude_is_error: boolean;
+  agent_is_error: boolean;
   raw_result: string | null;
   raw_stderr_tail: string | null;
   extracted_count: number;
@@ -156,6 +171,7 @@ export const McpPage = () => {
   const [edufineDocCount, setEdufineDocCount] = useState(0);
   const [edufineToggling, setEdufineToggling] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [copiedPath, setCopiedPath] = useState(false);
   const [nodeInstalled, setNodeInstalled] = useState<boolean | null>(null);
@@ -170,6 +186,12 @@ export const McpPage = () => {
   const [debugRunning, setDebugRunning] = useState(false);
   const [debugReport, setDebugReport] = useState<BriefingDebugReport | null>(null);
   const [debugError, setDebugError] = useState<string | null>(null);
+  const [modelDraft, setModelDraft] = useState('');
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [agentModels, setAgentModels] = useState<BriefingModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -193,6 +215,31 @@ export const McpPage = () => {
     invoke<boolean>('check_node_installed').then(setNodeInstalled).catch(() => setNodeInstalled(false));
   }, [load]);
 
+  useEffect(() => {
+    setModelDraft(briefing?.model ?? '');
+  }, [briefing?.provider, briefing?.model]);
+
+  useEffect(() => {
+    if (!briefing) return;
+    let cancelled = false;
+    setModelsLoading(true);
+    setModelsError(null);
+    invoke<BriefingModelOption[]>('get_briefing_agent_models', { provider: briefing.provider })
+      .then(models => {
+        if (!cancelled) setAgentModels(models);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setAgentModels([]);
+          setModelsError(e instanceof Error ? e.message : String(e));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [briefing?.provider, briefing?.agent_path]);
+
   // 브리핑 에이전트 실행 상태 갱신(자동 실행/완료 시 백엔드가 emit).
   useEffect(() => {
     const unlisten = listen('briefing-status', () => {
@@ -202,7 +249,7 @@ export const McpPage = () => {
   }, []);
 
   const toggleBriefing = async () => {
-    if (!briefing || briefingToggling || !briefing.claude_installed) return;
+    if (!briefing || briefingToggling || (!briefing.agent_installed && !briefing.enabled)) return;
     setBriefingToggling(true);
     try {
       await invoke('set_briefing_agent_enabled', { enabled: !briefing.enabled });
@@ -216,7 +263,7 @@ export const McpPage = () => {
   };
 
   const runBriefingNow = async () => {
-    if (briefingRunning || debugRunning || !briefing?.claude_installed) return;
+    if (briefingRunning || debugRunning || !briefing?.agent_installed) return;
     setBriefingRunning(true);
     setRunResult(null);
     try {
@@ -233,7 +280,7 @@ export const McpPage = () => {
 
   // 디버그: 검색 DB 동기화 → 최근 10개 메시지로 강제 1회 실행(진행 위치 미변경) → 상세 리포트.
   const runBriefingDebug = async () => {
-    if (briefingRunning || debugRunning || !briefing?.claude_installed) return;
+    if (briefingRunning || debugRunning || !briefing?.agent_installed) return;
     setDebugRunning(true);
     setDebugReport(null);
     setDebugError(null);
@@ -248,6 +295,26 @@ export const McpPage = () => {
     } finally {
       setDebugRunning(false);
     }
+  };
+
+  const saveAgentConfig = async (provider: 'claude' | 'codex', model: string) => {
+    if (configSaving || briefingRunning || debugRunning) return;
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      await invoke('set_briefing_agent_config', { provider, model: model.trim() || null });
+      const next = await invoke<BriefingStatus>('get_briefing_agent_status');
+      setBriefing(next);
+    } catch (e: unknown) {
+      setConfigError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const changeProvider = (provider: 'claude' | 'codex') => {
+    setModelDraft('');
+    void saveAgentConfig(provider, '');
   };
 
   const toggleEdufine = async () => {
@@ -295,6 +362,7 @@ export const McpPage = () => {
   };
 
   // 카드 1(자동 일정화) 준비 항목.
+  const agentName = briefing?.provider === 'codex' ? 'Codex' : 'Claude Code';
   const autoPrereqs: PrereqRow[] = [
     {
       key: 'udb',
@@ -304,18 +372,22 @@ export const McpPage = () => {
       fix: <>쿨메신저에 로그인해 메시지를 한 번 확인한 뒤 HyperCool을 재시작하세요. ‘메시지 분류’ 화면의 ‘파일 선택’으로 <code>.udb</code> 파일을 직접 지정할 수도 있습니다.</>,
     },
     {
-      key: 'claude',
-      ready: !!briefing?.claude_installed,
-      title: 'Claude Code 설치',
+      key: 'agent',
+      ready: !!briefing?.agent_installed,
+      title: `${agentName} 설치`,
       purpose: '메시지를 읽어 일정을 뽑아내는 로컬 AI입니다.',
-      fix: <><strong>https://claude.ai/download</strong> 또는 <code>npm i -g @anthropic-ai/claude-code</code> 설치 후 앱을 재시작하세요.</>,
+      fix: briefing?.provider === 'codex'
+        ? <>터미널에서 <code>npm i -g @openai/codex</code>로 설치한 뒤 앱을 재시작하세요.</>
+        : <><strong>https://claude.ai/download</strong> 또는 <code>npm i -g @anthropic-ai/claude-code</code> 설치 후 앱을 재시작하세요.</>,
     },
     {
       key: 'authed',
       ready: !!briefing?.authed,
-      title: 'Claude 로그인',
-      purpose: 'Claude 구독 로그인 또는 API 키가 필요합니다.',
-      fix: <>터미널에서 <code>claude</code> 로 로그인하거나 <code>ANTHROPIC_API_KEY</code> 를 설정하세요.</>,
+      title: `${agentName} 로그인`,
+      purpose: `${agentName} 로그인 또는 API 키가 필요합니다.`,
+      fix: briefing?.provider === 'codex'
+        ? <>터미널에서 <code>codex login</code>하거나 <code>OPENAI_API_KEY</code>를 설정하세요.</>
+        : <>터미널에서 <code>claude</code>로 로그인하거나 <code>ANTHROPIC_API_KEY</code>를 설정하세요.</>,
     },
   ];
 
@@ -337,8 +409,8 @@ export const McpPage = () => {
     },
   ];
 
-  const briefingSub = !briefing?.claude_installed
-    ? 'Claude Code CLI 미설치'
+  const briefingSub = !briefing?.agent_installed
+    ? `${agentName} CLI 미설치`
     : briefing.enabled
       ? (briefing.last_error
           ? `오류: ${briefing.last_error.slice(0, 40)}`
@@ -372,7 +444,7 @@ export const McpPage = () => {
             <button
               className={`mcp-toggle ${briefing?.enabled ? 'mcp-toggle--on' : 'mcp-toggle--off'}`}
               onClick={toggleBriefing}
-              disabled={briefingToggling || !briefing?.claude_installed}
+              disabled={briefingToggling || (!briefing?.agent_installed && !briefing?.enabled)}
             >
               <span className="mcp-toggle-knob" />
             </button>
@@ -380,10 +452,61 @@ export const McpPage = () => {
 
           <div className="mcp-briefing-body">
             <div className="mcp-briefing-desc">
-              새 쿨메신저 메시지가 오면 <strong>Claude Code</strong>가 내용·첨부를 읽어 할 일·마감을
-              자동으로 추출해 <strong>달력</strong>에 등록합니다. 로컬에서 실행되며 메시지를 <strong>읽기만</strong> 하고,
-              쓰기는 내 달력에만 합니다. 새 메시지 감지 후 약 45초 모아 한 번 실행하며, AI가 만든 일정은 보라색으로 표시됩니다.
+              새 메시지가 오면 <strong>{agentName}</strong>가 내용을 읽어 할 일·마감을 <strong>달력</strong>에
+              자동 등록합니다. 로컬에서 실행되고 메시지는 <strong>읽기만</strong> 하며, AI가 만든 일정은 보라색으로 표시됩니다.
             </div>
+
+            <div className="mcp-agent-config">
+              <label>
+                <span>AI</span>
+                <select
+                  value={briefing?.provider ?? 'claude'}
+                  onChange={e => changeProvider(e.target.value as 'claude' | 'codex')}
+                  disabled={configSaving || briefingRunning || debugRunning}
+                >
+                  <option value="claude">Claude Code</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </label>
+              <label className="mcp-model-field">
+                <span>모델</span>
+                <input
+                  value={modelDraft}
+                  onChange={e => setModelDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && briefing) void saveAgentConfig(briefing.provider, modelDraft);
+                  }}
+                  placeholder="기본 모델"
+                  list="agent-models"
+                  disabled={configSaving || briefingRunning || debugRunning}
+                />
+                <datalist id="agent-models">
+                  {agentModels.map(model => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}{model.is_default ? ' · 기본' : ''}{model.description ? ` · ${model.description}` : ''}
+                    </option>
+                  ))}
+                </datalist>
+              </label>
+              <button
+                className="mcp-model-save"
+                onClick={() => briefing && void saveAgentConfig(briefing.provider, modelDraft)}
+                disabled={configSaving || briefingRunning || debugRunning || modelDraft.trim() === (briefing?.model ?? '')}
+              >
+                {configSaving ? '저장 중…' : '적용'}
+              </button>
+            </div>
+            <div className="mcp-agent-config-hint">
+              {modelsLoading
+                ? '모델 목록을 불러오는 중…'
+                : modelsError
+                  ? `모델 목록을 불러오지 못했습니다: ${modelsError}`
+                  : briefing?.provider === 'codex'
+                    ? `현재 Codex에서 사용 가능한 모델 ${agentModels.length}개를 불러왔습니다.`
+                    : 'Claude Code 모델 별칭을 표시합니다.'}
+              {' '}비워 두면 CLI 기본 모델을 사용합니다.
+            </div>
+            {configError && <div className="mcp-run-result mcp-run-result--error">{configError}</div>}
 
             <ReadyBlock items={autoPrereqs} />
 
@@ -392,7 +515,7 @@ export const McpPage = () => {
                 <button
                   className="mcp-run-btn"
                   onClick={runBriefingNow}
-                  disabled={briefingRunning || debugRunning || !briefing.claude_installed}
+                  disabled={briefingRunning || debugRunning || !briefing.agent_installed}
                 >
                   {briefingRunning ? '실행 중…' : '지금 실행'}
                 </button>
@@ -404,10 +527,15 @@ export const McpPage = () => {
               </div>
             )}
 
-            {/* 디버그: 최근 10개로 강제 실행(진행 위치 미변경) + 상세 진단 */}
-            {briefing?.claude_installed && (
-              <div className="mcp-debug-box">
-                <div className="mcp-debug-label">테스트 / 진단</div>
+            {/* 디버그: 최근 10개로 강제 실행(진행 위치 미변경) + 상세 진단. 기본 접힘. */}
+            {briefing?.agent_installed && (
+              <div className={`mcp-debug-box ${showDebug ? 'open' : ''}`}>
+                <button className="mcp-debug-toggle" onClick={() => setShowDebug(v => !v)}>
+                  <span className="mcp-debug-label">테스트 / 진단</span>
+                  <span className="mcp-chevron">{showDebug ? '▲' : '▼'}</span>
+                </button>
+                {showDebug && (
+                <>
                 <div className="mcp-run-row">
                   <button
                     className="mcp-run-btn mcp-run-btn--ghost"
@@ -429,8 +557,8 @@ export const McpPage = () => {
                   <div className="mcp-debug-report">
                     <div className="mcp-debug-summary">
                       추출 {debugReport.extracted_count} · 신규 {debugReport.registered_new} · 중복 {debugReport.skipped_dedup} · 제외 {debugReport.skipped_invalid}
-                      {debugReport.ran_claude ? ` · ${(debugReport.duration_ms / 1000).toFixed(1)}초` : ' · claude 미실행'}
-                      {debugReport.claude_is_error ? ' · claude 오류' : ''}
+                      {debugReport.ran_agent ? ` · ${(debugReport.duration_ms / 1000).toFixed(1)}초` : ' · AI 미실행'}
+                      {debugReport.agent_is_error ? ` · ${debugReport.provider} 오류` : ''}
                     </div>
 
                     <div className="mcp-debug-grid">
@@ -454,7 +582,7 @@ export const McpPage = () => {
 
                     {debugReport.raw_result != null && (
                       <details className="mcp-debug-raw">
-                        <summary>claude 응답 원문 (result)</summary>
+                        <summary>{debugReport.provider === 'codex' ? 'Codex' : 'Claude'} 응답 원문</summary>
                         <pre>{debugReport.raw_result || '(빈 응답)'}</pre>
                       </details>
                     )}
@@ -465,6 +593,8 @@ export const McpPage = () => {
                       </details>
                     )}
                   </div>
+                )}
+                </>
                 )}
               </div>
             )}

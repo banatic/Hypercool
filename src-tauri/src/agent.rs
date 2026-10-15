@@ -1,15 +1,16 @@
-//! 브리핑 에이전트: 새 쿨메신저 메시지가 들어오면 Claude Code(headless, `claude -p`)를
-//! 호출해 "할 일·일정"을 추출하고, 기존 일정 생성 경로(`db::create_schedule_impl`)로 등록한다.
+//! 브리핑 에이전트: 새 쿨메신저 메시지가 들어오면 선택한 AI CLI
+//! (Claude Code headless 또는 Codex non-interactive)를 호출해 "할 일·일정"을 추출하고,
+//! 기존 일정 생성 경로(`db::create_schedule_impl`)로 등록한다.
 //!
 //! 설계 원칙:
-//! - 쓰기 주체는 앱이다. Claude 에는 hypercool MCP 읽기 도구만 allowlist 로 허용하고,
+//! - 쓰기 주체는 앱이다. AI에는 hypercool MCP 읽기 도구만 제공하고,
 //!   최종 stdout 의 JSON 배열만 파싱해 Rust 가 검증·등록한다.
 //! - 트리거는 배치·단일 실행. sync 성공 후 debounce 로 모아 1회, single-flight 로 동시 1개.
 //! - 증분 처리. `BriefingLastSeenId` 보다 큰 메시지만 대상으로 하고, 성공 시에만 전진.
 //! - 멱등. event id 는 메시지 ID 기반 결정적 값(`msg-<id>`)이며, 이미 있으면 skip → 사용자 편집 보존.
 //!   재전송·정정처럼 메시지 ID 가 달라도 내용이 사실상 같은 경우는 (날짜, 제목/원문 유사도)
 //!   기준의 내용 중복 판정으로 이중 등록을 막는다.
-//! - CLI 미설치/미인증 시 기능 자동 비활성화, 앱 크래시 없음.
+//! - 선택한 CLI 미설치/미인증 시 기능 자동 비활성화, 앱 크래시 없음.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,6 +51,9 @@ const MIN_BODY_CHARS: usize = 20;
 const REG_ENABLED: &str = "BriefingAgentEnabled";
 const REG_LAST_SEEN: &str = "BriefingLastSeenId";
 const REG_CLAUDE_PATH: &str = "ClaudeCliPath";
+const REG_CODEX_PATH: &str = "CodexCliPath";
+const REG_PROVIDER: &str = "BriefingAgentProvider";
+const REG_MODEL: &str = "BriefingAgentModel";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -95,6 +99,42 @@ struct ExtractedItem {
     source_text: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AiProvider {
+    Claude,
+    Codex,
+}
+
+impl AiProvider {
+    fn from_saved(value: Option<String>) -> Self {
+        match value.as_deref().map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("codex") => Self::Codex,
+            _ => Self::Claude,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude Code",
+            Self::Codex => "Codex",
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AiConfig {
+    provider: AiProvider,
+    model: Option<String>,
+    executable: Option<PathBuf>,
+}
+
 #[derive(Clone, Serialize, Default)]
 pub struct BriefingStatusSnapshot {
     pub last_run_at: Option<String>,
@@ -106,8 +146,14 @@ pub struct BriefingStatusSnapshot {
 #[derive(Serialize)]
 pub struct BriefingStatus {
     pub enabled: bool,
+    pub provider: String,
+    pub model: Option<String>,
+    pub agent_installed: bool,
+    pub agent_path: Option<String>,
     pub claude_installed: bool,
     pub claude_path: Option<String>,
+    pub codex_installed: bool,
+    pub codex_path: Option<String>,
     pub authed: bool,
     pub running: bool,
     pub last_run_at: Option<String>,
@@ -125,6 +171,14 @@ pub struct BriefingRunResult {
     pub error: Option<String>,
     /// 실행하지 않은 이유(있을 때만).
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct BriefingModelOption {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub is_default: bool,
 }
 
 // ─── on/off & 상태 ────────────────────────────────────────────────────────────
@@ -171,18 +225,65 @@ pub fn set_briefing_agent_enabled(app: AppHandle, enabled: bool) -> Result<(), S
 #[tauri::command]
 pub fn get_briefing_agent_status() -> BriefingStatus {
     let claude = find_claude();
+    let codex = find_codex();
+    let provider = read_provider();
+    let selected_path = match provider {
+        AiProvider::Claude => claude.clone(),
+        AiProvider::Codex => codex.clone(),
+    };
     let snapshot = status_slot().lock().unwrap().clone();
     BriefingStatus {
         enabled: is_enabled(),
+        provider: provider.as_str().to_string(),
+        model: read_model(),
+        agent_installed: selected_path.is_some(),
+        agent_path: selected_path.map(|p| p.to_string_lossy().to_string()),
         claude_installed: claude.is_some(),
         claude_path: claude.map(|p| p.to_string_lossy().to_string()),
-        authed: is_authed(),
+        codex_installed: codex.is_some(),
+        codex_path: codex.map(|p| p.to_string_lossy().to_string()),
+        authed: is_authed(provider),
         running: RUNNING.load(Ordering::Relaxed),
         last_run_at: snapshot.last_run_at,
         last_new_count: snapshot.last_new_count,
         last_error: snapshot.last_error,
         last_seen_id: read_last_seen_id(),
     }
+}
+
+#[tauri::command]
+pub fn set_briefing_agent_config(provider: String, model: Option<String>) -> Result<(), String> {
+    let provider = match provider.trim().to_ascii_lowercase().as_str() {
+        "claude" => AiProvider::Claude,
+        "codex" => AiProvider::Codex,
+        _ => return Err("지원하지 않는 AI 공급자입니다.".to_string()),
+    };
+    let model = normalize_model(model)?;
+    set_registry_value(REG_PROVIDER.to_string(), provider.as_str().to_string())?;
+    set_registry_value(REG_MODEL.to_string(), model.unwrap_or_default())
+}
+
+/// 선택한 CLI가 현재 노출하는 모델 목록. Codex는 app-server `model/list`에서 동적으로 읽는다.
+#[tauri::command]
+pub async fn get_briefing_agent_models(provider: String) -> Result<Vec<BriefingModelOption>, String> {
+    let provider = match provider.trim().to_ascii_lowercase().as_str() {
+        "claude" => AiProvider::Claude,
+        "codex" => AiProvider::Codex,
+        _ => return Err("지원하지 않는 AI 공급자입니다.".to_string()),
+    };
+    tauri::async_runtime::spawn_blocking(move || match provider {
+        AiProvider::Claude => Ok(vec![
+            BriefingModelOption { id: "sonnet".into(), label: "Sonnet".into(), description: "Claude Code Sonnet 별칭".into(), is_default: false },
+            BriefingModelOption { id: "opus".into(), label: "Opus".into(), description: "Claude Code Opus 별칭".into(), is_default: false },
+            BriefingModelOption { id: "haiku".into(), label: "Haiku".into(), description: "Claude Code Haiku 별칭".into(), is_default: false },
+        ]),
+        AiProvider::Codex => {
+            let codex = find_codex().ok_or_else(|| "Codex CLI를 찾을 수 없습니다.".to_string())?;
+            list_codex_models(&codex)
+        }
+    })
+    .await
+    .map_err(|e| format!("모델 목록 조회 작업 실패: {}", e))?
 }
 
 /// 수동 실행(설정 페이지 "지금 실행"). ENABLED 여부와 무관하게 즉시 1회(단, CLI 필요).
@@ -214,7 +315,7 @@ pub async fn run_briefing_agent_debug(
 
 /// 새 메시지 sync 성공 후 워처에서 호출한다. ENABLED + CLI 존재 시 debounce 실행.
 pub fn on_new_messages(app: &AppHandle) {
-    if !is_enabled() || find_claude().is_none() {
+    if !is_enabled() || read_ai_config().executable.is_none() {
         return;
     }
 
@@ -294,8 +395,10 @@ fn run_briefing_locked(app: &AppHandle) -> BriefingRunResult {
 /// 디버그 실행의 상세 진단 리포트. "신규 0건" 원인 파악용 정보를 모두 노출한다.
 #[derive(Serialize, Default)]
 pub struct BriefingDebugReport {
-    pub claude_installed: bool,
-    pub claude_path: Option<String>,
+    pub provider: String,
+    pub model: Option<String>,
+    pub agent_installed: bool,
+    pub agent_path: Option<String>,
     pub authed: bool,
     /// 레지스트리 UdbPath(원본 메시지 DB 경로).
     pub udb_path: Option<String>,
@@ -309,18 +412,18 @@ pub struct BriefingDebugReport {
     /// 이번 실행에서 UDB→검색 DB로 새로 동기화된 메시지 수.
     pub synced_new: i64,
     pub last_seen_id: i64,
-    /// 이번 디버그가 사용한 기준 id(이보다 큰 메시지만 claude에 전달).
+    /// 이번 디버그가 사용한 기준 id(이보다 큰 메시지만 AI에 전달).
     pub since_used: i64,
-    /// since 초과 대상 메시지 수(claude가 실제로 살펴볼 대상).
+    /// since 초과 대상 메시지 수(AI가 실제로 살펴볼 대상).
     pub target_messages: i64,
-    pub ran_claude: bool,
+    pub ran_agent: bool,
     pub duration_ms: u64,
-    pub claude_is_error: bool,
-    /// claude 최종 응답(.result) 원문 발췌.
+    pub agent_is_error: bool,
+    /// AI 최종 응답 원문 발췌.
     pub raw_result: Option<String>,
-    /// claude stderr 꼬리(있으면).
+    /// AI CLI stderr 꼬리(있으면).
     pub raw_stderr_tail: Option<String>,
-    /// claude가 추출한 항목 수(중복/검증 이전).
+    /// AI가 추출한 항목 수(중복/검증 이전).
     pub extracted_count: i64,
     pub registered_new: i64,
     pub skipped_dedup: i64,
@@ -333,18 +436,20 @@ pub struct BriefingDebugReport {
 /// last_seen 미전진, 지속 상태 스냅샷도 건드리지 않는다.
 fn run_debug_report(app: &AppHandle, count: i64) -> BriefingDebugReport {
     let mut rep = BriefingDebugReport::default();
-    let claude = find_claude();
-    rep.claude_installed = claude.is_some();
-    rep.claude_path = claude.as_ref().map(|p| p.to_string_lossy().to_string());
-    rep.authed = is_authed();
+    let config = read_ai_config();
+    rep.provider = config.provider.as_str().to_string();
+    rep.model = config.model.clone();
+    rep.agent_installed = config.executable.is_some();
+    rep.agent_path = config.executable.as_ref().map(|p| p.to_string_lossy().to_string());
+    rep.authed = is_authed(config.provider);
     rep.last_seen_id = read_last_seen_id();
 
-    // single-flight: claude 프로세스가 이미 돌고 있으면 진단만 하고 실행은 생략.
+    // single-flight: AI 프로세스가 이미 돌고 있으면 진단만 하고 실행은 생략.
     let acquired = RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok();
     if !acquired {
-        rep.notes.push("이미 브리핑 에이전트가 실행 중이라 claude 실행은 생략했습니다.".to_string());
+        rep.notes.push("이미 브리핑 에이전트가 실행 중이라 AI 실행은 생략했습니다.".to_string());
     }
 
     // 1) 검색 DB를 UDB와 강제 동기화(신규 메시지가 검색 DB/MCP에 보이도록).
@@ -394,15 +499,15 @@ fn run_debug_report(app: &AppHandle, count: i64) -> BriefingDebugReport {
         rep.notes.push(format!("id > {} 인 대상 메시지가 0건입니다 (최근 {}개 범위에 신규 없음).", since, count));
     }
 
-    // 4) claude 실행(획득했고 CLI 있고 대상 있으면).
+    // 4) 선택한 AI 실행(획득했고 CLI 있고 대상 있으면).
     if acquired {
-        if let Some(claude_path) = claude {
+        if config.executable.is_some() {
             if rep.target_messages > 0 {
                 let started = Instant::now();
-                match run_claude_debug(app, &claude_path, since) {
+                match run_ai_debug(app, &config, since) {
                     Ok(dbg) => {
-                        rep.ran_claude = true;
-                        rep.claude_is_error = dbg.is_error;
+                        rep.ran_agent = true;
+                        rep.agent_is_error = dbg.is_error;
                         rep.raw_result = Some(dbg.result_text);
                         rep.raw_stderr_tail = dbg.stderr_tail;
                         rep.extracted_count = dbg.extracted;
@@ -417,21 +522,21 @@ fn run_debug_report(app: &AppHandle, count: i64) -> BriefingDebugReport {
                 }
                 rep.duration_ms = started.elapsed().as_millis() as u64;
             } else {
-                rep.notes.push("대상 메시지가 없어 claude 를 실행하지 않았습니다.".to_string());
+                rep.notes.push("대상 메시지가 없어 AI를 실행하지 않았습니다.".to_string());
             }
         } else {
-            rep.notes.push("Claude Code CLI를 찾지 못해 실행하지 않았습니다.".to_string());
+            rep.notes.push(format!("{} CLI를 찾지 못해 실행하지 않았습니다.", config.provider.display_name()));
         }
         RUNNING.store(false, Ordering::SeqCst);
     }
 
     // 5) 결과 해석 노트.
-    if rep.ran_claude && !rep.claude_is_error && rep.error.is_none() {
+    if rep.ran_agent && !rep.agent_is_error && rep.error.is_none() {
         if rep.extracted_count == 0 {
-            rep.notes.push("claude가 대상 메시지에서 할 일/일정을 추출하지 않았습니다(비업무성이거나 판단상 제외). raw_result 를 확인하세요.".to_string());
+            rep.notes.push("AI가 대상 메시지에서 할 일/일정을 추출하지 않았습니다(비업무성이거나 판단상 제외). raw_result 를 확인하세요.".to_string());
         } else {
             if rep.registered_new == 0 && rep.skipped_dedup > 0 {
-                rep.notes.push(format!("claude가 {}건 추출했으나 모두 이미 등록됨(중복 제외) — 정상 동작입니다.", rep.extracted_count));
+                rep.notes.push(format!("AI가 {}건 추출했으나 모두 이미 등록됨(중복 제외) — 정상 동작입니다.", rep.extracted_count));
             }
             if rep.skipped_invalid > 0 {
                 rep.notes.push(format!("{}건이 과거 날짜/날짜 없음으로 제외되었습니다.", rep.skipped_invalid));
@@ -442,8 +547,8 @@ fn run_debug_report(app: &AppHandle, count: i64) -> BriefingDebugReport {
     rep
 }
 
-/// claude 디버그 실행 결과(내부).
-struct ClaudeDebugRun {
+/// AI 디버그 실행 결과(내부).
+struct AiDebugRun {
     is_error: bool,
     result_text: String,
     stderr_tail: Option<String>,
@@ -454,32 +559,21 @@ struct ClaudeDebugRun {
     parse_error: Option<String>,
 }
 
-/// claude 를 실행하고 원문/추출/등록 breakdown 을 채운다(디버그 전용).
-fn run_claude_debug(app: &AppHandle, claude: &PathBuf, since: i64) -> Result<ClaudeDebugRun, String> {
-    let mcp_path = ensure_mcp_config(app)?;
+/// 선택한 AI를 실행하고 원문/추출/등록 breakdown 을 채운다(디버그 전용).
+fn run_ai_debug(app: &AppHandle, config: &AiConfig, since: i64) -> Result<AiDebugRun, String> {
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let today = seoul_today();
     let prompt = build_prompt(app, &today, since);
 
-    let (stdout, stderr) = spawn_claude(claude, &prompt, &mcp_path, &app_data_dir)?;
+    let output = spawn_ai(app, config, &prompt, &app_data_dir)?;
     let stderr_tail = {
-        let t = tail_chars(&stderr, 400);
+        let t = tail_chars(&output.stderr, 400);
         if t.is_empty() { None } else { Some(t) }
     };
 
-    // 봉투 파싱 → result 텍스트.
-    let envelope: serde_json::Value = serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("claude 출력(JSON 봉투) 파싱 실패: {} / 원문: {}", e, head_chars(&stdout, 400)))?;
-    let is_error = envelope.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-    let result_text = envelope
-        .get("result")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let mut run = ClaudeDebugRun {
-        is_error,
-        result_text: head_chars(&result_text, 4000),
+    let mut run = AiDebugRun {
+        is_error: output.is_error,
+        result_text: head_chars(&output.result, 4000),
         stderr_tail,
         extracted: 0,
         registered: 0,
@@ -488,27 +582,25 @@ fn run_claude_debug(app: &AppHandle, claude: &PathBuf, since: i64) -> Result<Cla
         parse_error: None,
     };
 
-    if is_error {
-        run.parse_error = Some("claude가 오류로 종료했습니다(is_error). raw_result/stderr 확인.".to_string());
+    if output.is_error {
+        run.parse_error = Some("AI CLI가 오류로 종료했습니다. raw_result/stderr를 확인하세요.".to_string());
         return Ok(run);
     }
 
-    // 배열 추출 + 등록(멱등, breakdown 포함).
-    match extract_json_array(&result_text) {
-        Some(arr_text) => match serde_json::from_str::<Vec<ExtractedItem>>(&arr_text) {
-            Ok(items) => {
-                run.extracted = items.len() as i64;
-                let (new_c, dedup_c, invalid_c) = register_items_breakdown(app, items, &today);
-                run.registered = new_c;
-                run.skipped_dedup = dedup_c;
-                run.skipped_invalid = invalid_c;
-                if run.registered > 0 {
-                    let _ = app.emit("calendar-update", ());
-                }
+    // Codex는 --output-schema로 바로 배열을 반환하고, Claude의 기존 출력은
+    // 코드펜스/머리말을 포함할 수 있어 parse_items_from_result가 함께 처리한다.
+    match parse_items_from_result(&output.result) {
+        Ok(items) => {
+            run.extracted = items.len() as i64;
+            let (new_c, dedup_c, invalid_c) = register_items_breakdown(app, items, &today);
+            run.registered = new_c;
+            run.skipped_dedup = dedup_c;
+            run.skipped_invalid = invalid_c;
+            if run.registered > 0 {
+                let _ = app.emit("calendar-update", ());
             }
-            Err(e) => run.parse_error = Some(format!("일정 JSON 배열 파싱 실패: {}", e)),
-        },
-        None => run.parse_error = Some("claude 결과에서 JSON 배열([...])을 찾지 못했습니다.".to_string()),
+        }
+        Err(e) => run.parse_error = Some(e),
     }
 
     Ok(run)
@@ -693,17 +785,21 @@ struct PassOpts {
     advance: bool,
 }
 
-/// 실제 1회 실행: claude 호출 → 파싱 → 검증 → 등록 → (옵션) last_seen 전진.
+/// 실제 1회 실행: 선택한 AI 호출 → 파싱 → 검증 → 등록 → (옵션) last_seen 전진.
 /// 반환: (신규 등록 수, skip 수). 실패 시 Err(사유) — last_seen 은 전진하지 않음.
 fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
-    let claude = find_claude()
-        .ok_or_else(|| "Claude Code CLI(claude)를 찾을 수 없습니다. 설치 후 다시 시도하세요.".to_string())?;
-    let mcp_path = ensure_mcp_config(app)?;
+    let config = read_ai_config();
+    if config.executable.is_none() {
+        return Err(format!(
+            "{} CLI를 찾을 수 없습니다. 설치 후 다시 시도하세요.",
+            config.provider.display_name()
+        ));
+    }
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     let last_seen = opts.since_override.unwrap_or_else(read_last_seen_id);
     let current_max = current_max_message_id(app);
-    // 신규 메시지가 없으면 claude 실행 없이 즉시 종료(증분).
+    // 신규 메시지가 없으면 AI 실행 없이 즉시 종료(증분).
     if current_max <= last_seen {
         return Ok((0, 0));
     }
@@ -711,8 +807,16 @@ fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
     let today = seoul_today();
     let prompt = build_prompt(app, &today, last_seen);
 
-    let (stdout, _stderr) = spawn_claude(&claude, &prompt, &mcp_path, &app_data_dir)?;
-    let items = parse_items_from_output(&stdout)?;
+    let output = spawn_ai(app, &config, &prompt, &app_data_dir)?;
+    if output.is_error {
+        let detail = if output.result.trim().is_empty() {
+            tail_chars(&output.stderr, 300)
+        } else {
+            tail_chars(&output.result, 300)
+        };
+        return Err(format!("{} 오류: {}", config.provider.display_name(), detail));
+    }
+    let items = parse_items_from_result(&output.result)?;
     let (new_count, skipped) = register_items(app, items, &today)?;
 
     // 성공(프로세스 정상 종료 + 파싱 성공)했으므로 last_seen 을 전진시킨다(추출 0건이어도).
@@ -732,18 +836,49 @@ fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
     Ok((new_count, skipped))
 }
 
-/// claude headless 프로세스를 실행하고 (stdout, stderr)을 반환한다. 타임아웃 시 kill.
+struct AiOutput {
+    result: String,
+    stderr: String,
+    is_error: bool,
+}
+
+/// 선택한 AI CLI를 비대화형으로 실행한다. 타임아웃 시 프로세스를 종료한다.
+fn spawn_ai(
+    app: &AppHandle,
+    config: &AiConfig,
+    prompt: &str,
+    cwd: &PathBuf,
+) -> Result<AiOutput, String> {
+    match config.provider {
+        AiProvider::Claude => spawn_claude(
+            config.executable.as_ref().expect("checked executable"),
+            prompt,
+            &ensure_mcp_config(app)?,
+            cwd,
+            config.model.as_deref(),
+        ),
+        AiProvider::Codex => spawn_codex(
+            config.executable.as_ref().expect("checked executable"),
+            prompt,
+            cwd,
+            config.model.as_deref(),
+        ),
+    }
+}
+
 fn spawn_claude(
     claude: &PathBuf,
     prompt: &str,
     mcp_path: &PathBuf,
     cwd: &PathBuf,
-) -> Result<(String, String), String> {
-    use std::io::Read;
-
+    model: Option<&str>,
+) -> Result<AiOutput, String> {
     let mut cmd = std::process::Command::new(claude);
-    cmd.arg("-p")
-        .arg(prompt)
+    cmd.arg("-p");
+    if let Some(model) = model {
+        cmd.arg("--model").arg(model);
+    }
+    cmd.arg(prompt)
         .arg("--mcp-config")
         .arg(mcp_path)
         .arg("--strict-mcp-config")
@@ -766,50 +901,7 @@ fn spawn_claude(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("claude 실행 실패: {}", e))?;
-
-    // 파이프 데드락 방지를 위해 stdout/stderr 를 별도 스레드에서 끝까지 읽는다.
-    let mut out_pipe = child.stdout.take();
-    let mut err_pipe = child.stderr.take();
-    let out_handle = std::thread::spawn(move || {
-        let mut buf = String::new();
-        if let Some(ref mut p) = out_pipe {
-            let _ = p.read_to_string(&mut buf);
-        }
-        buf
-    });
-    let err_handle = std::thread::spawn(move || {
-        let mut buf = String::new();
-        if let Some(ref mut p) = err_pipe {
-            let _ = p.read_to_string(&mut buf);
-        }
-        buf
-    });
-
-    let deadline = Instant::now() + Duration::from_secs(TIMEOUT_SECS);
-    let mut timed_out = false;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(200));
-            }
-            Err(e) => return Err(format!("claude 프로세스 상태 확인 실패: {}", e)),
-        }
-    }
-
-    let stdout = out_handle.join().unwrap_or_default();
-    let stderr = err_handle.join().unwrap_or_default();
-
-    if timed_out {
-        return Err(format!("claude 실행이 {}초 내에 끝나지 않아 중단했습니다.", TIMEOUT_SECS));
-    }
+    let (stdout, stderr, status_ok) = run_child(cmd, "Claude Code", None)?;
 
     if stdout.trim().is_empty() {
         let tail = tail_chars(&stderr, 300);
@@ -820,34 +912,219 @@ fn spawn_claude(
         });
     }
 
-    Ok((stdout, stderr))
+    let envelope: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Claude Code 출력(JSON 봉투) 파싱 실패: {}", e))?;
+    let is_error = !status_ok
+        || envelope.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+    let result = envelope
+        .get("result")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(AiOutput { result, stderr, is_error })
+}
+
+fn spawn_codex(
+    codex: &PathBuf,
+    prompt: &str,
+    cwd: &PathBuf,
+    model: Option<&str>,
+) -> Result<AiOutput, String> {
+    let result_path = cwd.join(format!(
+        "briefing-codex-{}-{}.txt",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let schema_path = write_codex_output_schema(cwd)?;
+    let mut cmd = std::process::Command::new(codex);
+    // `--approve-for-me`는 현재 Codex CLI에서 sandbox 옵션과 같이 쓸 수 없다.
+    // 대신 읽기 전용 sandbox + 자동 검토자를 명시해 MCP 조회 승인만 headless로 처리한다.
+    cmd.arg("--ask-for-approval")
+        .arg("on-request")
+        .arg("exec");
+    if let Some(model) = model {
+        cmd.arg("--model").arg(model);
+    }
+    cmd.arg("--sandbox")
+        .arg("read-only")
+        .arg("--ignore-user-config")
+        .arg("--skip-git-repo-check")
+        .arg("--ephemeral")
+        .arg("--color")
+        .arg("never")
+        .arg("--output-last-message")
+        .arg(&result_path)
+        .arg("--output-schema")
+        .arg(&schema_path)
+        .arg("-c")
+        .arg("mcp_servers.hypercool.url=\"http://localhost:3737/mcp\"")
+        .arg("-c")
+        .arg("approvals_reviewer=\"auto_review\"")
+        .arg("-")
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let (stdout, stderr, status_ok) = match run_child(cmd, "Codex", Some(prompt)) {
+        Ok(output) => output,
+        Err(error) => {
+            let _ = std::fs::remove_file(&result_path);
+            let _ = std::fs::remove_file(&schema_path);
+            return Err(error);
+        }
+    };
+    let result = std::fs::read_to_string(&result_path).unwrap_or_else(|_| stdout.clone());
+    let _ = std::fs::remove_file(&result_path);
+    let _ = std::fs::remove_file(&schema_path);
+    if result.trim().is_empty() {
+        let tail = tail_chars(&stderr, 300);
+        return Err(if tail.is_empty() {
+            "Codex가 빈 출력을 반환했습니다 (로그인/네트워크 확인).".to_string()
+        } else {
+            format!("Codex 출력이 비었습니다. stderr: {}", tail)
+        });
+    }
+    Ok(AiOutput { result, stderr, is_error: !status_ok })
+}
+
+/// Codex `--output-schema`용 일정 목록 스키마를 만든다.
+/// Codex는 스키마 루트 객체만 지원하므로 결과를 {"items": [...]}로 감싼다.
+fn write_codex_output_schema(cwd: &PathBuf) -> Result<PathBuf, String> {
+    let schema_path = cwd.join(format!(
+        "briefing-codex-schema-{}-{}.json",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let nullable_string = serde_json::json!({ "type": ["string", "null"] });
+    let schema = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": nullable_string.clone(),
+                        "source_message_id": { "type": ["integer", "null"] },
+                        "received_at": nullable_string.clone(),
+                        "sender": nullable_string.clone(),
+                        "type": nullable_string.clone(),
+                        "title": nullable_string.clone(),
+                        "detail": nullable_string.clone(),
+                        "date": nullable_string.clone(),
+                        "time": nullable_string.clone(),
+                        "all_day": { "type": ["boolean", "null"] },
+                        "period": nullable_string.clone(),
+                        "has_attachment": { "type": ["boolean", "null"] },
+                        "urgency": nullable_string.clone(),
+                        "active_from": nullable_string.clone(),
+                        "active_until": nullable_string.clone(),
+                        "source_text": nullable_string
+                    },
+                    "required": [
+                        "id", "source_message_id", "received_at", "sender", "type", "title",
+                        "detail", "date", "time", "all_day", "period", "has_attachment",
+                        "urgency", "active_from", "active_until", "source_text"
+                    ]
+                }
+            }
+        },
+        "required": ["items"]
+    });
+    let content = serde_json::to_vec(&schema)
+        .map_err(|e| format!("Codex 출력 스키마 직렬화 실패: {}", e))?;
+    std::fs::write(&schema_path, content)
+        .map_err(|e| format!("Codex 출력 스키마 저장 실패: {}", e))?;
+    Ok(schema_path)
+}
+
+fn run_child(
+    mut cmd: std::process::Command,
+    label: &str,
+    stdin_input: Option<&str>,
+) -> Result<(String, String, bool), String> {
+    use std::io::{Read, Write};
+
+    let mut child = cmd.spawn().map_err(|e| format!("{} 실행 실패: {}", label, e))?;
+    if let Some(input) = stdin_input {
+        let write_result = child
+            .stdin
+            .take()
+            .ok_or_else(|| format!("{} stdin 연결 실패", label))
+            .and_then(|mut stdin| {
+                stdin
+                    .write_all(input.as_bytes())
+                    .map_err(|e| format!("{} 프롬프트 전송 실패: {}", label, e))
+            });
+        if let Err(error) = write_result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(ref mut p) = out_pipe { let _ = p.read_to_string(&mut buf); }
+        buf
+    });
+    let err_handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(ref mut p) = err_pipe { let _ = p.read_to_string(&mut buf); }
+        buf
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(TIMEOUT_SECS);
+    let status_ok = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_handle.join();
+                let _ = err_handle.join();
+                return Err(format!("{} 실행이 {}초 내에 끝나지 않아 중단했습니다.", label, TIMEOUT_SECS));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_handle.join();
+                let _ = err_handle.join();
+                return Err(format!("{} 프로세스 상태 확인 실패: {}", label, e));
+            }
+        }
+    };
+    Ok((out_handle.join().unwrap_or_default(), err_handle.join().unwrap_or_default(), status_ok))
 }
 
 // ─── 파싱 ─────────────────────────────────────────────────────────────────────
 
-fn parse_items_from_output(stdout: &str) -> Result<Vec<ExtractedItem>, String> {
-    let envelope: serde_json::Value = serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("claude 출력(JSON 봉투) 파싱 실패: {}", e))?;
-
-    if envelope
-        .get("is_error")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        let msg = envelope
-            .get("result")
-            .and_then(|v| v.as_str())
-            .unwrap_or("알 수 없는 오류");
-        return Err(format!("claude 오류: {}", tail_chars(msg, 300)));
+fn parse_items_from_result(result: &str) -> Result<Vec<ExtractedItem>, String> {
+    // Codex --output-schema는 {"items":[...]}를 반환한다. Claude와 이전 출력의
+    // 최상위 배열도 유지해 기존 등록 결과를 깨지 않는다.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(result.trim()) {
+        if let Some(items) = value.get("items").and_then(|v| v.as_array()) {
+            return serde_json::from_value(serde_json::Value::Array(items.clone()))
+                .map_err(|e| format!("일정 JSON 배열 파싱 실패: {}", e));
+        }
+        if value.is_array() {
+            return serde_json::from_value(value)
+                .map_err(|e| format!("일정 JSON 배열 파싱 실패: {}", e));
+        }
     }
-
-    let result_str = envelope
-        .get("result")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "claude 출력에 result 필드가 없습니다.".to_string())?;
-
-    let arr_text = extract_json_array(result_str)
-        .ok_or_else(|| "claude 결과에서 JSON 배열을 찾지 못했습니다.".to_string())?;
+    let arr_text = extract_json_array(result)
+        .ok_or_else(|| "AI 결과에서 JSON 배열을 찾지 못했습니다.".to_string())?;
 
     serde_json::from_str(&arr_text).map_err(|e| format!("일정 JSON 배열 파싱 실패: {}", e))
 }
@@ -1249,6 +1526,39 @@ fn write_last_seen_id(id: i64) {
     let _ = set_registry_value(REG_LAST_SEEN.to_string(), id.to_string());
 }
 
+fn read_provider() -> AiProvider {
+    AiProvider::from_saved(get_registry_value(REG_PROVIDER.to_string()).ok().flatten())
+}
+
+fn read_model() -> Option<String> {
+    get_registry_value(REG_MODEL.to_string())
+        .ok()
+        .flatten()
+        .and_then(|value| normalize_model(Some(value)).ok().flatten())
+}
+
+fn read_ai_config() -> AiConfig {
+    let provider = read_provider();
+    let executable = match provider {
+        AiProvider::Claude => find_claude(),
+        AiProvider::Codex => find_codex(),
+    };
+    AiConfig { provider, model: read_model(), executable }
+}
+
+fn normalize_model(model: Option<String>) -> Result<Option<String>, String> {
+    let model = model.unwrap_or_default().trim().to_string();
+    if model.is_empty() || model.eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    if model.len() > 120
+        || !model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':'))
+    {
+        return Err("모델 ID에는 영문, 숫자, -, _, ., /, :만 사용할 수 있습니다.".to_string());
+    }
+    Ok(Some(model))
+}
+
 fn update_and_emit_status(app: &AppHandle, new_count: i64, error: Option<String>) {
     let snapshot = {
         let mut slot = status_slot().lock().unwrap();
@@ -1449,26 +1759,207 @@ fn find_claude() -> Option<PathBuf> {
     None
 }
 
-/// 인증 여부 best-effort: ANTHROPIC_API_KEY 또는 claude 자격/설정 파일 존재.
-fn is_authed() -> bool {
-    if std::env::var("ANTHROPIC_API_KEY")
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
-    {
-        return true;
+/// codex 실행 파일 경로 탐색: 레지스트리 override → `where codex` → 공통 경로.
+fn find_codex() -> Option<PathBuf> {
+    if let Ok(Some(p)) = get_registry_value(REG_CODEX_PATH.to_string()) {
+        let pb = PathBuf::from(p.trim());
+        if pb.exists() { return Some(pb); }
     }
-    if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        let base = PathBuf::from(&userprofile);
-        for rel in [
-            PathBuf::from(".claude").join(".credentials.json"),
-            PathBuf::from(".claude.json"),
-        ] {
-            if base.join(rel).exists() {
-                return true;
+    find_on_windows_path("codex").or_else(|| find_common_cli("codex"))
+}
+
+/// Codex App Server와 짧게 연결해 현재 선택기에 노출되는 모델만 가져온다.
+fn list_codex_models(codex: &PathBuf) -> Result<Vec<BriefingModelOption>, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::mpsc;
+
+    let mut cmd = std::process::Command::new(codex);
+    cmd.arg("app-server")
+        .arg("--listen")
+        .arg("stdio://")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| format!("Codex App Server 실행 실패: {}", e))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| "Codex stdin 연결 실패".to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| "Codex stdout 연결 실패".to_string())?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                let _ = tx.send(value);
+            }
+        }
+    });
+
+    let send = |writer: &mut std::process::ChildStdin, value: serde_json::Value| -> Result<(), String> {
+        writeln!(writer, "{}", value).map_err(|e| format!("Codex 요청 전송 실패: {}", e))?;
+        writer.flush().map_err(|e| format!("Codex 요청 전송 실패: {}", e))
+    };
+    send(&mut stdin, serde_json::json!({
+        "method": "initialize",
+        "id": 1,
+        "params": { "clientInfo": { "name": "hypercool", "title": "HyperCool", "version": env!("CARGO_PKG_VERSION") } }
+    }))?;
+
+    let init_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = init_deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining) {
+            Ok(value) if value.get("id").and_then(|v| v.as_i64()) == Some(1) => {
+                if value.get("error").is_some() {
+                    let _ = child.kill();
+                    return Err(format!("Codex 초기화 실패: {}", value["error"]));
+                }
+                break;
+            }
+            Ok(_) => continue,
+            Err(_) => {
+                let _ = child.kill();
+                return Err("Codex 모델 목록 초기화 시간이 초과되었습니다.".to_string());
             }
         }
     }
-    false
+
+    send(&mut stdin, serde_json::json!({ "method": "initialized", "params": {} }))?;
+    send(&mut stdin, serde_json::json!({
+        "method": "model/list", "id": 2, "params": { "limit": 100, "includeHidden": false }
+    }))?;
+
+    let list_deadline = Instant::now() + Duration::from_secs(10);
+    let response = loop {
+        let remaining = list_deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining) {
+            Ok(value) if value.get("id").and_then(|v| v.as_i64()) == Some(2) => break value,
+            Ok(_) => continue,
+            Err(_) => {
+                let _ = child.kill();
+                return Err("Codex 모델 목록 조회 시간이 초과되었습니다.".to_string());
+            }
+        }
+    };
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+
+    if let Some(error) = response.get("error") {
+        return Err(format!("Codex 모델 목록 조회 실패: {}", error));
+    }
+    parse_codex_model_response(&response)
+}
+
+fn parse_codex_model_response(value: &serde_json::Value) -> Result<Vec<BriefingModelOption>, String> {
+    let data = value
+        .pointer("/result/data")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Codex 모델 목록 응답 형식이 올바르지 않습니다.".to_string())?;
+    let models: Vec<BriefingModelOption> = data
+        .iter()
+        .filter(|item| !item.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false))
+        .filter_map(|item| {
+            let id = item.get("model").or_else(|| item.get("id"))?.as_str()?.trim();
+            if id.is_empty() { return None; }
+            Some(BriefingModelOption {
+                id: id.to_string(),
+                label: item.get("displayName").and_then(|v| v.as_str()).unwrap_or(id).to_string(),
+                description: item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                is_default: item.get("isDefault").and_then(|v| v.as_bool()).unwrap_or(false),
+            })
+        })
+        .collect();
+    if models.is_empty() {
+        Err("Codex에서 선택 가능한 모델을 반환하지 않았습니다.".to_string())
+    } else {
+        Ok(models)
+    }
+}
+
+#[cfg(windows)]
+fn find_on_windows_path(command: &str) -> Option<PathBuf> {
+    use std::os::windows::process::CommandExt;
+    let out = std::process::Command::new("cmd")
+        .args(["/C", "where", command])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !out.status.success() { return None; }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let paths: Vec<PathBuf> = text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+        .collect();
+    paths.iter()
+        .find(|path| path.extension().and_then(|v| v.to_str()).map(|v| v.eq_ignore_ascii_case("exe")).unwrap_or(false))
+        .cloned()
+        .or_else(|| paths.iter()
+            .find(|path| path.extension().and_then(|v| v.to_str()).map(|v| v.eq_ignore_ascii_case("cmd")).unwrap_or(false))
+            .cloned())
+        .or_else(|| paths.into_iter().next())
+}
+
+#[cfg(not(windows))]
+fn find_on_windows_path(_command: &str) -> Option<PathBuf> { None }
+
+fn find_common_cli(name: &str) -> Option<PathBuf> {
+    // Codex Desktop installs a native executable here. Prefer it over the npm
+    // .cmd shim because direct batch-file execution is fragile on Windows.
+    if name == "codex" {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let bin_dir = PathBuf::from(local_app_data)
+                .join("OpenAI")
+                .join("Codex")
+                .join("bin");
+            if let Ok(entries) = std::fs::read_dir(bin_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path().join("codex.exe");
+                    if path.exists() { return Some(path); }
+                }
+            }
+        }
+    }
+
+    let filenames = [format!("{}.cmd", name), format!("{}.exe", name)];
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        for filename in &filenames {
+            let path = PathBuf::from(&userprofile).join(".local").join("bin").join(filename);
+            if path.exists() { return Some(path); }
+        }
+    }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        for filename in &filenames {
+            let path = PathBuf::from(&appdata).join("npm").join(filename);
+            if path.exists() { return Some(path); }
+        }
+    }
+    None
+}
+
+/// 선택한 CLI 인증 여부 best-effort 확인.
+fn is_authed(provider: AiProvider) -> bool {
+    let env_key = match provider {
+        AiProvider::Claude => "ANTHROPIC_API_KEY",
+        AiProvider::Codex => "OPENAI_API_KEY",
+    };
+    if std::env::var(env_key).map(|v| !v.trim().is_empty()).unwrap_or(false) {
+        return true;
+    }
+    let Ok(userprofile) = std::env::var("USERPROFILE") else { return false; };
+    let base = PathBuf::from(userprofile);
+    match provider {
+        AiProvider::Claude => [
+            base.join(".claude").join(".credentials.json"),
+            base.join(".claude.json"),
+        ].iter().any(|path| path.exists()),
+        AiProvider::Codex => base.join(".codex").join("auth.json").exists(),
+    }
 }
 
 fn seoul_offset() -> chrono::FixedOffset {
@@ -1574,6 +2065,58 @@ mod tests {
     #[test]
     fn extract_array_none_when_no_brackets() {
         assert_eq!(extract_json_array("no array here"), None);
+    }
+
+    #[test]
+    fn provider_defaults_to_claude_and_accepts_codex() {
+        assert_eq!(AiProvider::from_saved(None), AiProvider::Claude);
+        assert_eq!(AiProvider::from_saved(Some("codex".to_string())), AiProvider::Codex);
+        assert_eq!(AiProvider::from_saved(Some("unknown".to_string())), AiProvider::Claude);
+    }
+
+    #[test]
+    fn model_normalization_supports_cli_model_ids() {
+        assert_eq!(normalize_model(None).unwrap(), None);
+        assert_eq!(normalize_model(Some(" default ".to_string())).unwrap(), None);
+        assert_eq!(
+            normalize_model(Some(" gpt-5.3-codex ".to_string())).unwrap().as_deref(),
+            Some("gpt-5.3-codex")
+        );
+        assert!(normalize_model(Some("model; rm".to_string())).is_err());
+    }
+
+    #[test]
+    fn parses_items_from_plain_agent_result() {
+        let items = parse_items_from_result(
+            "```json\n[{\"source_message_id\":42,\"title\":\"회의\",\"date\":\"2026-09-20\"}]\n```",
+        )
+        .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].source_message_id, Some(42));
+    }
+
+    #[test]
+    fn parses_empty_structured_output_as_no_schedule() {
+        let items = parse_items_from_result("[]").unwrap();
+        assert!(items.is_empty());
+
+        let items = parse_items_from_result(r#"{"items":[]}"#).unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn parses_visible_models_from_codex_app_server() {
+        let response = serde_json::json!({
+            "id": 2,
+            "result": { "data": [
+                { "id": "gpt-5.6-luna", "model": "gpt-5.6-luna", "displayName": "GPT-5.6-Luna", "description": "Fast", "hidden": false, "isDefault": false },
+                { "id": "hidden-model", "model": "hidden-model", "hidden": true }
+            ] }
+        });
+        let models = parse_codex_model_response(&response).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.6-luna");
+        assert_eq!(models[0].label, "GPT-5.6-Luna");
     }
 
     #[test]
