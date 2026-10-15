@@ -96,6 +96,7 @@ The hard-coded period table lives in **two** places that must stay in sync: `src
 
 - **Deep links:** scheme `hypercool://`, registered on Windows via `register_custom_scheme()`. The `tauri-plugin-single-instance` handler forwards URLs to the running instance by emitting `deep-link-url`; the frontend listens via `useDeepLink`.
 - **Auto-update:** `tauri-plugin-updater` polls the `latest.json` endpoint above; install mode is `passive`. Skipping a version is stored in registry (`SkippedUpdateVersion`).
+- **공휴일:** 저장소 루트 `holidays.json` 이 원본. 달력 위젯이 `raw.githubusercontent.com` 의 `main` 사본을 시작 시·6시간마다 받아 적용(`src/utils/holidays.ts`), 실패하면 localStorage 캐시 → 빌드 내장본. 공휴일 추가는 이 파일만 고쳐 `main` 에 push 하면 됨.
 - **Tray + auto-start:** built in `main.rs::setup`; auto-start is registry-driven (`AutoStartHideMain`, `AutoStartCalendar`).
 - **Vibrancy:** `utils::apply_vibrancy_effect` (acrylic on Windows). Several windows are `transparent: true, decorations: false` — be careful when adding new chrome.
 

@@ -162,6 +162,22 @@ body,
   background: rgba(100, 150, 255, 0.2);
 }
 
+.calendar-day.holiday {
+  background: rgba(255, 100, 100, 0.15);
+}
+
+.calendar-day.holiday.current-month {
+  background: rgba(255, 100, 100, 0.2);
+}
+
+.calendar-day-holiday {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 140, 140, 0.95);
+  vertical-align: 1px;
+}
+
 .calendar-day.current-month {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
@@ -195,6 +211,9 @@ body,
   margin-bottom: 2px;
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   -webkit-app-region: no-drag;
 }
 

@@ -9,6 +9,7 @@ import { AttachmentList } from './components/AttachmentList';
 import ResizeHandles from './components/ResizeHandles';
 import { ManualTodo, PeriodSchedule } from './types';
 import { decodeEntities } from './utils/dateUtils';
+import { getHoliday, refreshHolidays } from './utils/holidays';
 import './styles.css';
 import './CalendarWidget.css';
 
@@ -46,6 +47,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
   const [completedTodos, setCompletedTodos] = useState<Set<string>>(new Set());
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
+  const [, setHolidayRev] = useState(0); // 원격 공휴일 갱신 시 다시 그리기용
   const [todoOrder, setTodoOrder] = useState<Record<string, string[]>>({}); // 날짜별 할일 ID 순서
   const [referenceIdToScheduleId, setReferenceIdToScheduleId] = useState<Record<string, string>>({});
   const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null);
@@ -276,6 +278,18 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     };
   }, [loadTodos]);
 
+  // 공휴일: 시작 시 + 6시간마다 원격 holidays.json 확인
+  useEffect(() => {
+    const refresh = () => {
+      refreshHolidays().then(changed => {
+        if (changed) setHolidayRev(v => v + 1);
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 6 * 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // 하이퍼링크 클릭 시 외부 브라우저에서 열기
   useEffect(() => {
     const handleLinkClick = async (e: MouseEvent) => {
@@ -413,6 +427,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           const dayOfWeek = day.getDay();
           const isSunday = dayOfWeek === 0;
           const isSaturday = dayOfWeek === 6;
+          const holiday = getHoliday(day);
 
           // 기간 일정이 해당 날짜에서 시작/중간/끝인지 확인
           const getPeriodPosition = (schedule: PeriodSchedule): 'start' | 'middle' | 'end' | 'start end' => {
@@ -440,14 +455,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           return (
             <div
               key={index}
-              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${isSunday ? 'sunday' : ''} ${isSaturday ? 'saturday' : ''} ${dragOverDateKey === dateKey ? 'drag-over-day' : ''}`}
+              className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isCurrentMonth ? 'current-month' : ''} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${isSunday ? 'sunday' : ''} ${isSaturday ? 'saturday' : ''} ${holiday ? 'holiday' : ''} ${dragOverDateKey === dateKey ? 'drag-over-day' : ''}`}
               onDoubleClick={() => {
                 setSelectedDate(day);
                 setAddTodoModalOpen(true);
               }}
               data-date={dateKey} // 마우스 드래그를 위해 data-date 추가
             >
-              <div className="calendar-day-number">{day.getDate()}</div>
+              <div className="calendar-day-number">
+                {day.getDate()}
+                {holiday && <span className="calendar-day-holiday" title={holiday}>{holiday}</span>}
+              </div>
               {(dayPeriodSchedules.length > 0 || dayTodos.length > 0) && (
                 <div
                   className={`calendar-day-todos ${dragOverDateKey === dateKey ? 'drag-over' : ''}`}
