@@ -3,10 +3,12 @@
 :root {
   --font-sans: 'Inter', sans-serif;
 
-  --primary: #667eea;
-  --primary-dark: #5a6ed0;
-  --primary-light: #818cf8;
-  --secondary: #764ba2;
+  /* 제품 전역 액센트: 위젯(#3b82f6)과 통일한 트루 블루 */
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --primary-light: rgba(59, 130, 246, 0.12);
+  --primary-rgb: 59, 130, 246;
+  --secondary: #6366f1;
   --accent: #f59e0b;
   
   --text-primary: #1f2937;
@@ -78,10 +80,54 @@ body {
 button {
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: transform 0.12s ease, background 0.2s ease, color 0.2s ease,
+    border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 즉각적인 눌림 피드백 — 릴리스가 아니라 누르는 순간 반응한다(§1) */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* 키보드 사용자를 위한 일관된 포커스 링(§14 접근성). 마우스 클릭에는 뜨지 않는다 */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+button:focus:not(:focus-visible) {
+  outline: none;
 }
 
 input, button, textarea, select {
   font-family: inherit;
   font-size: inherit;
+}
+
+/* 모션 민감 사용자: 슬라이드/스프링/회전을 짧은 크로스페이드로 대체하되
+   이해를 돕는 색/투명도 변화는 남긴다(§14). SwipeCard 는 JS 단에서
+   prefersReducedMotion() 으로 던지기 애니메이션을 건너뛴다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* 투명도 민감 사용자: 반투명 표면을 불투명에 가깝게(§14) */
+@media (prefers-reduced-transparency: reduce) {
+  .schedule-modal-overlay {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .sidebar {
+    background: var(--bg-dark);
+  }
 }

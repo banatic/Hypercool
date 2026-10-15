@@ -24,8 +24,6 @@ import { useGlobalEvents } from './hooks/useGlobalEvents';
 
 import './App.css';
 
-const DRAG_THRESHOLD = 160;
-
 function App() {
   const [page, setPage] = useState<Page>('classify');
   const [scheduleModal, setScheduleModal] = useState<{ open: boolean; id?: number | string }>({ open: false });
@@ -50,7 +48,7 @@ function App() {
     allMessages, totalMessageCount, classified, saveClassified, isLoading: isLoadingMessages,
     loadUdbFile, searchResults,
     activeSearchMessage,
-    searchMessages, clearSearch, loadMessageById,
+    searchMessages, clearSearch, loadMessageById, getFullMessage,
     isLoadingSearch, isLoadingActiveSearch
   } = useMessages(udbPath);
 
@@ -154,51 +152,6 @@ function App() {
     setVisiblePairStart(0);
   }, [allMessages, pendingIndexes, classified, saveClassified]);
 
-  // Drag Handlers
-  const dragHandlers = () => {
-    let startX = 0;
-    let draggingId: number | null = null;
-    let el: HTMLElement | null = null;
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!el) return;
-      const dx = e.clientX - startX;
-      el.style.transform = `translateX(${dx}px) rotate(${dx / 40}deg)`;
-      el.classList.toggle('preview-right', dx > DRAG_THRESHOLD);
-      el.classList.toggle('preview-left', dx < -DRAG_THRESHOLD);
-    };
-
-    const onMouseUp = (e: MouseEvent) => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      if (!el || draggingId === null) return;
-
-      const dx = e.clientX - startX;
-      el.style.transform = '';
-      el.classList.remove('preview-right', 'preview-left');
-
-      if (Math.abs(dx) > DRAG_THRESHOLD) {
-        classify(draggingId, dx > 0 ? 'right' : 'left');
-      }
-      draggingId = null;
-      el = null;
-    };
-
-    const onMouseDown = (id: number) => (e: React.MouseEvent<HTMLDivElement>) => {
-      draggingId = id;
-      startX = e.clientX;
-      el = (e.currentTarget as HTMLElement).closest('.card');
-      if (el) {
-        el.style.transition = 'none';
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      }
-    };
-
-    return { onMouseDown };
-  };
-  const { onMouseDown } = dragHandlers();
-
   const [udbPickerOpen, setUdbPickerOpen] = useState(false);
   // 자동으로 한 번만 띄우기 위한 플래그 (사용자가 닫으면 다시 자동으로 뜨지 않음)
   const [udbPickerAutoShown, setUdbPickerAutoShown] = useState(false);
@@ -274,7 +227,7 @@ function App() {
             udbPath={udbPath}
             pickUdb={openUdbPicker}
             visibleMessages={visibleMessages}
-            onMouseDown={onMouseDown}
+            getFullMessage={getFullMessage}
             classify={classify}
             completeAllPending={completeAllPending}
             statusText={statusText}
@@ -291,6 +244,8 @@ function App() {
         {page === 'history' && (
           <HistoryPage
             allMessages={allMessages}
+            getFullMessage={getFullMessage}
+            isLoading={isLoadingMessages}
             historyIndex={historyIndex}
             setHistoryIndex={setHistoryIndex}
             totalMessageCount={totalMessageCount}

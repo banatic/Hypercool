@@ -46,14 +46,24 @@ pub fn get_latest_message_id_internal(db_path: String) -> Result<Option<i64>, St
 
 /// UDB 파일에서 메시지를 읽어오는 함수 (Tauri command)
 #[tauri::command]
-pub fn read_udb_messages(
+pub async fn read_udb_messages(
     db_path: String,
     limit: Option<i64>,
     offset: Option<i64>,
     search_term: Option<String>,
     min_id: Option<i64>,
+    previews_only: Option<bool>,
 ) -> Result<PaginatedMessages, String> {
-    read_udb_messages_internal(db_path, limit, offset, search_term, min_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut result = read_udb_messages_internal(db_path, limit, offset, search_term, min_id)?;
+        if previews_only.unwrap_or(false) {
+            for message in &mut result.messages {
+                let text = crate::search_db::html_to_text(&message.content);
+                message.content = text.chars().take(200).collect();
+            }
+        }
+        Ok(result)
+    }).await.map_err(|e| format!("메시지 목록 조회 작업 실패: {}", e))?
 }
 
 /// 메시지 검색 — search DB(trigram FTS + LIKE 하이브리드)만 사용한다.

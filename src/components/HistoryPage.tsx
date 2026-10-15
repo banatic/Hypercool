@@ -1,9 +1,11 @@
-import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Message, MessageMeta, SearchResultItem } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
+import { MessageContent } from './MessageContent';
 import { decodeEntities, formatDate, formatReceiveDate } from '../utils/dateUtils';
+import { animateSpring, project, clamp, prefersReducedMotion, SpringHandle } from '../utils/spring';
 
 // Performance logging helper
 const logPerf = (label: string, startTime?: number) => {
@@ -155,6 +157,7 @@ interface HistoryPageProps {
   historyIndex: number;
   setHistoryIndex: (index: number) => void;
   allMessages: MessageMeta[];  // Now uses lightweight MessageMeta
+  getFullMessage: (id: number) => Promise<Message | null>;
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
   isLoading?: boolean;
@@ -177,6 +180,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   historyIndex,
   setHistoryIndex,
   allMessages,
+  getFullMessage,
   loadUdbFile,
   udbPath,
   isLoading = false,
@@ -190,7 +194,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   onSearchResultClick,
 }) => {
   const wheelLastProcessed = useRef(0);
-  const historyDragRef = useRef({ startX: 0, dragging: false });
 
   // 검색 입력은 로컬 상태로 두고 디바운스된 값만 부모로 올린다.
   // 키 입력마다 App 전체가 리렌더되는 것을 막고, 검색 뷰 전환도 디바운스된 searchTerm 기준으로 일어난다.
@@ -243,36 +246,151 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     }
   }, [historyIndex, allMessages.length, totalMessageCount, isLoading, udbPath, loadUdbFile, searchTerm, setHistoryIndex]);
 
-  const historyOnMouseDown = useCallback((e: React.MouseEvent) => {
-    historyDragRef.current.dragging = true;
-    historyDragRef.current.startX = e.clientX;
+  // ── 히스토리 덱: 손가락 1:1 추적 + 속도 인계 + 모멘텀 페이징(§2·§5·§6) ──
+  // 카드 transform 은 React style 이 아니라 여기서 직접 구동한다. 그래야
+  // 드래그가 손가락에 1:1로 붙고, 릴리스 속도를 스프링에 그대로 넘길 수 있다(§3).
+  const STEP = 20; // 오프셋 한 칸의 시각적 가로 간격(px)
+  const ADVANCE = 120; // 한 장 넘기는 데 필요한 투영 거리(px)
+  const stackRef = useRef<HTMLDivElement>(null);
+  const cardEls = useRef<Map<number, HTMLDivElement>>(new Map());
+  const idxOfId = useRef<Map<number, number>>(new Map());
+  const dragX = useRef(0);
+  const deckSpring = useRef<SpringHandle | null>(null);
+  const springing = useRef(false);
+  const idxRef = useRef(historyIndex);
+  useEffect(() => {
+    idxRef.current = historyIndex;
+  }, [historyIndex]);
+  const deckDrag = useRef({ id: -1, startX: 0, active: false, decided: false, hist: [] as { t: number; x: number }[] });
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!historyDragRef.current.dragging) return;
-      const dx = e.clientX - historyDragRef.current.startX;
-      const threshold = 100;
-      if (dx > threshold && historyIndex > 0) {
-        setHistoryIndex(historyIndex - 1);
-        historyDragRef.current.dragging = false;
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      } else if (dx < -threshold && historyIndex < allMessages.length - 1) {
-        setHistoryIndex(historyIndex + 1);
-        historyDragRef.current.dragging = false;
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      }
-    };
+  const layoutDeck = useCallback((withTransition: boolean) => {
+    const idx = idxRef.current;
+    const dx = dragX.current;
+    cardEls.current.forEach((el, id) => {
+      const ai = idxOfId.current.get(id);
+      if (ai === undefined) return;
+      const o = ai - idx;
+      const ao = Math.abs(o);
+      const scale = 1 - ao * 0.05;
+      const opacity = ao > 3 ? 0 : 1 - ao * 0.15;
+      const rot = o === 0 ? clamp(dx / 18, -14, 14) : 0;
+      el.style.transition = withTransition
+        ? 'transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.34s ease'
+        : 'none';
+      el.style.transform = `translateX(${o * STEP + dx}px) translateY(${ao * STEP}px) scale(${scale}) rotate(${rot}deg)`;
+      el.style.opacity = String(opacity);
+      el.style.zIndex = String(1000 - ao);
+      el.classList.toggle('current', o === 0);
+      el.classList.toggle('offset', o !== 0);
+    });
+  }, []);
 
-    const onMouseUp = () => {
-      historyDragRef.current.dragging = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
+  // 렌더/인덱스 변경 후 카드를 제자리로. 스프링이 도는 중엔 스프링이 주도하므로
+  // 전환 없이(즉시) 위치만 맞춘다.
+  useLayoutEffect(() => {
+    layoutDeck(!springing.current);
+  });
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [historyIndex, allMessages.length, setHistoryIndex]);
+  useEffect(() => () => deckSpring.current?.stop(), []);
+
+  const deckVelocity = (): number => {
+    const h = deckDrag.current.hist;
+    if (h.length < 2) return 0;
+    const a = h[0];
+    const b = h[h.length - 1];
+    const dt = b.t - a.t;
+    return dt > 0 ? ((b.x - a.x) / dt) * 1000 : 0;
+  };
+
+  // 끝에서의 점진적 저항(§9)
+  const rubber = (x: number): number => {
+    const c = 0.55;
+    const dim = window.innerWidth || 1200;
+    return (x * dim * c) / (dim + c * Math.abs(x));
+  };
+
+  const onDeckPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button, a, input')) return;
+    deckSpring.current?.stop();
+    springing.current = false;
+    const d = deckDrag.current;
+    d.id = e.pointerId;
+    d.startX = e.clientX - dragX.current; // 잡은 위치 오프셋 존중(§2)
+    d.active = true;
+    d.decided = false;
+    d.hist = [{ t: e.timeStamp, x: e.clientX }];
+    stackRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onDeckPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = deckDrag.current;
+    if (!d.active || e.pointerId !== d.id) return;
+    let x = e.clientX - d.startX;
+    d.hist.push({ t: e.timeStamp, x: e.clientX });
+    if (d.hist.length > 6) d.hist.shift();
+    if (!d.decided) {
+      if (Math.abs(x) < 8) return; // 히스테리시스(§10)
+      d.decided = true;
+      stackRef.current?.classList.add('dragging');
+    }
+    const idx = idxRef.current;
+    const maxIdx = allMessages.length - 1;
+    if ((idx <= 0 && x > 0) || (idx >= maxIdx && x < 0)) x = rubber(x);
+    dragX.current = x;
+    layoutDeck(false);
+  };
+
+  const onDeckPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = deckDrag.current;
+    if (e.pointerId !== d.id) return;
+    d.active = false;
+    try {
+      stackRef.current?.releasePointerCapture(e.pointerId);
+    } catch {
+      /* 이미 해제됨 */
+    }
+    stackRef.current?.classList.remove('dragging');
+    if (!d.decided) return;
+
+    const vx = deckVelocity();
+    const projected = dragX.current + project(vx); // 착지점 투영(§6)
+    const rawSteps = Math.round(projected / ADVANCE);
+    const idx = idxRef.current;
+    const maxIdx = Math.max(0, allMessages.length - 1);
+    const newIndex = clamp(idx - rawSteps, 0, maxIdx);
+    const steps = idx - newIndex; // 실제 반영된 스텝
+
+    // 끝에 가까워지면 다음 페이지 미리 로드
+    if (newIndex >= allMessages.length - 5 && allMessages.length < totalMessageCount) {
+      loadUdbFile(udbPath, allMessages.length, '');
+    }
+
+    // 재인덱스 후에도 화면 위치가 이어지도록 dragX 보정(연속성)
+    dragX.current = dragX.current - steps * STEP;
+    idxRef.current = newIndex;
+    if (newIndex !== idx) setHistoryIndex(newIndex);
+
+    if (prefersReducedMotion()) {
+      dragX.current = 0;
+      layoutDeck(false);
+      return;
+    }
+    springing.current = true;
+    deckSpring.current = animateSpring({
+      from: dragX.current,
+      to: 0,
+      velocity: vx,
+      onUpdate: (v) => {
+        dragX.current = v;
+        layoutDeck(false);
+      },
+      onComplete: () => {
+        springing.current = false;
+        dragX.current = 0;
+        layoutDeck(true);
+      },
+    });
+  };
 
   // 키보드 이벤트로 메시지 넘기기
   const handleHistoryKeyDown = useCallback((e: KeyboardEvent) => {
@@ -369,27 +487,35 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         {allMessages.length === 0 ? (
           <p className="empty">메시지가 없습니다.</p>
         ) : (
-          <div className="history-card-stack" onMouseDown={historyOnMouseDown}>
+          <div
+            className="history-card-stack"
+            ref={stackRef}
+            onPointerDown={onDeckPointerDown}
+            onPointerMove={onDeckPointerMove}
+            onPointerUp={onDeckPointerUp}
+            onPointerCancel={onDeckPointerUp}
+          >
             {(() => {
               const renderWindow = 11; // 현재 아이템 기준 앞뒤로 5개씩
               const startIndex = Math.max(0, historyIndex - Math.floor(renderWindow / 2));
               const endIndex = Math.min(allMessages.length, startIndex + renderWindow);
 
+              // 카드 위치는 layoutDeck 이 직접 구동한다. 여기서는 id→절대인덱스만 기록.
+              idxOfId.current.clear();
+
               return allMessages.slice(startIndex, endIndex).map((msg, i) => {
                 const idx = startIndex + i; // 원래 인덱스 복원
-                const isCurrent = idx === historyIndex;
-                const offset = idx - historyIndex;
+                idxOfId.current.set(msg.id, idx);
                 const classification = classified[msg.id];
                 const deadline = deadlines[msg.id.toString()]; // deadlines keys are strings
-                
+
                 return (
-                  <div 
-                    key={msg.id} 
-                    className={`history-card ${isCurrent ? 'current' : 'offset'}`}
-                    style={{
-                      transform: `translateX(${offset * 20}px) translateY(${Math.abs(offset) * 20}px) scale(${1 - Math.abs(offset) * 0.05})`,
-                      zIndex: allMessages.length - Math.abs(offset),
-                      opacity: Math.abs(offset) > 3 ? 0 : 1 - Math.abs(offset) * 0.15
+                  <div
+                    key={msg.id}
+                    className="history-card"
+                    ref={(el) => {
+                      if (el) cardEls.current.set(msg.id, el);
+                      else cardEls.current.delete(msg.id);
                     }}
                   >
                     <div className="history-card-inner">
@@ -420,7 +546,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                           </button>
                         )}
                       </div>
-                      <div className="history-card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.preview) }} />
+                      <MessageContent className="history-card-content" message={msg} getFullMessage={getFullMessage} />
                       {msg.file_paths && msg.file_paths.length > 0 && (
                         <AttachmentList filePaths={msg.file_paths} />
                       )}

@@ -2,13 +2,16 @@ import React from 'react';
 import { MessageMeta } from '../types';
 import { PageHeader } from './PageHeader';
 import { AttachmentList } from './AttachmentList';
-import { decodeEntities, formatReceiveDate } from '../utils/dateUtils';
+import { SwipeCard } from './SwipeCard';
+import { formatReceiveDate } from '../utils/dateUtils';
+import { Message } from '../types';
+import { MessageContent } from './MessageContent';
 
 interface ClassifierPageProps {
   isLoading: boolean;
   statusText: string;
   visibleMessages: MessageMeta[];  // Lightweight metadata only
-  onMouseDown: (id: number) => (e: React.MouseEvent<HTMLDivElement>) => void;
+  getFullMessage: (id: number) => Promise<Message | null>;
   classify: (id: number, direction: 'left' | 'right') => void;
   loadUdbFile: (path?: string, offset?: number, searchTerm?: string) => Promise<void>;
   udbPath: string;
@@ -27,7 +30,7 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
   isLoading,
   statusText,
   visibleMessages,
-  onMouseDown,
+  getFullMessage,
   classify,
   loadUdbFile,
   udbPath,
@@ -61,16 +64,27 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
       <div className="classifier-stage">
         {visibleMessages.length === 0 && (
           <div className="empty">
-            {udbPath ? '분류할 메시지가 없습니다.' : (
+            {udbPath ? (
+              <>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+                  <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                </svg>
+                <span>분류할 메시지가 없습니다.</span>
+              </>
+            ) : (
               <div className="no-udb">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
                 <p>UDB 파일을 선택해주세요.</p>
                 <button onClick={pickUdb}>파일 선택</button>
               </div>
             )}
           </div>
         )}
-        {visibleMessages.map((msg, idx) => (
-          <div key={msg.id} className={`card ${idx === 0 ? 'top' : 'back'}`} onMouseDown={onMouseDown(msg.id)}>
+        {visibleMessages.map((msg, idx) => {
+          const inner = (
             <div className="card-inner">
               <div className="card-sender">
                 {msg.sender}
@@ -80,7 +94,7 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
                   </span>
                 )}
               </div>
-              <div className="card-content" dangerouslySetInnerHTML={{ __html: decodeEntities(msg.preview) }} />
+              <MessageContent className="card-content" message={msg} getFullMessage={getFullMessage} />
               {msg.file_paths && msg.file_paths.length > 0 && (
                 <AttachmentList filePaths={msg.file_paths} />
               )}
@@ -89,8 +103,16 @@ export const ClassifierPage: React.FC<ClassifierPageProps> = ({
                 <button className="right" onClick={() => classify(msg.id, 'right')}>해야할 일 ▶</button>
               </div>
             </div>
-          </div>
-        )).reverse() /* Render back card first */}
+          );
+          // 최상단 카드만 스와이프 상호작용(§2·§3), 뒷장은 정적으로 쌓아둔다.
+          return idx === 0 ? (
+            <SwipeCard key={msg.id} className="card top" onSwipe={(dir) => classify(msg.id, dir)}>
+              {inner}
+            </SwipeCard>
+          ) : (
+            <div key={msg.id} className="card back">{inner}</div>
+          );
+        }).reverse() /* Render back card first */}
       </div>
       {/* Sync Status Overlay or Indicator if needed */}
       {isSyncing && (

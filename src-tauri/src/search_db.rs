@@ -649,8 +649,9 @@ pub async fn read_cached_messages(
     app: AppHandle,
     limit: Option<i64>,
     offset: Option<i64>,
+    include_content: Option<bool>,
 ) -> Result<PaginatedCachedMessages, String> {
-    tauri::async_runtime::spawn_blocking(move || read_cached_messages_blocking(&app, limit, offset))
+    tauri::async_runtime::spawn_blocking(move || read_cached_messages_blocking(&app, limit, offset, include_content.unwrap_or(true)))
         .await
         .map_err(|e| format!("메시지 로드 작업 실패: {}", e))?
 }
@@ -659,6 +660,7 @@ fn read_cached_messages_blocking(
     app: &AppHandle,
     limit: Option<i64>,
     offset: Option<i64>,
+    include_content: bool,
 ) -> Result<PaginatedCachedMessages, String> {
     let conn = get_connection(app)?;
     
@@ -673,12 +675,14 @@ fn read_cached_messages_blocking(
     ).unwrap_or(0);
     
     // Get paginated messages (ordered by receive_date DESC, then id DESC)
-    let mut stmt = conn.prepare(
-        "SELECT id, sender, content, content_preview, receive_date, file_paths 
+    // 既存の呼び出しは全文を維持。一覧では巨大なHTML/インライン画像をSQLiteから読まない。
+    let content_column = if include_content { "content" } else { "''" };
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, sender, {content_column}, content_preview, receive_date, file_paths 
          FROM messages 
          ORDER BY receive_date DESC, id DESC 
          LIMIT ?1 OFFSET ?2"
-    ).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
+    )).map_err(|e| format!("쿼리 준비 실패: {}", e))?;
     
     let messages: Vec<CachedMessage> = stmt
         .query_map(params![limit_val, offset_val], |row| {
