@@ -1,75 +1,342 @@
 .layout {
-    display: flex;
     min-height: 100vh;
+    min-height: 100dvh;
 }
 
-.main-content {
-    flex: 1;
-    margin-left: 70px;
-    /* Sidebar width (collapsed) */
-    padding: var(--spacing-xl);
-    background-color: var(--background);
-    transition: margin-left var(--transition-fast);
-    position: relative;
-}
-
-.sidebar:hover ~ .main-content {
-    margin-left: 250px;
-}
-
-.mobile-menu-toggle {
-    display: none;
+/* ── 데스크톱 레일 ─────────────────────────────────────── */
+.rail {
     position: fixed;
-    top: var(--spacing-md);
-    left: var(--spacing-md);
-    z-index: 101;
-    background-color: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-sm);
-    width: 44px;
-    height: 44px;
+    inset: 0 auto 0 0;
+    width: var(--rail-w);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 14px 16px;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    z-index: 20;
+}
+
+.rail-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px 22px;
+}
+
+.brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: var(--blue);
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* 로고: 파란 사각형 위에 흰 사선 두 줄 — 쿨메신저 위에 얹힌 레이어라는 뜻 */
+.brand-mark::before,
+.brand-mark::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    height: 2.5px;
+    border-radius: 2px;
+    background: #fff;
+}
+
+.brand-mark::before { top: 7px; }
+.brand-mark::after { top: 12.5px; right: 9px; }
+
+.brand-name {
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.02em;
+}
+
+.rail-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rail-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 42px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    color: var(--ink-2);
+    font-weight: 500;
+    font-size: 15px;
+    transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.rail-link:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+}
+
+.rail-link.active {
+    background: var(--blue-tint);
+    color: var(--blue-deep);
+    font-weight: 600;
+}
+
+.rail-user {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 8px 0;
+    border-top: 1px solid var(--line);
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: var(--surface-3);
+}
+
+.avatar-fallback {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-2);
 }
 
-.mobile-menu-overlay {
+.rail-user-text {
+    min-width: 0;
+    flex: 1;
+}
+
+.rail-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rail-user-email {
+    font-size: 12px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rail-logout {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--ink-3);
+    flex-shrink: 0;
+}
+
+.rail-logout:hover {
+    background: var(--danger-tint);
+    color: var(--danger);
+}
+
+/* ── 본문 ─────────────────────────────────────────────── */
+.main {
+    margin-left: var(--rail-w);
+    padding: 36px 40px 48px;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.page {
+    max-width: var(--content-max);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.page-title {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.page-desc {
+    margin-top: 6px;
+    color: var(--ink-3);
+    font-size: 14px;
+}
+
+.page-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* 공용 패널: 흰 면 + 헤어라인. 그림자 없음 */
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+/* 머리글 도구 링크 */
+.tool-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+    transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.tool-link:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+}
+
+/* 검색 입력 */
+.search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search svg {
+    position: absolute;
+    left: 12px;
+    color: var(--ink-3);
+    pointer-events: none;
+}
+
+.search input {
+    height: 38px;
+    width: 260px;
+    max-width: 100%;
+    padding: 0 12px 0 36px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    font-size: 14px;
+    transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.search input::placeholder {
+    color: var(--ink-3);
+}
+
+.search input:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.18);
+}
+
+/* ── 모바일 탭바 ─────────────────────────────────────── */
+.tabbar {
     display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 99;
-    backdrop-filter: blur(2px);
 }
 
-/* Mobile styles */
-@media (max-width: 768px) {
-    .main-content {
+@media (max-width: 767px) {
+    .rail {
+        display: none;
+    }
+
+    .main {
         margin-left: 0;
-        padding: var(--spacing-md);
-        padding-top: calc(var(--spacing-md) + 60px);
+        padding: 20px 16px calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom));
     }
 
-    /* Calendar page - full screen on mobile */
-    .main-content:has(.calendar-container) {
-        padding: 0;
-        padding-top: 50px;
+    .page {
+        gap: 18px;
     }
 
-    .sidebar:hover ~ .main-content {
-        margin-left: 0;
+    .page-title {
+        font-size: 22px;
     }
 
-    .mobile-menu-toggle {
+    .search input {
+        width: 100%;
+    }
+
+    .page-tools {
+        width: 100%;
+    }
+
+    .tabbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+        padding-bottom: env(safe-area-inset-bottom);
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        background: color-mix(in srgb, var(--surface) 88%, transparent);
+        -webkit-backdrop-filter: saturate(180%) blur(14px);
+        backdrop-filter: saturate(180%) blur(14px);
+        border-top: 1px solid var(--line);
+        z-index: 20;
+    }
+
+    .tab {
         display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--ink-3);
     }
 
-    .mobile-menu-overlay {
-        display: block;
+    .tab.active {
+        color: var(--blue-deep);
+        font-weight: 600;
     }
+}
+
+/* ── 인증 확인 중 스플래시 ───────────────────────────── */
+.splash {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    background: var(--paper);
+}
+
+.splash .brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    animation: splash-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes splash-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.92); }
 }

@@ -1,19 +1,20 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { useState, useEffect, type ReactNode } from 'react';
 import { collection, query, onSnapshot, where, orderBy, limit } from 'firebase/firestore';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import type { ManualTodo, PeriodSchedule, ScheduleItem, Message } from '../types';
+import { DataContext, RECENT_MESSAGE_LIMIT, type DataContextType } from './DataStore';
+import { splitEvents } from '../utils/splitEvents';
 
-interface DataContextType {
-    todos: ManualTodo[];
-    schedules: PeriodSchedule[];
-    recentMessages: Message[];
-    loading: boolean;
-    error: string | null;
+interface ProviderProps {
+    children: ReactNode;
+    /** 테스트·미리보기용: 주어지면 Firebase 구독 없이 이 값을 그대로 제공한다. */
+    value?: DataContextType;
 }
 
-const DataContext = createContext<DataContextType | undefined>(undefined);
-
-export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const DataProvider: React.FC<ProviderProps> = ({ children, value }) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [authLoading, setAuthLoading] = useState(true);
     const [todos, setTodos] = useState<ManualTodo[]>([]);
     const [schedules, setSchedules] = useState<PeriodSchedule[]>([]);
     const [recentMessages, setRecentMessages] = useState<Message[]>([]);
@@ -21,11 +22,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        let unsubscribeEvents: () => void;
-        let unsubscribeMessages: () => void;
+        if (value) return;
+        let unsubscribeEvents: (() => void) | undefined;
+        let unsubscribeMessages: (() => void) | undefined;
 
-        const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-            if (!user) {
+        const stopSubscriptions = () => {
+            unsubscribeEvents?.();
+            unsubscribeMessages?.();
+            unsubscribeEvents = undefined;
+            unsubscribeMessages = undefined;
+        };
+
+        const unsubscribeAuth = onAuthStateChanged(auth, (nextUser) => {
+            setUser(nextUser);
+            setAuthLoading(false);
+            stopSubscriptions();
+
+            if (!nextUser) {
                 setTodos([]);
                 setSchedules([]);
                 setRecentMessages([]);
@@ -34,114 +47,57 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
 
             setLoading(true);
-            const eventsRef = collection(db, 'users', user.uid, 'events');
-            const messagesRef = collection(db, 'users', user.uid, 'messages');
+            setError(null);
+            const eventsRef = collection(db, 'users', nextUser.uid, 'events');
+            const messagesRef = collection(db, 'users', nextUser.uid, 'messages');
 
-            // 1. Subscribe to Events (Schedules & Todos)
-            const eventsQuery = query(eventsRef, where('isDeleted', '==', false));
-            
-            unsubscribeEvents = onSnapshot(eventsQuery, (snapshot) => {
-                const items = snapshot.docs.map(doc => doc.data() as ScheduleItem);
-                
-                const newTodos: ManualTodo[] = [];
-                const newSchedules: PeriodSchedule[] = [];
+            let eventsReady = false;
+            let messagesReady = false;
+            const settle = () => {
+                if (eventsReady && messagesReady) setLoading(false);
+            };
 
-                items.forEach(item => {
-                    if (item.type === 'manual_todo' || item.type === 'desktopcal_memo') {
-                        newTodos.push({
-                            id: item.id,
-                            content: item.content || '',
-                            deadline: item.startDate || null,
-                            createdAt: item.createdAt,
-                            updatedAt: item.updatedAt,
-                            calendarTitle: item.title,
-                            isDeleted: item.isDeleted,
-                            referenceId: item.referenceId
-                        });
-                    } else if (item.type === 'period_schedule' || item.type === 'desktopcal_event') {
-                        newSchedules.push({
-                            id: item.id,
-                            content: item.content || '',
-                            startDate: item.startDate || '',
-                            endDate: item.endDate || '',
-                            calendarTitle: item.title,
-                            createdAt: item.createdAt,
-                            updatedAt: item.updatedAt,
-                            isDeleted: item.isDeleted,
-                            referenceId: item.referenceId
-                        });
-                    } else if (item.type === 'message_task') {
-                         // Map message tasks to schedules so they appear on calendar
-                         newSchedules.push({
-                            id: item.id,
-                            content: item.content || '',
-                            startDate: item.startDate || '',
-                            endDate: item.endDate || '',
-                            calendarTitle: item.title,
-                            createdAt: item.createdAt,
-                            updatedAt: item.updatedAt,
-                            isDeleted: item.isDeleted,
-                            referenceId: item.referenceId
-                        });
-                    }
-                });
+            unsubscribeEvents = onSnapshot(
+                query(eventsRef, where('isDeleted', '==', false)),
+                (snapshot) => {
+                    const items = snapshot.docs.map(d => d.data() as ScheduleItem);
+                    const split = splitEvents(items);
+                    setTodos(split.todos);
+                    setSchedules(split.schedules);
+                    eventsReady = true;
+                    settle();
+                },
+                (err) => {
+                    console.error('Error fetching events:', err);
+                    setError('일정을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+                    eventsReady = true;
+                    settle();
+                },
+            );
 
-                // Deduplication Logic:
-                // If a Todo has the same title and date as a Schedule, prefer the Schedule.
-                // This handles cases where legacy migration created both types for the same event.
-                const scheduleKeys = new Set<string>();
-                newSchedules.forEach(s => {
-                    // Create a unique key based on title and start date
-                    // Use a normalized date string for comparison
-                    const dateStr = s.startDate ? new Date(s.startDate).toDateString() : 'no-date';
-                    const key = `${s.calendarTitle || s.content}|${dateStr}`;
-                    scheduleKeys.add(key);
-                });
-
-                const uniqueTodos = newTodos.filter(t => {
-                    const dateStr = t.deadline ? new Date(t.deadline).toDateString() : 'no-date';
-                    const key = `${t.calendarTitle || t.content}|${dateStr}`;
-                    // Only keep todo if it DOESN'T match an existing schedule
-                    return !scheduleKeys.has(key);
-                });
-
-                setTodos(uniqueTodos);
-                setSchedules(newSchedules);
-            }, (err) => {
-                console.error("Error fetching events:", err);
-                setError("Failed to fetch events");
-            });
-
-            // 2. Subscribe to Recent Messages
-            const messagesQuery = query(messagesRef, orderBy('id', 'desc'), limit(20));
-            
-            unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
-                const msgs = snapshot.docs.map(doc => doc.data() as Message);
-                setRecentMessages(msgs);
-                setLoading(false);
-            }, (err) => {
-                console.error("Error fetching messages:", err);
-            });
+            unsubscribeMessages = onSnapshot(
+                query(messagesRef, orderBy('id', 'desc'), limit(RECENT_MESSAGE_LIMIT)),
+                (snapshot) => {
+                    setRecentMessages(snapshot.docs.map(d => d.data() as Message));
+                    messagesReady = true;
+                    settle();
+                },
+                (err) => {
+                    console.error('Error fetching messages:', err);
+                    setError('메시지를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+                    messagesReady = true;
+                    settle();
+                },
+            );
         });
 
         return () => {
             unsubscribeAuth();
-            if (unsubscribeEvents) unsubscribeEvents();
-            if (unsubscribeMessages) unsubscribeMessages();
+            stopSubscriptions();
         };
-    }, []);
+    }, [value]);
 
-    return (
-        <DataContext.Provider value={{ todos, schedules, recentMessages, loading, error }}>
-            {children}
-        </DataContext.Provider>
-    );
-};
+    const ctx: DataContextType = value ?? { user, authLoading, todos, schedules, recentMessages, loading, error };
 
-export const useData = () => {
-    const context = useContext(DataContext);
-    if (context === undefined) {
-        throw new Error('useData must be used within a DataProvider');
-    }
-    return context;
+    return <DataContext.Provider value={ctx}>{children}</DataContext.Provider>;
 };

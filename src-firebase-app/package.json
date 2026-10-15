@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/make-scriptable.mjs && tsc -b && vite build",
+    "scriptable": "node scripts/make-scriptable.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest"
   },
   "dependencies": {
+    "dompurify": "^3.4.15",
     "firebase": "^12.6.0",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",

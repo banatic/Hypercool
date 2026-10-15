@@ -1,130 +1,64 @@
-import { useState, useEffect, useCallback } from 'react';
-import { collection, query, orderBy, limit, getDocs, startAfter, QueryDocumentSnapshot } from 'firebase/firestore';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { collection, query, orderBy, limit, getDocs, startAfter } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Message } from '../types';
-import { useData } from '../context/DataContext';
+import { useData, RECENT_MESSAGE_LIMIT } from '../context/DataStore';
 
-const CHUNK_SIZE = 20;
+const CHUNK_SIZE = RECENT_MESSAGE_LIMIT;
 
+/**
+ * 메시지 목록 = 컨텍스트가 실시간 구독하는 최근 N건 + 그 뒤로 페이지 단위로 더 불러온 것.
+ * 첫 화면을 위해 따로 조회하지 않으며, 새 메시지는 컨텍스트를 통해 맨 위에 자동으로 나타난다.
+ */
 export const useMessages = () => {
     const { recentMessages, loading: contextLoading } = useData();
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [older, setOlder] = useState<Message[]>([]);
     const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
-    const [hasMore, setHasMore] = useState(true);
+    const [exhausted, setExhausted] = useState(false);
 
-    // Initialize with recent messages from context if available
+    // 로그아웃/재로그인으로 최근 목록이 비면 이어 붙인 것도 버린다.
     useEffect(() => {
-        if (!contextLoading && recentMessages.length > 0 && messages.length === 0) {
-            setMessages(recentMessages);
-            setLoading(false);
+        if (!contextLoading && recentMessages.length === 0) {
+            setOlder([]);
+            setExhausted(false);
         }
-    }, [recentMessages, contextLoading, messages.length]);
+    }, [contextLoading, recentMessages.length]);
 
-    const loadInitialMessages = useCallback(async () => {
-        // If we already have messages (from context), don't re-fetch unless forced or empty
-        if (messages.length > 0) return;
-
-        const user = auth.currentUser;
-        if (!user) {
-            setLoading(false);
-            return;
+    const messages = useMemo(() => {
+        const seen = new Set<number>();
+        const out: Message[] = [];
+        for (const m of [...recentMessages, ...older]) {
+            if (seen.has(m.id)) continue;
+            seen.add(m.id);
+            out.push(m);
         }
+        return out;
+    }, [recentMessages, older]);
 
-        try {
-            setLoading(true);
-            setError(null);
-            const messagesRef = collection(db, 'users', user.uid, 'messages');
-            const q = query(
-                messagesRef,
-                orderBy('id', 'desc'),
-                limit(CHUNK_SIZE)
-            );
-
-            const snapshot = await getDocs(q);
-            const messagesData = snapshot.docs.map(doc => doc.data() as Message);
-
-            setMessages(messagesData);
-
-            if (snapshot.docs.length > 0) {
-                setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-                setHasMore(snapshot.docs.length === CHUNK_SIZE);
-            } else {
-                setLastDoc(null);
-                setHasMore(false);
-            }
-        } catch (err) {
-            console.error("Error fetching messages:", err);
-            setError("메시지를 불러오는데 실패했습니다");
-        } finally {
-            setLoading(false);
-        }
-    }, [messages.length]);
+    const hasMore = !contextLoading && !exhausted && recentMessages.length >= CHUNK_SIZE;
 
     const loadMoreMessages = useCallback(async () => {
         const user = auth.currentUser;
-        // If we don't have lastDoc (e.g. initial load was from context), we need to find the last doc of current messages
-        // But context doesn't give us docs, only data.
-        // So if we loaded from context, we might need to fetch the "next" chunk by ID or just re-fetch properly.
+        if (!user || loadingMore || !hasMore || messages.length === 0) return;
 
-        // Strategy: If we loaded from context, we don't have `lastDoc`.
-        // We can query startAfter the last message ID we have.
-
-        if (!user || (!lastDoc && messages.length === 0) || !hasMore || loadingMore) {
-            return;
-        }
-
+        const lastId = messages[messages.length - 1].id;
         try {
             setLoadingMore(true);
             setError(null);
             const messagesRef = collection(db, 'users', user.uid, 'messages');
-
-            let q;
-            if (lastDoc) {
-                q = query(
-                    messagesRef,
-                    orderBy('id', 'desc'),
-                    startAfter(lastDoc),
-                    limit(CHUNK_SIZE)
-                );
-            } else if (messages.length > 0) {
-                // Fallback: use the ID of the last message
-                const lastMessage = messages[messages.length - 1];
-                q = query(
-                    messagesRef,
-                    orderBy('id', 'desc'),
-                    startAfter(lastMessage.id), // Assuming ID is sortable/compatible with orderBy
-                    limit(CHUNK_SIZE)
-                );
-            } else {
-                return;
-            }
-
+            const q = query(messagesRef, orderBy('id', 'desc'), startAfter(lastId), limit(CHUNK_SIZE));
             const snapshot = await getDocs(q);
-            const newMessages = snapshot.docs.map(doc => doc.data() as Message);
-
-            setMessages(prev => [...prev, ...newMessages]);
-
-            if (snapshot.docs.length > 0) {
-                setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-                setHasMore(snapshot.docs.length === CHUNK_SIZE);
-            } else {
-                setLastDoc(null);
-                setHasMore(false);
-            }
+            const next = snapshot.docs.map(d => d.data() as Message);
+            setOlder(prev => [...prev, ...next]);
+            if (next.length < CHUNK_SIZE) setExhausted(true);
         } catch (err) {
-            console.error("Error loading more messages:", err);
-            setError("더 많은 메시지를 불러오는데 실패했습니다");
+            console.error('Error loading more messages:', err);
+            setError('이전 메시지를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
         } finally {
             setLoadingMore(false);
         }
-    }, [lastDoc, hasMore, loadingMore, messages]);
+    }, [loadingMore, hasMore, messages]);
 
-    useEffect(() => {
-        loadInitialMessages();
-    }, [loadInitialMessages]);
-
-    return { messages, loading, loadingMore, error, hasMore, loadMoreMessages };
+    return { messages, loading: contextLoading, loadingMore, error, hasMore, loadMoreMessages };
 };

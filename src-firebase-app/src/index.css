@@ -1,9 +1,14 @@
 @import './styles/variables.css';
 
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 * {
     margin: 0;
     padding: 0;
-    box-sizing: border-box;
 }
 
 html {
@@ -12,64 +17,241 @@ html {
 }
 
 body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: var(--background);
-    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
     line-height: 1.5;
+    background-color: var(--paper);
+    color: var(--ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'tnum' 1;
     overflow-x: hidden;
 }
 
 a {
     color: inherit;
     text-decoration: none;
-    -webkit-tap-highlight-color: transparent;
 }
 
 button {
     cursor: pointer;
     border: none;
     background: none;
-    font-family: inherit;
-    -webkit-tap-highlight-color: transparent;
+    font: inherit;
+    color: inherit;
     touch-action: manipulation;
 }
 
-input {
-    font-family: inherit;
-    -webkit-tap-highlight-color: transparent;
+input,
+textarea,
+select {
+    font: inherit;
+    color: inherit;
 }
 
-/* Scrollbar */
+button:disabled {
+    cursor: default;
+}
+
+:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+}
+
+::selection {
+    background: rgba(var(--blue-rgb), 0.25);
+}
+
+/* 스크롤바 — 얇고 조용하게 */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--background);
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--surface-hover);
+    background: var(--line-strong);
     border-radius: var(--radius-full);
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+/* 공용: 비어 있음 / 오류 / 스켈레톤 */
+.state-empty {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 14px;
 }
 
-/* Mobile optimizations */
-@media (max-width: 768px) {
-    body {
-        font-size: 16px;
+.state-empty strong {
+    display: block;
+    color: var(--ink-2);
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.state-error {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--danger-tint);
+    color: var(--danger);
+    font-size: 14px;
+}
+
+.skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface-2);
+    border-radius: var(--radius-xs);
+    color: transparent !important;
+}
+
+.skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+    .skeleton::after {
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
     }
+}
 
-    /* Prevent zoom on input focus on iOS */
+@keyframes shimmer {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+/* 시각적으로 숨김(스크린리더용) */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* 종류·기한 배지(칩) */
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--surface-2);
+    color: var(--ink-2);
+}
+
+.chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+.chip.event { background: var(--cat-event-tint); color: var(--cat-event); }
+.chip.period { background: var(--cat-period-tint); color: var(--cat-period); }
+.chip.todo { background: var(--cat-todo-tint); color: var(--cat-todo); }
+.chip.message { background: var(--cat-message-tint); color: var(--cat-message); }
+.chip.danger { background: var(--danger-tint); color: var(--danger); }
+.chip.accent { background: var(--blue-tint); color: var(--blue-deep); }
+
+/* 메시지 본문(HTML) 공용 스타일 — 원본 서식은 살리되 폭은 넘치지 않게 */
+.rich-html {
+    line-height: 1.75;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.rich-html * {
+    max-width: 100% !important;
+}
+
+.rich-html img {
+    height: auto !important;
+    border-radius: var(--radius-sm);
+}
+
+.rich-html table {
+    width: 100% !important;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.rich-html td,
+.rich-html th {
+    border: 1px solid var(--line);
+    padding: 4px 6px;
+    vertical-align: top;
+}
+
+.rich-html pre,
+.rich-html code {
+    white-space: pre-wrap;
+}
+
+.rich-html a {
+    color: var(--blue-deep);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.rich-html p {
+    margin: 0 0 0.4em;
+}
+
+.rich-html ul,
+.rich-html ol {
+    padding-left: 1.4em;
+    margin: 0 0 0.5em;
+}
+
+@media (prefers-color-scheme: dark) {
+    /* 쿨메신저 본문은 밝은 배경을 전제로 인라인 색을 박아 놓는 경우가 많다 */
+    .rich-html {
+        background: #fbfcfe;
+        color: #17202a;
+        padding: 16px;
+        border-radius: var(--radius-md);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+@media (max-width: 767px) {
     input,
     textarea,
     select {
-        font-size: 16px;
+        font-size: 16px; /* iOS 포커스 확대 방지 */
     }
 }

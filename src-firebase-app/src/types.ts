@@ -16,8 +16,12 @@ export interface ManualTodo {
     updatedAt: string;
     calendarTitle?: string;
     isDeleted?: boolean;
+    isCompleted?: boolean;
     referenceId?: string | null;
 }
+
+/** 달력에 올라가는 일정. kind 는 표시 색과 라벨을 정한다. */
+export type ScheduleKind = 'event' | 'period' | 'message';
 
 export interface PeriodSchedule {
     id: string;
@@ -28,7 +32,9 @@ export interface PeriodSchedule {
     createdAt: string;
     updatedAt: string;
     isDeleted?: boolean;
+    isCompleted?: boolean;
     referenceId?: string | null;
+    kind: ScheduleKind;
 }
 
 export interface ScheduleItem {
@@ -46,3 +52,7 @@ export interface ScheduleItem {
     updatedAt: string;
     isDeleted: boolean;
 }
+
+export type CalendarEntry = ManualTodo | PeriodSchedule;
+
+export const isSchedule = (entry: CalendarEntry): entry is PeriodSchedule => 'startDate' in entry;

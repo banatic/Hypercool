@@ -1,31 +1,98 @@
+/* HyperCool 웹 — 디자인 토큰
+   데스크톱 앱(styles.css)과 같은 트루 블루 액센트, 라이트 기본 + 시스템 다크 대응 */
 :root {
-    /* Colors */
-    --primary: #6366f1;
-    --primary-hover: #4f46e5;
-    --secondary: #ec4899;
-    --background: #0f172a;
-    --surface: #1e293b;
-    --surface-hover: #334155;
-    --text: #f8fafc;
-    --text-muted: #94a3b8;
-    --border: #334155;
-    --error: #ef4444;
-    --success: #22c55e;
+    color-scheme: light;
 
-    /* Spacing */
-    --spacing-xs: 0.25rem;
-    --spacing-sm: 0.5rem;
-    --spacing-md: 1rem;
-    --spacing-lg: 1.5rem;
-    --spacing-xl: 2rem;
+    --font-sans: 'Pretendard Variable', Pretendard, 'Inter', -apple-system, BlinkMacSystemFont,
+        system-ui, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
 
-    /* Radius */
-    --radius-sm: 0.375rem;
-    --radius-md: 0.5rem;
-    --radius-lg: 0.75rem;
-    --radius-full: 9999px;
+    /* 바탕과 면 */
+    --paper: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f1f3f6;
+    --surface-3: #e9ecf1;
+    --line: #e6e8ec;
+    --line-strong: #d3d7de;
 
-    /* Transitions */
-    --transition-fast: 150ms ease;
-    --transition-normal: 300ms ease;
+    /* 글자 */
+    --ink: #17202a;
+    --ink-2: #4b5563;
+    --ink-3: #8a94a3;
+    --ink-inverse: #ffffff;
+
+    /* 액센트 */
+    --blue: #3b82f6;
+    --blue-deep: #1d4ed8;
+    --blue-tint: #e8f0fe;
+    --blue-rgb: 59, 130, 246;
+
+    /* 일정 종류별 색 — 채움(tint)과 글자(ink) 쌍 */
+    --cat-event: #1d4ed8;
+    --cat-event-tint: #dbeafe;
+    --cat-period: #0f766e;
+    --cat-period-tint: #ccfbf1;
+    --cat-todo: #b45309;
+    --cat-todo-tint: #fef3c7;
+    --cat-message: #6d28d9;
+    --cat-message-tint: #ede9fe;
+
+    --danger: #dc2626;
+    --danger-tint: #fee2e2;
+    --sunday: #dc2626;
+    --saturday: #2563eb;
+
+    /* 그림자: 떠 있는 것(모달·시트)에만 쓴다 */
+    --shadow-pop: 0 12px 32px -8px rgb(23 32 42 / 0.18), 0 2px 6px -2px rgb(23 32 42 / 0.08);
+
+    --radius-xs: 4px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-full: 999px;
+
+    --rail-w: 232px;
+    --tabbar-h: 60px;
+    --content-max: 1200px;
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 140ms;
+    --dur: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --paper: #0f141b;
+        --surface: #161c25;
+        --surface-2: #1d2530;
+        --surface-3: #26303d;
+        --line: #26303d;
+        --line-strong: #364252;
+
+        --ink: #eef2f7;
+        --ink-2: #b6c0cd;
+        --ink-3: #7b8797;
+        --ink-inverse: #0f141b;
+
+        --blue: #60a5fa;
+        --blue-deep: #93c5fd;
+        --blue-tint: #1a2a45;
+        --blue-rgb: 96, 165, 250;
+
+        --cat-event: #93c5fd;
+        --cat-event-tint: #1c2f4d;
+        --cat-period: #5eead4;
+        --cat-period-tint: #113632;
+        --cat-todo: #fcd34d;
+        --cat-todo-tint: #3b2f0d;
+        --cat-message: #c4b5fd;
+        --cat-message-tint: #2b2249;
+
+        --danger: #f87171;
+        --danger-tint: #3f1d1d;
+        --sunday: #f87171;
+        --saturday: #7db2ff;
+
+        --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+    }
 }

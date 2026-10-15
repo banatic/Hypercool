@@ -1,0 +1,36 @@
+.event-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.event-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.event-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.event-body-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.event-body-loading .skeleton {
+  display: block;
+  height: 14px;
+}
+
+.event-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+}

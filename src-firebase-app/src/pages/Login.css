@@ -1,90 +1,152 @@
-.login-page {
+.login {
     min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    background: var(--paper);
+}
+
+/* 왼쪽: 달력 격자를 크게 키운 장식 — 제품이 하는 일(달력에 일정 채우기)을 그대로 보여준다 */
+.login-hero {
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--background);
-    padding: var(--spacing-md);
+    padding: 48px;
+    background: var(--blue);
+    background-image:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.16), transparent 45%),
+        radial-gradient(circle at 80% 90%, rgba(29, 78, 216, 0.55), transparent 50%);
 }
 
-.login-container {
-    width: 100%;
-    max-width: 400px;
+.hero-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+    width: min(100%, 420px);
+    aspect-ratio: 7 / 5;
+}
+
+.hero-cell {
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.hero-cell.on {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.hero-cell.today {
+    background: #17202a;
+    border-color: #17202a;
+}
+
+/* 오른쪽: 내용 */
+.login-panel {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xl);
+    justify-content: center;
+    padding: 64px clamp(28px, 7vw, 96px);
+    max-width: 640px;
 }
 
-.login-header {
-    text-align: center;
-}
-
-.login-header h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    color: var(--primary);
-    margin-bottom: var(--spacing-xs);
-}
-
-.login-header p {
-    color: var(--text-muted);
-}
-
-.login-actions {
+.login-brand {
     display: flex;
-    flex-direction: column;
-    gap: var(--spacing-lg);
     align-items: center;
+    gap: 10px;
+    margin-bottom: 40px;
 }
 
-.login-btn {
-    width: 100%;
-    margin-top: var(--spacing-sm);
-    min-height: 48px;
+.login-title {
+    font-size: clamp(26px, 3vw, 34px);
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    word-break: keep-all;
+}
+
+.login-lead {
+    margin-top: 16px;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    word-break: keep-all;
+    max-width: 44ch;
 }
 
 .google-btn {
-    background-color: white;
-    color: #3c4043;
-    border: 1px solid #dadce0;
-    display: flex;
+    margin-top: 32px;
+    height: 50px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
+    padding: 0 22px;
+    border-radius: var(--radius-md);
+    background: var(--ink);
+    color: var(--ink-inverse);
+    font-size: 15px;
+    font-weight: 600;
+    align-self: flex-start;
+    transition: transform var(--dur-fast), opacity var(--dur-fast);
+}
+
+.google-btn svg {
+    background: #fff;
+    border-radius: 50%;
+    padding: 2px;
+    box-sizing: content-box;
 }
 
 .google-btn:hover:not(:disabled) {
-    background-color: #f8f9fa;
-    border-color: #dadce0;
-    box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.30), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    opacity: 0.92;
 }
 
-.google-icon {
-    width: 18px;
-    height: 18px;
+.google-btn:active:not(:disabled) {
+    transform: scale(0.985);
 }
 
-.error-message {
-    color: var(--error);
-    font-size: 0.875rem;
-    text-align: center;
+.google-btn:disabled {
+    opacity: 0.6;
 }
 
-/* Mobile styles */
-@media (max-width: 768px) {
-    .login-page {
-        padding: var(--spacing-md);
+.login-error {
+    margin-top: 14px;
+    color: var(--danger);
+    font-size: 14px;
+}
+
+@media (max-width: 900px) {
+    .login {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
     }
 
-    .login-container {
-        gap: var(--spacing-lg);
+    .login-hero {
+        padding: 28px 24px;
+        min-height: 200px;
     }
 
-    .login-header h1 {
-        font-size: 2rem;
+    .hero-grid {
+        width: min(100%, 300px);
+        gap: 7px;
     }
 
-    .login-header p {
-        font-size: 0.875rem;
+    .hero-cell {
+        border-radius: 7px;
+    }
+
+    .login-panel {
+        padding: 36px 24px 48px;
+        justify-content: flex-start;
+        max-width: none;
+    }
+
+    .login-brand {
+        margin-bottom: 24px;
+    }
+
+    .google-btn {
+        align-self: stretch;
     }
 }

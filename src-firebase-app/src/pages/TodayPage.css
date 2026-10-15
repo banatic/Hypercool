@@ -1,0 +1,202 @@
+.today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.today-messages {
+  grid-column: 1 / -1;
+}
+
+.today-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 12px;
+}
+
+.today-panel-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.today-panel-count {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.today-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue-deep);
+  padding: 4px 6px;
+  border-radius: var(--radius-xs);
+}
+
+.today-more:hover {
+  background: var(--blue-tint);
+}
+
+.today-list {
+  list-style: none;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.entry-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+
+.entry-row.compact {
+  padding: 8px 12px;
+}
+
+.entry-row:hover {
+  background: var(--surface-2);
+}
+
+.entry-row.done .entry-title {
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+
+.entry-title {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry-kind {
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* 다가오는 일정: 날짜 열 + 항목 열 */
+.upcoming {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 8px;
+}
+
+.upcoming-day {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 4px;
+  padding: 6px 12px 6px 20px;
+}
+
+.upcoming-day + .upcoming-day {
+  border-top: 1px solid var(--line);
+}
+
+.upcoming-date {
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+  line-height: 1.15;
+}
+
+.upcoming-daynum {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.upcoming-weekday {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.upcoming-dday {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.upcoming-day .today-list {
+  padding: 0;
+}
+
+/* 최근 메시지 행 */
+.msg-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-fast);
+}
+
+.msg-row:hover {
+  background: var(--surface-2);
+}
+
+.msg-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.msg-row-sender {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-row-date {
+  font-size: 12px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+.msg-row-snippet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-row-snippet svg {
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+
+.msg-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1023px) {
+  .today-grid {
+    grid-template-columns: 1fr;
+  }
+}

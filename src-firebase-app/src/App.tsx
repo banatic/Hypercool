@@ -1,48 +1,48 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
+import { DataProvider } from './context/DataContext';
+import { useData } from './context/DataStore';
 import { Login } from './pages/Login';
+import { TodayPage } from './pages/TodayPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { MessagesPage } from './pages/MessagesPage';
-import { TodosPage } from './pages/TodosPage';
+import { WidgetPage } from './pages/WidgetPage';
 import { Layout } from './components/Layout';
-import './App.css';
+
+const Splash = () => (
+  <div className="splash" aria-busy="true" aria-label="불러오는 중">
+    <span className="brand-mark" />
+  </div>
+);
 
 const AuthGuard = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  if (isAuthenticated === null) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>;
-  }
-
-  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+  const { user, authLoading } = useData();
+  if (authLoading) return <Splash />;
+  return user ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
-import { DataProvider } from './context/DataContext';
+export const AppRoutes = () => (
+  <Routes>
+    <Route path="/login" element={<Login />} />
+    <Route element={<AuthGuard />}>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<Navigate to="/today" replace />} />
+        <Route path="today" element={<TodayPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
+        <Route path="messages" element={<MessagesPage />} />
+        <Route path="widget" element={<WidgetPage />} />
+        {/* 예전 링크 호환 */}
+        <Route path="todos" element={<Navigate to="/calendar" replace />} />
+        <Route path="*" element={<Navigate to="/today" replace />} />
+      </Route>
+    </Route>
+  </Routes>
+);
 
 function App() {
   return (
     <DataProvider>
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<AuthGuard />}>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/calendar" replace />} />
-              <Route path="calendar" element={<CalendarPage />} />
-              <Route path="todos" element={<TodosPage />} />
-              <Route path="messages" element={<MessagesPage />} />
-            </Route>
-          </Route>
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </DataProvider>
   );

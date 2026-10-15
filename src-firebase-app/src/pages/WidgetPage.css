@@ -1,0 +1,105 @@
+.widget .steps {
+  list-style: none;
+  max-width: 640px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  padding: 20px 22px;
+}
+
+.step + .step {
+  border-top: 1px solid var(--line);
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue-tint);
+  color: var(--blue-deep);
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+.step-body h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.8;
+}
+
+.step-body p {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.step-body b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background var(--dur-fast), opacity var(--dur-fast);
+}
+
+.btn:hover {
+  background: var(--surface-2);
+}
+
+.btn.primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.btn.primary:hover {
+  opacity: 0.92;
+  background: var(--blue);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  color: var(--ink-2);
+}
+
+.btn.disabled,
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@media (max-width: 767px) {
+  .step {
+    padding: 16px;
+    gap: 12px;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+}

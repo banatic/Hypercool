@@ -1,519 +1,399 @@
-.calendar-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+.cal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
 }
 
-.calendar-header {
+/* ── 월 헤더 ─────────────────────────────────────────── */
+.cal-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  padding: 20px 24px;
-  background: white;
-  border-bottom: 1px solid #f3f4f6;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
+  gap: 16px;
+  padding: 22px 24px 14px;
 }
 
-.header-left {
+.cal-month {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
+  line-height: 1;
 }
 
-.calendar-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
+.cal-month-num {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
 }
 
-.calendar-title .year {
-  font-weight: 400;
-  color: #6b7280;
-  margin-left: 8px;
-  font-size: 1.25rem;
+.cal-year {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
 }
 
-.calendar-nav {
+.cal-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
-.nav-btn,
-.today-btn {
-  display: flex;
+.cal-nav-btn,
+.cal-today-btn {
+  height: 34px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
-  border: 1px solid #e5e7eb;
-  background: white;
-  border-radius: 8px;
-  cursor: pointer;
-  color: #374151;
-  transition: all 0.2s ease;
-  min-width: 44px;
-  min-height: 44px;
-  touch-action: manipulation;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
-.nav-btn {
-  padding: 8px;
+.cal-nav-btn {
+  width: 34px;
 }
 
-.today-btn {
+.cal-today-btn {
+  padding: 0 12px;
+  font-size: 13px;
   font-weight: 600;
-  font-size: 0.875rem;
+  border: 1px solid var(--line);
 }
 
-.nav-btn:hover,
-.today-btn:hover {
-  background: #f9fafb;
-  border-color: #d1d5db;
-  color: #111827;
+.cal-nav-btn:hover,
+.cal-today-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
-.nav-btn:active,
-.today-btn:active {
-  transform: scale(0.98);
-}
-
-/* Weekdays */
-.calendar-weekdays {
+/* ── 요일 · 격자 ────────────────────────────────────── */
+.cal-weekdays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
 }
 
-.weekday {
-  padding: 12px;
+.cal-weekday {
+  padding: 6px 0 8px;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  min-width: 0;
-  overflow: hidden;
+  color: var(--ink-3);
 }
 
-.weekday.sunday {
-  color: #ef4444;
-}
+.cal-weekday.sun { color: var(--sunday); }
+.cal-weekday.sat { color: var(--saturday); }
 
-.weekday.saturday {
-  color: #3b82f6;
-}
-
-/* Calendar Grid */
-.calendar-grid {
+.cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  flex: 1;
-  overflow-y: auto;
-  background: #e5e7eb;
-  gap: 1px;
-  -webkit-overflow-scrolling: touch;
+  grid-auto-rows: minmax(112px, auto);
+  padding: 8px;
+  gap: 2px;
 }
 
-.calendar-day {
-  background: white;
-  min-height: 120px;
-  padding: 6px;
+.cal-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: background-color 0.2s;
-  width: 100%;
-  box-sizing: border-box;
+  padding: 6px 4px 6px;
+  border-radius: var(--radius-sm);
   min-width: 0;
+  cursor: pointer;
+  transition: background var(--dur-fast);
 }
 
-.calendar-day:hover {
-  background: #fafafa;
+.cal-cell:hover {
+  background: var(--surface-2);
 }
 
-.calendar-day.other-month {
-  background: #f9fafb;
-  color: #d1d5db;
+.cal-cell.selected {
+  background: var(--blue-tint);
 }
 
-.calendar-day.today {
-  background: #eff6ff;
+.cal-cell.out {
+  opacity: 0.45;
 }
 
-.day-header {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 4px;
-}
-
-.day-number {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-  width: 24px;
-  height: 24px;
-  display: flex;
+.cal-num {
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 2px;
 }
 
-.calendar-day.today .day-number {
-  background: #2563eb;
-  color: white;
+.cal-num.sun { color: var(--sunday); }
+.cal-num.sat { color: var(--saturday); }
+
+.cal-cell.today .cal-num {
+  background: var(--blue);
+  color: #fff;
   font-weight: 700;
 }
 
-.day-number.sunday:not(.today .day-number) {
-  color: #ef4444;
-}
-
-.day-number.saturday:not(.today .day-number) {
-  color: #3b82f6;
-}
-
-.day-content {
+.cal-items {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
-  overflow-y: auto;
-  /* Enable vertical scrolling */
-  padding-right: 2px;
-  /* Space for scrollbar */
+  min-width: 0;
 }
 
-.day-content::-webkit-scrollbar {
-  width: 4px;
+.cal-skel-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  margin-left: 2px;
 }
 
-.day-content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.day-content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 4px;
-}
-
-.day-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.8);
-}
-
-/* Event Styles */
-.calendar-schedule {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: pointer;
-  margin-bottom: 2px;
+/* 항목 막대 */
+.cal-bar {
   height: 22px;
   display: flex;
   align-items: center;
-  transition: all 0.2s;
+  gap: 5px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 12px;
   font-weight: 500;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: filter var(--dur-fast);
 }
 
-/* 기간 일정 (여러 날짜에 걸친 일정) - 초록색 */
-.calendar-schedule.period {
-  background: #dcfce7;
-  /* Green-100 */
-  color: #166534;
-  /* Green-800 */
-  border-left: 2px solid #22c55e;
-  /* Green-500 */
+.cal-bar:hover {
+  filter: brightness(0.96);
 }
 
-.calendar-schedule.period:hover {
-  background: #bbf7d0;
-  /* Green-200 */
-  transform: translateY(-1px);
+.cal-bar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 단일 일정 (하루 일정) - 파란색 */
-.calendar-schedule.single {
-  background: #dbeafe;
-  /* Blue-100 */
-  color: #1e40af;
-  /* Blue-800 */
-  border-left: 2px solid #3b82f6;
-  /* Blue-500 */
+.cal-bar.event { background: var(--cat-event-tint); color: var(--cat-event); }
+.cal-bar.period { background: var(--cat-period-tint); color: var(--cat-period); }
+.cal-bar.message { background: var(--cat-message-tint); color: var(--cat-message); }
+.cal-bar.todo { background: var(--cat-todo-tint); color: var(--cat-todo); }
+
+.cal-bar.todo.done {
+  opacity: 0.55;
+  text-decoration: line-through;
 }
 
-.calendar-schedule.single:hover {
-  background: #bfdbfe;
-  /* Blue-200 */
-  transform: translateY(-1px);
+.cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
-.calendar-schedule.start {
+/* 여러 날에 걸친 막대는 셀 여백을 넘어 이어 붙인다 */
+.cal-bar.start {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   margin-right: -6px;
-  padding-right: 0;
-  z-index: 1;
 }
 
-.calendar-schedule.end {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  margin-left: -6px;
-  padding-left: 8px;
-  z-index: 1;
-}
-
-.calendar-schedule.middle {
+.cal-bar.middle {
   border-radius: 0;
   margin-left: -6px;
   margin-right: -6px;
-  z-index: 0;
-  border-left: none;
+  padding: 0;
 }
 
-.calendar-schedule.start.end {
-  border-radius: 3px;
-  margin: 0;
-  padding: 2px 6px;
+.cal-bar.end {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -6px;
 }
 
-.calendar-schedule.period.start.end {
-  border-left: 2px solid #22c55e;
-  /* Green-500 */
+.cal-more {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 0 7px;
 }
 
-.calendar-schedule.single.start.end {
-  border-left: 2px solid #3b82f6;
-  /* Blue-500 */
+/* 모바일에서만 보이는 점 */
+.cal-dots {
+  display: none;
 }
 
-.calendar-todo {
-  font-size: 0.75rem;
-  padding: 3px 6px;
+/* ── 아젠다 ─────────────────────────────────────────── */
+.cal-agenda {
+  position: sticky;
+  top: 24px;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.agenda-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  border-radius: 4px;
-  color: #9a3412;
-  /* Orange-800 */
-  background: #fff7ed;
-  /* Orange-50 */
-  border: 1px solid transparent;
-  transition: all 0.2s;
-  margin-top: 1px;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
-.calendar-todo:hover {
-  background: #ffedd5;
-  /* Orange-100 */
-  border-color: #fdba74;
-  /* Orange-300 */
-  transform: translateY(-1px);
+.agenda-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.todo-dot {
-  width: 6px;
-  height: 6px;
-  background: #f97316;
-  /* Orange-500 */
+.agenda-daynum {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  min-width: 44px;
+}
+
+.agenda-date {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.agenda-weekday {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agenda-count {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.agenda-list {
+  list-style: none;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agenda-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+
+.agenda-item:hover {
+  background: var(--surface-2);
+}
+
+.agenda-item.done .agenda-title {
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+
+.agenda-mark {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
+  margin-top: 6px;
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.2);
 }
 
-.todo-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.agenda-mark.event { background: var(--cat-event); }
+.agenda-mark.period { background: var(--cat-period); }
+.agenda-mark.message { background: var(--cat-message); }
+.agenda-mark.todo { background: var(--cat-todo); }
+
+.agenda-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agenda-title {
+  font-size: 14px;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
-/* Loading State */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 16px;
-  color: #6b7280;
+.agenda-sub {
+  font-size: 12px;
+  color: var(--ink-3);
 }
 
-.loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #e5e7eb;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
+/* ── 좁은 데스크톱·태블릿: 아젠다를 아래로 ───────────── */
+@media (max-width: 1279px) {
+  .cal {
+    grid-template-columns: 1fr;
+  }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+  .cal-agenda {
+    position: static;
+    min-height: 0;
   }
 }
 
-/* Event Detail Modal Styles */
-.event-detail-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.event-time-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #6b7280;
-  font-size: 0.875rem;
-  background: #f9fafb;
-  padding: 8px 12px;
-  border-radius: 8px;
-}
-
-.event-body {
-  font-size: 1rem;
-  color: #1f2937;
-  line-height: 1.6;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-.event-body img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-  margin: 8px 0;
-}
-
-.event-body p {
-  margin-bottom: 0.5em;
-}
-
-.event-body ul,
-.event-body ol {
-  padding-left: 1.5em;
-  margin-bottom: 0.5em;
-}
-
-/* Mobile styles */
-@media (max-width: 768px) {
-  .calendar-container {
-    border-radius: 0;
-    box-shadow: none;
-    height: calc(100vh - 50px);
-    min-height: calc(100vh - 50px);
+@media (max-width: 767px) {
+  .cal-head {
+    padding: 16px 16px 10px;
   }
 
-  .calendar-header {
-    padding: 8px 12px;
-    gap: 4px;
+  .cal-month-num {
+    font-size: 32px;
   }
 
-  .calendar-title {
-    font-size: 1.125rem;
+  .cal-grid {
+    grid-auto-rows: 56px;
+    padding: 6px;
+    gap: 0;
   }
 
-  .calendar-title .year {
-    font-size: 0.875rem;
-    margin-left: 4px;
+  .cal-cell {
+    align-items: center;
+    padding: 5px 0;
+    gap: 5px;
   }
 
-  .header-left {
-    gap: 4px;
+  .cal-num {
+    margin-left: 0;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
   }
 
-  .calendar-nav {
-    gap: 4px;
+  .cal-items {
+    display: none;
   }
 
-  .nav-btn,
-  .today-btn {
-    padding: 4px 8px;
-    min-width: 36px;
-    min-height: 36px;
-    font-size: 0.7rem;
-  }
-
-  .nav-btn {
-    padding: 4px;
-  }
-
-  .today-btn {
-    padding: 4px 6px;
-  }
-
-  .weekday {
-    padding: 6px 2px;
-    font-size: 0.6rem;
-  }
-
-  .calendar-grid {
-    gap: 0.5px;
-  }
-
-  .calendar-day {
-    min-height: calc((100vh - 140px) / 6);
-    padding: 2px;
-    gap: 1px;
-  }
-
-  .day-header {
-    margin-bottom: 2px;
-  }
-
-  .day-number {
-    font-size: 0.7rem;
-    width: 18px;
-    height: 18px;
-  }
-
-  .day-content {
-    gap: 1px;
-  }
-
-  .calendar-schedule {
-    font-size: 0.55rem;
-    padding: 1px 3px;
-    height: 16px;
-    margin-bottom: 1px;
-  }
-
-  .calendar-todo {
-    font-size: 0.55rem;
-    padding: 1px 3px;
+  .cal-dots {
+    display: flex;
     gap: 3px;
-    margin-top: 0;
+    height: 6px;
   }
 
-  .todo-dot {
-    width: 3px;
-    height: 3px;
+  .cal-dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ink-3);
   }
 
-  .event-detail-content {
-    gap: 10px;
-  }
-
-  .event-time-info {
-    font-size: 0.7rem;
-    padding: 6px 8px;
-  }
-
-  .event-body {
-    font-size: 0.8rem;
-    line-height: 1.4;
-  }
+  .cal-dots i.event { background: var(--cat-event); }
+  .cal-dots i.period { background: var(--cat-period); }
+  .cal-dots i.message { background: var(--cat-message); }
+  .cal-dots i.todo { background: var(--cat-todo); }
 }
