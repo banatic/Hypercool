@@ -80,21 +80,33 @@ export const AttachmentList: React.FC<AttachmentListProps> = ({ filePaths }) => 
               marginBottom: '4px',
               borderRadius: '4px',
               cursor: 'pointer',
-              backgroundColor: exists ? 'rgba(102, 126, 234, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              backgroundColor: exists ? 'rgba(var(--primary-rgb), 0.1)' : 'rgba(239, 68, 68, 0.1)',
               transition: 'background-color 0.2s',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = exists 
-                ? 'rgba(102, 126, 234, 0.2)' 
+                ? 'rgba(var(--primary-rgb), 0.2)'
                 : 'rgba(239, 68, 68, 0.2)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = exists 
-                ? 'rgba(102, 126, 234, 0.1)' 
+              e.currentTarget.style.backgroundColor = exists
+                ? 'rgba(var(--primary-rgb), 0.1)'
                 : 'rgba(239, 68, 68, 0.1)';
             }}
           >
-            <span style={{ fontSize: '12px', marginRight: '8px' }}>📎</span>
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginRight: '8px', flexShrink: 0, color: exists ? 'var(--primary)' : 'var(--danger)' }}
+            >
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
             <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#000000' }}>
               {fileName}
             </span>

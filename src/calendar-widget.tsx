@@ -41,6 +41,8 @@ interface CalendarWidgetProps {
 
 function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
+  // 월 전환 방향 — 나온 방향으로 슬라이드 인(공간 일관성, §7)
+  const [slideDir, setSlideDir] = useState<'next' | 'prev' | null>(null);
   const [manualTodos, setManualTodos] = useState<ManualTodo[]>([]);
   const [deadlines, setDeadlines] = useState<Record<string, string | null>>({});
   const [calendarTitles, setCalendarTitles] = useState<Record<string, string>>({});
@@ -416,7 +418,11 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
     today.setHours(0, 0, 0, 0);
 
     return (
-      <div className="calendar-grid">
+      // key 로 월이 바뀔 때마다 리마운트 → 방향 슬라이드 인 애니메이션 재생(§7)
+      <div
+        className={`calendar-grid${slideDir ? ` slide-${slideDir}` : ''}`}
+        key={`${currentDate.getFullYear()}-${currentDate.getMonth()}`}
+      >
         {days.map((day, index) => {
           const dateKey = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
           const dayTodos = todosByDate[dateKey] || [];
@@ -510,7 +516,6 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                           )}
                           <div
                             className={`calendar-todo-item ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'} ${draggedTodoId === todo.id ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
-                            style={todo.color ? { boxShadow: `inset 3px 0 0 ${todo.color}` } : undefined}
                             onMouseDown={(e) => handleMouseDown(e, todo)}
                             // onClick 제거: handleGlobalMouseUp에서 처리함
                             onContextMenu={(e) => {
@@ -520,6 +525,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                             }}
                             data-todo-id={todo.id} // 마우스 드래그를 위해 data-todo-id 추가
                           >
+                            {todo.color && <span className="calendar-todo-dot" style={{ background: todo.color }} />}
                             {title}
                           </div>
                           {isDragOver && dragOverPosition === 'below' && (
@@ -538,7 +544,6 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                         <div
                           key={todo.id}
                           className={`calendar-todo-item calendar-todo-completed ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
-                          style={todo.color ? { boxShadow: `inset 3px 0 0 ${todo.color}` } : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedTodo(todo);
@@ -550,6 +555,7 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                             setContextMenu({ x: e.clientX, y: e.clientY, todo });
                           }}
                         >
+                          {todo.color && <span className="calendar-todo-dot" style={{ background: todo.color }} />}
                           {title}
                         </div>
                       );
@@ -564,14 +570,17 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   };
 
   const goToPreviousMonth = () => {
+    setSlideDir('prev');
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
 
   const goToNextMonth = () => {
+    setSlideDir('next');
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
   const goToToday = () => {
+    setSlideDir(null);
     setCurrentDate(new Date());
   };
 
@@ -1035,7 +1044,10 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           }}
           title={isPinned ? '고정 해제' : '고정'}
         >
-          {isPinned ? '📌' : '📍'}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={isPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+            <path d="M12 17v5" />
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          </svg>
         </button>
       </div>
       {addTodoModalOpen && selectedDate && (
@@ -1536,7 +1548,13 @@ const EditTodoModalWidget: React.FC<EditTodoModalWidgetProps> = ({ todo, manualT
                   fontSize: '13px',
                   color: '#0066cc'
                 }}>
-                  📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: '4px' }}>
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
                 </div>
               )}
               {todo.file_paths && todo.file_paths.length > 0 && (
@@ -1852,7 +1870,13 @@ const AddTodoModalWidget: React.FC<AddTodoModalWidgetProps> = ({ selectedDate, o
                   fontSize: '13px',
                   color: 'var(--primary)'
                 }}>
-                  📅 날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: '4px' }}>
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  날짜가 자동으로 감지되었습니다: {parsedDateInfo.date} {parsedDateInfo.time ? `(${parsedDateInfo.time})` : ''}
                 </div>
               )}
             </div>

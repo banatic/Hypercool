@@ -14,7 +14,7 @@ body,
   flex-direction: column;
   background: rgba(25, 25, 30, 0.35);
   backdrop-filter: blur(30px);
-  --accent-color: #3b7cf7;
+  --accent-color: #3b82f6;
   color: #ffffff;
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   border-radius: 8px;
@@ -109,6 +109,32 @@ body,
   min-height: 0;
   width: 100%;
   box-sizing: border-box;
+  /* 월이 바뀌면 리마운트되며 아래 애니메이션이 재생된다(§7) */
+  animation: cal-month-fade 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 다음 달은 오른쪽에서, 이전 달은 왼쪽에서 들어온다 — 나온 방향과 일치(§7) */
+.calendar-grid.slide-next {
+  animation: cal-month-next 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.calendar-grid.slide-prev {
+  animation: cal-month-prev 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes cal-month-fade {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes cal-month-next {
+  from { opacity: 0; transform: translateX(26px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes cal-month-prev {
+  from { opacity: 0; transform: translateX(-26px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .calendar-day {
@@ -125,7 +151,9 @@ body,
   align-items: center;
   justify-content: flex-start;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* hover 피드백은 즉각적으로(§1) — 느린 0.3s 대신 짧게 */
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   position: relative;
   overflow: hidden;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -183,15 +211,15 @@ body,
 }
 
 .calendar-day.today {
-  background: rgba(59, 124, 247, 0.25);
-  border: 2px solid rgba(59, 124, 247, 0.7);
+  background: rgba(59, 130, 246, 0.25);
+  border: 2px solid rgba(59, 130, 246, 0.7);
   box-sizing: border-box;
-  box-shadow: 0 0 20px rgba(59, 124, 247, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .calendar-day.today:hover {
-  background: rgba(59, 124, 247, 0.35);
-  border-color: rgba(59, 124, 247, 0.9);
+  background: rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.9);
 }
 
 .calendar-day.past {
@@ -265,6 +293,18 @@ body,
 
 .calendar-todo-item:active {
   cursor: grabbing;
+}
+
+/* 사용자 지정 색은 좌측 스트라이프 대신 제목 앞 점으로 표기 (캘린더 앱 표준) */
+.calendar-todo-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
 }
 
 .calendar-todo-item.dragging {
@@ -602,8 +642,8 @@ body,
 }
 
 .calendar-today-btn {
-  background: rgba(59, 124, 247, 0.3);
-  border: 1px solid rgba(59, 124, 247, 0.6);
+  background: rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.6);
   color: #ffffff;
   padding: 8px 20px;
   border-radius: 10px;
@@ -612,14 +652,14 @@ body,
   font-weight: 600;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   -webkit-app-region: no-drag;
-  box-shadow: 0 2px 8px rgba(59, 124, 247, 0.2);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
 }
 
 .calendar-today-btn:hover {
-  background: rgba(59, 124, 247, 0.5);
-  border-color: rgba(59, 124, 247, 0.8);
+  background: rgba(59, 130, 246, 0.5);
+  border-color: rgba(59, 130, 246, 0.8);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 124, 247, 0.4);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .calendar-today-btn:active {

@@ -233,7 +233,10 @@ export default function StockTab() {
                 <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {q.pre_market_price !== null && (
                     <div style={{ fontSize: '10px', color: '#ffd060' }}>
-                      🌅 프리마켓&nbsp;
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-1px', marginRight: '3px' }}>
+                        <path d="M12 2v8" /><path d="m4.93 10.93 1.41 1.41" /><path d="M2 18h2" /><path d="M20 18h2" /><path d="m19.07 10.93-1.41 1.41" /><path d="M22 22H2" /><path d="m8 6 4-4 4 4" /><path d="M16 18a4 4 0 0 0-8 0" />
+                      </svg>
+                      프리마켓&nbsp;
                       <span style={{ fontWeight: 600 }}>{formatPrice(q.pre_market_price, q.currency)}</span>
                       &nbsp;
                       <span style={{ color: pctColor(q.pre_market_change_percent ?? 0) }}>
@@ -243,7 +246,10 @@ export default function StockTab() {
                   )}
                   {q.post_market_price !== null && (
                     <div style={{ fontSize: '10px', color: '#a0b8ff' }}>
-                      🌙 장후&nbsp;
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-1px', marginRight: '3px' }}>
+                        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                      </svg>
+                      장후&nbsp;
                       <span style={{ fontWeight: 600 }}>{formatPrice(q.post_market_price, q.currency)}</span>
                       &nbsp;
                       <span style={{ color: pctColor(q.post_market_change_percent ?? 0) }}>

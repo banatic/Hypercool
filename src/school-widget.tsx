@@ -571,7 +571,7 @@ export default function SchoolWidget() {
         onUnlockStock={handleUnlockStock}
       />
 
-      <div className="tab-content">
+      <div className="tab-content" key={activeTab}>
         {activeTab === 'todo' && (
           <TodoTab
             todos={todos} loading={loadingStates.todo}
