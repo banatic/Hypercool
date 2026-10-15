@@ -1,11 +1,11 @@
 {
-    "version": "0.5.29",
-    "notes": "압핀 파싱 개선",
-    "pub_date": "2026-10-06T03:05:57.891Z",
+    "version": "0.5.30",
+    "notes": "달력에 공휴일 표시",
+    "pub_date": "2026-10-15T02:15:24.804Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkpoWStjcnJRUHVOVUhaMXpLVXdTQndudWJ4a1A1OTU4VTJzakg2aTE5YXIybjI2U0lROU5MMVVkSGZDK0ZNWGQvRGNZMkVlTi9IRUlmRy9BbVhKVUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMjU2MjY3CWZpbGU6SHlwZXJDb29sXzAuNS4yOV94NjRfZW4tVVMubXNpCkhxNFBYYVdTKzcwa1JxRzF3RzcyUVZvR1RQNEpXRDRwZmZJTEYrRnhDaVI3bDYvZlB2WTlkL3N3dGc0QWRRYTF1MkF1bHJPeFNnQ1d1VWZEQkd4NUNBPT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.29/HyperCool_0.5.29_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkhSNkJHRXY0YTVqU1FFQVV2WHd4cTJVZlY4bXBCeWhYdTdjV0VleXFoZjMxZlVrNUh4UDU2ZUxzcndHYnQ1dWRKUFBsNmVHZUJkeGJ5RmRWVUpsRXdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDMwODkyCWZpbGU6SHlwZXJDb29sXzAuNS4zMF94NjRfZW4tVVMubXNpCmtLZUZhb3M0UzZOOTRXNVNNNlJtcUQybUhGRTkvakNIWWkyd0tHc1M2Z0MvTHU5ampJaitsOFpMUklJNXdZdVlkbm1wWk4vem5hWUR0Um54NmQ4dUF3PT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.30/HyperCool_0.5.30_x64_en-US.msi"
         }
     }
 }
