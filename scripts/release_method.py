@@ -512,7 +512,7 @@ def run_release(config: ReleaseConfig) -> int:
     else:
         print("[info] Skipping git push as requested.")
 
-    print("\nAll done ✅")
+    print("\nAll done!")
     print(f"- MSI: {msi_path}")
     if not config.skip_github_release:
         print(f"- GitHub release v{version} created with MSI uploaded.")
@@ -541,8 +541,10 @@ if __name__ == "__main__":
         raise SystemExit(main())
 
     CONFIG = ReleaseConfig(
-        version="0.5.23",
-        notes=("달력 위젯 버그 수정\n"),
+        version="0.5.29",
+        notes=(
+            "압핀 파싱 개선\n"
+        ),
         pub_date=None,  # None 이면 현재 UTC 시간이 사용됩니다.
         skip_build=False,
         msi_path=None,
