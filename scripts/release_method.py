@@ -535,7 +535,8 @@ if __name__ == "__main__":
 
     # CLI 사용 예시:
     #   python scripts/release_method.py 0.1.5 --notes "릴리스 노트" --pub-date 2025-11-15T09:00:00Z
-    USE_CLI = False
+    # 인자가 있으면 CLI 사용, 없으면 아래 CONFIG 사용
+    USE_CLI = len(sys.argv) > 1
 
     if USE_CLI:
         raise SystemExit(main())
