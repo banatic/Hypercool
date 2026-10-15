@@ -1,9 +1,55 @@
-import { collection, getDocs, doc, writeBatch, query, where, orderBy, limit } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, writeBatch, query, where, orderBy, limit } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { ScheduleItem } from "../types/schedule";
 import { ScheduleService } from "../services/ScheduleService";
+import { byteLength, truncateToBytes, compressInlineImages } from "./contentSize";
 
 const COLLECTION_EVENTS = "events";
+
+// ── Firestore 문서 크기 제한 대응 ──────────────────────────────────────
+// Firestore 는 문서 하나당 1,048,576 바이트(UTF-8, 필드 이름·문서 경로 포함)까지만
+// 허용한다. 예전 코드는 JS 문자열 length(UTF-16 코드 단위)로 잘라서, 한글 메시지는
+// 800,000 자 = 최대 2.4MB 가 되어 그대로 한도를 넘겼다
+// ("The value of property \"content\" is longer than 1048487 bytes").
+// 반드시 바이트로 재서, 인라인 이미지를 먼저 압축한 뒤, 최후에만 글자를 자른다.
+const MAX_CONTENT_BYTES = 700 * 1024;  // content 필드 상한(나머지 필드 여유분 확보)
+const MAX_DOC_BYTES = 1000 * 1024;     // 문서 전체 상한(안전 마진 포함)
+const TRUNCATED_NOTICE = "\n... [내용이 너무 길어 동기화 과정에서 생략되었습니다]";
+
+function shrinkContent(item: { content?: string }, maxBytes: number): void {
+    const noticeBytes = byteLength(TRUNCATED_NOTICE);
+    item.content = truncateToBytes(item.content ?? "", Math.max(0, maxBytes - noticeBytes)) + TRUNCATED_NOTICE;
+}
+
+// content 를 maxBytes 이하로 맞춘다. 인라인 이미지 축소로 해결되면 본문은 온전히 남는다.
+async function fitContent(item: { content?: string }, maxBytes: number): Promise<void> {
+    if (typeof item.content !== 'string' || byteLength(item.content) <= maxBytes) return;
+
+    item.content = await compressInlineImages(item.content, maxBytes);
+    if (byteLength(item.content) > maxBytes) {
+        shrinkContent(item, maxBytes);
+    }
+}
+
+// 문서를 Firestore 한도 안으로 맞춘다. 맞출 수 없으면 false(→ 이 문서는 건너뛴다).
+async function fitMessageToLimit(msg: any): Promise<boolean> {
+    await fitContent(msg, MAX_CONTENT_BYTES);
+
+    // content 외 필드(첨부 목록·원본 HTML 등)까지 합쳐 한도를 넘는 경우 추가로 줄인다.
+    let total = byteLength(JSON.stringify(msg));
+    if (total <= MAX_DOC_BYTES) return true;
+
+    if (typeof msg.content === 'string') {
+        const overflow = total - MAX_DOC_BYTES;
+        await fitContent(msg, Math.max(0, byteLength(msg.content) - overflow));
+        total = byteLength(JSON.stringify(msg));
+        if (total <= MAX_DOC_BYTES) return true;
+    }
+
+    // content 가 원인이 아니면(다른 필드가 거대함) 이 문서만 포기한다.
+    console.warn(`Message ${msg.id} skipped: ${total} bytes exceeds Firestore document limit.`);
+    return false;
+}
 
 // 날짜 문자열을 iOS 가 파싱할 수 있는 형식(JS toISOString: 밀리초 + 'Z')으로 통일한다.
 // Rust 백엔드(브리핑 AI 등)는 chrono `to_rfc3339()` 로 `2026-07-02T01:08:34.222295300+00:00`
@@ -20,16 +66,21 @@ function toIsoZ(s: string | null | undefined): string {
 //     탁상달력에서 가져온 desktopcal_memo · desktopcal_event 를 리더가 아는 타입으로 매핑.
 //     (로컬 DB 타입은 그대로 둔다 — 탁상달력 역동기화가 그 타입으로 중복을 거른다.)
 //  2) 감사 날짜(createdAt/updatedAt): iOS 파싱 가능한 형식으로 통일.
-function normalizeForRemote(item: ScheduleItem): ScheduleItem {
+//  3) 본문 길이: message_task 는 메시지 본문을 그대로 담을 수 있어 Firestore 한도를
+//     넘길 수 있다. 넘기면 이벤트 동기화 전체가 중단되므로 미리 잘라 둔다.
+async function normalizeForRemote(item: ScheduleItem): Promise<ScheduleItem> {
     let type = item.type;
     if (type === 'desktopcal_memo') type = 'manual_todo';
     else if (type === 'desktopcal_event') type = 'period_schedule';
-    return {
+
+    const normalized: ScheduleItem = {
         ...item,
         type,
         createdAt: toIsoZ(item.createdAt),
         updatedAt: toIsoZ(item.updatedAt),
     };
+    await fitContent(normalized, MAX_CONTENT_BYTES);
+    return normalized;
 }
 
 export const SyncService = {
@@ -73,7 +124,7 @@ export const SyncService = {
                 let pending = 0;
                 let migrated = 0;
                 for (const item of localItems) {
-                    migBatch.set(doc(eventsRef, item.id), normalizeForRemote(item));
+                    migBatch.set(doc(eventsRef, item.id), await normalizeForRemote(item));
                     pending++;
                     migrated++;
                     if (pending >= 450) {
@@ -189,7 +240,7 @@ export const SyncService = {
 
             // Push to remote (외부 리더용으로 타입·날짜 정규화해서 저장)
             const docRef = doc(eventsRef, local.id);
-            batch.set(docRef, normalizeForRemote(local));
+            batch.set(docRef, await normalizeForRemote(local));
             batchCount++;
 
             if (batchCount >= 450) {
@@ -252,6 +303,7 @@ export const SyncService = {
 
         const CHUNK_SIZE = 50; // Reduced to 50 to prevent resource exhaustion
         let processed = 0;
+        let skipped = 0;
 
         // 3. Fetch and upload in chunks
         while (processed < totalNew) {
@@ -267,22 +319,38 @@ export const SyncService = {
             const messages = chunkResult.messages;
             if (messages.length === 0) break;
 
+            // Firestore 한도(UTF-8 1MB)에 맞춰 줄이고, 맞출 수 없는 문서는 제외한다.
+            const writable: any[] = [];
+            for (const msg of messages) {
+                if (await fitMessageToLimit(msg)) writable.push(msg);
+                else skipped++;
+            }
+
             // Retry logic for batch commit
             let retries = 3;
-            while (retries > 0) {
+            while (retries > 0 && writable.length > 0) {
                 try {
                     const batch = writeBatch(db);
-                    for (const msg of messages) {
-                        const docRef = doc(messagesRef, msg.id.toString());
-                        // Truncate size to avoid Firebase 1MB limit for document
-                        if (msg.content && msg.content.length > 800000) {
-                            msg.content = msg.content.substring(0, 800000) + "\n... [내용이 너무 길어 동기화 과정에서 생략되었습니다]";
-                        }
-                        batch.set(docRef, msg);
+                    for (const msg of writable) {
+                        batch.set(doc(messagesRef, msg.id.toString()), msg);
                     }
                     await batch.commit();
                     break; // Success
                 } catch (e: any) {
+                    // invalid-argument 는 재시도해도 같은 데이터로 계속 실패한다.
+                    // 배치 전체를 버리는 대신 문서별로 다시 써서, 문제되는 문서만 건너뛴다.
+                    if (e?.code === 'invalid-argument') {
+                        console.error("Batch rejected as invalid. Falling back to per-document writes.", e);
+                        for (const msg of writable) {
+                            try {
+                                await setDoc(doc(messagesRef, msg.id.toString()), msg);
+                            } catch (docErr) {
+                                skipped++;
+                                console.error(`Message ${msg.id} skipped:`, docErr);
+                            }
+                        }
+                        break;
+                    }
                     console.error(`Batch commit failed. Retries left: ${retries - 1}`, e);
                     if (retries === 1) throw e; // Throw on last retry
                     retries--;
@@ -302,6 +370,6 @@ export const SyncService = {
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        console.log("Message sync complete.");
+        console.log(`Message sync complete.${skipped > 0 ? ` (${skipped}건은 크기 제한으로 건너뜀)` : ""}`);
     }
 };

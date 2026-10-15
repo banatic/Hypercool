@@ -63,21 +63,28 @@ export function useGlobalEvents({
 
     // Watchdog Events
     useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const unlistenPromise = listen('udb-changed', async () => {
-            if (udbPath) {
-                loadUdbFile(udbPath);
-                handleSync(true); // Auto sync on change
-            }
+            if (!udbPath) return;
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+                void loadUdbFile(udbPath);
+                void handleSync(true);
+            }, 500);
         });
-        return () => { void unlistenPromise.then(unlisten => unlisten()); };
+        return () => { clearTimeout(timer); void unlistenPromise.then(unlisten => unlisten()); };
     }, [udbPath, loadUdbFile, handleSync]);
 
     useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const unlistenPromise = listen<{ source?: string }>('calendar-update', async (event) => {
             if (event.payload?.source === 'app-sync') return;
-            loadSchedules();
-            handleSync(true);
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+                void loadSchedules();
+                void handleSync(true);
+            }, 500);
         });
-        return () => { void unlistenPromise.then(unlisten => unlisten()); };
+        return () => { clearTimeout(timer); void unlistenPromise.then(unlisten => unlisten()); };
     }, [loadSchedules, handleSync]);
 }

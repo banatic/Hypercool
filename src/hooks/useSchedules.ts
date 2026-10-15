@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { ScheduleService } from '../services/ScheduleService';
 import { ScheduleItem } from '../types/schedule';
 import { ManualTodo, PeriodSchedule } from '../types';
@@ -25,7 +25,7 @@ export function useSchedules() {
         }
     }, []);
 
-    const manualTodos = schedules
+    const manualTodos = useMemo(() => schedules
         .filter(s => s.type === 'manual_todo' || s.type === 'desktopcal_memo')
         .map(s => ({
             id: s.id,
@@ -35,9 +35,9 @@ export function useSchedules() {
             updatedAt: s.updatedAt,
             calendarTitle: s.title,
             isDeleted: s.isDeleted
-        } as ManualTodo));
+        } as ManualTodo)), [schedules]);
 
-    const periodSchedules = schedules
+    const periodSchedules = useMemo(() => schedules
         .filter(s => s.type === 'period_schedule' || s.type === 'desktopcal_event')
         .map(s => ({
             id: s.id,
@@ -48,17 +48,17 @@ export function useSchedules() {
             createdAt: s.createdAt,
             updatedAt: s.updatedAt,
             isDeleted: s.isDeleted
-        } as PeriodSchedule));
+        } as PeriodSchedule)), [schedules]);
 
     // Map message ID to schedule for quick lookup
-    const messageSchedulesMap = schedules
+    const messageSchedulesMap = useMemo(() => schedules
         .filter(s => s.type === 'message_task' && s.referenceId)
         .reduce((acc, s) => {
             if (s.referenceId) {
                 acc[s.referenceId] = s;
             }
             return acc;
-        }, {} as Record<string, ScheduleItem>);
+        }, {} as Record<string, ScheduleItem>), [schedules]);
 
     return {
         schedules,
