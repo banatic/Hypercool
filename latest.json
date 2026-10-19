@@ -1,11 +1,11 @@
 {
-    "version": "0.5.30",
-    "notes": "달력에 공휴일 표시",
-    "pub_date": "2026-10-15T02:15:24.804Z",
+    "version": "0.5.31",
+    "notes": "에듀파인 공문에서 일정 자동 등록(주황색 표시), AI 연동 페이지 개편과 지난 메시지·공문 소급 등록, 공문 제목 표시 개선, 달력 완료 항목 접기",
+    "pub_date": "2026-10-19T04:14:08.656Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkhSNkJHRXY0YTVqU1FFQVV2WHd4cTJVZlY4bXBCeWhYdTdjV0VleXFoZjMxZlVrNUh4UDU2ZUxzcndHYnQ1dWRKUFBsNmVHZUJkeGJ5RmRWVUpsRXdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDMwODkyCWZpbGU6SHlwZXJDb29sXzAuNS4zMF94NjRfZW4tVVMubXNpCmtLZUZhb3M0UzZOOTRXNVNNNlJtcUQybUhGRTkvakNIWWkyd0tHc1M2Z0MvTHU5ampJaitsOFpMUklJNXdZdVlkbm1wWk4vem5hWUR0Um54NmQ4dUF3PT0K",
-            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.30/HyperCool_0.5.30_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUGZ0dUJCZmZhMkl2blE4QzBIZ2JBeG13WE95Yk93OXB1dFpuTjlMOXVrREYyMldCeDlpSWk1NmZtNVZTQ1FxRjJibjIwMzJ3azNoWkZCbjRsOGw5NEM0djhkQk5KVFFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzgzNTg4CWZpbGU6SHlwZXJDb29sXzAuNS4zMV94NjRfZW4tVVMubXNpCmRyV1QycVEwZ0U3VHBjSkpXUnpNOUVkSzRZa0ZoYWUrN085YnlUaDVSSENVR0xlT0lndzJ0QnpLaHBnTGtVUkEySjR6TVlZVjhuckZQY0txYzdqRUNnPT0K",
+            "url": "https://github.com/banatic/Hypercool/releases/download/v0.5.31/HyperCool_0.5.31_x64_en-US.msi"
         }
     }
 }
