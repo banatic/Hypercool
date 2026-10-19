@@ -1,6 +1,6 @@
 {
   "productName": "HyperCool",
-  "version": "0.5.30",
+  "version": "0.5.31",
   "identifier": "com.hypercool.app",
   "build": {
     "beforeDevCommand": "npm run dev",
