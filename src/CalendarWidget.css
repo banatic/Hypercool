@@ -374,6 +374,43 @@ body,
   background: rgba(50, 200, 100, 0.25);
 }
 
+/* 완료 항목 묶음: 평소엔 '완료 N' 한 줄, 호버 또는 .expanded 시 목록 펼침 */
+.calendar-completed-group {
+  order: 999;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.calendar-completed-summary {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px;
+  border-radius: 4px;
+  text-align: center;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.calendar-completed-list {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.calendar-completed-group:hover .calendar-completed-list,
+.calendar-completed-group.expanded .calendar-completed-list {
+  display: flex;
+}
+
+.calendar-completed-group.expanded .calendar-completed-summary {
+  display: none;
+}
+
 .calendar-period-schedule {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.95);

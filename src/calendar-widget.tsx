@@ -48,6 +48,13 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
   const [calendarTitles, setCalendarTitles] = useState<Record<string, string>>({});
   const [periodSchedules, setPeriodSchedules] = useState<PeriodSchedule[]>([]);
   const [completedTodos, setCompletedTodos] = useState<Set<string>>(new Set());
+  // 완료 항목 묶음을 항상 펼쳐 둘지 (푸터 토글, 레지스트리 CalendarShowCompleted)
+  const [showCompleted, setShowCompleted] = useState(false);
+  useEffect(() => {
+    invoke<string | null>('get_registry_value', { key: 'CalendarShowCompleted' })
+      .then(v => setShowCompleted(v === '1'))
+      .catch(() => {});
+  }, []);
   const [keptMessages, setKeptMessages] = useState<any[]>([]);
   const [, setHolidayRev] = useState(0); // 원격 공휴일 갱신 시 다시 그리기용
   const [todoOrder, setTodoOrder] = useState<Record<string, string[]>>({}); // 날짜별 할일 ID 순서
@@ -534,32 +541,41 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
                         </React.Fragment>
                       );
                     })}
-                  {/* 완료된 항목은 최하단에 표시 */}
-                  {dayTodos
-                    .filter(todo => todo.isCompleted)
-                    .map(todo => {
-                      const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
-                      const isManual = todo.isManual ?? false;
-                      return (
-                        <div
-                          key={todo.id}
-                          className={`calendar-todo-item calendar-todo-completed ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTodo(todo);
-                            setEditTodoModalOpen(true);
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setContextMenu({ x: e.clientX, y: e.clientY, todo });
-                          }}
-                        >
-                          {todo.color && <span className="calendar-todo-dot" style={{ background: todo.color }} />}
-                          {title}
+                  {/* 완료된 항목은 최하단 '완료 N' 묶음으로 접어 두고, 호버(또는 푸터 토글) 시 펼침 */}
+                  {(() => {
+                    const completed = dayTodos.filter(todo => todo.isCompleted);
+                    if (completed.length === 0) return null;
+                    return (
+                      <div className={`calendar-completed-group ${showCompleted ? 'expanded' : ''}`}>
+                        <div className="calendar-completed-summary">완료 {completed.length}</div>
+                        <div className="calendar-completed-list">
+                          {completed.map(todo => {
+                            const title = todo.calendarTitle || (todo.content.length > 10 ? todo.content.substring(0, 10) + '...' : todo.content);
+                            const isManual = todo.isManual ?? false;
+                            return (
+                              <div
+                                key={todo.id}
+                                className={`calendar-todo-item calendar-todo-completed ${isManual ? 'calendar-todo-manual' : 'calendar-todo-message'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedTodo(todo);
+                                  setEditTodoModalOpen(true);
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setContextMenu({ x: e.clientX, y: e.clientY, todo });
+                                }}
+                              >
+                                {todo.color && <span className="calendar-todo-dot" style={{ background: todo.color }} />}
+                                {title}
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1025,6 +1041,22 @@ function CalendarWidget({ isPinned = false, onPinnedChange }: CalendarWidgetProp
           style={{ marginLeft: '10px', background: 'rgba(255, 165, 0, 0.3)', borderColor: 'rgba(255, 165, 0, 0.6)' }}
         >
           기간 일정 등록
+        </button>
+        <button
+          onClick={() => {
+            const next = !showCompleted;
+            setShowCompleted(next);
+            invoke('set_registry_value', { key: 'CalendarShowCompleted', value: next ? '1' : '0' })
+              .catch(e => console.error('완료 펼치기 저장 실패:', e));
+          }}
+          className="calendar-today-btn"
+          style={{
+            marginLeft: '10px',
+            background: showCompleted ? 'rgba(100, 200, 100, 0.3)' : 'rgba(100, 100, 100, 0.3)',
+            borderColor: showCompleted ? 'rgba(100, 200, 100, 0.6)' : 'rgba(100, 100, 100, 0.6)'
+          }}
+        >
+          {showCompleted ? '완료 접기' : '완료 펼치기'}
         </button>
         <button
           onClick={async () => {
