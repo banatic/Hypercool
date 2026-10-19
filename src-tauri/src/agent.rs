@@ -33,6 +33,8 @@ const DEBOUNCE_SECS: u64 = 45;
 const ALLOWED_TOOLS: &str = "mcp__hypercool__get_messages,mcp__hypercool__get_message_by_id,mcp__hypercool__read_attachment,mcp__hypercool__search_messages,mcp__hypercool__list_attachments";
 /// AI 자동 생성 일정을 시각적으로 구분하기 위한 색상(달력 위젯이 color 를 렌더에 사용).
 const AI_COLOR: &str = "#8B5CF6";
+/// 공문에서 만든 AI 일정 색상(메시지 출처 보라색과 구분).
+const DOC_COLOR: &str = "#F59E0B";
 /// content 에 남기는 AI 생성 마커.
 const AI_MARKER: &str = "AI 자동 생성";
 /// 구버전 이모지 마커(마이그레이션에서 제거 대상).
@@ -54,6 +56,15 @@ const REG_CLAUDE_PATH: &str = "ClaudeCliPath";
 const REG_CODEX_PATH: &str = "CodexCliPath";
 const REG_PROVIDER: &str = "BriefingAgentProvider";
 const REG_MODEL: &str = "BriefingAgentModel";
+const REG_DOCS_ENABLED: &str = "BriefingDocsEnabled";
+const REG_DOCS_LAST_SEEN: &str = "BriefingDocsLastSeenId";
+
+/// 공문 1회 실행에서 처리할 최대 공문 수(프롬프트 길이 제한).
+const DOCS_PER_PASS: i64 = 5;
+/// 프롬프트에 넣을 공문 1건당 최대 문자 수.
+const DOC_PROMPT_CHARS: usize = 8000;
+/// 일정 content 원문 섹션에 넣을 공문 본문 최대 문자 수.
+const DOC_ORIGINAL_CHARS: usize = 20000;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -61,6 +72,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // ─── 전역 상태 ────────────────────────────────────────────────────────────────
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+/// 에듀파인 공문도 일정 추출 대상에 포함할지(ENABLED 의 하위 옵션).
+static DOCS_ENABLED: AtomicBool = AtomicBool::new(false);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static PENDING: AtomicBool = AtomicBool::new(false);
 static LAST_TRIGGER_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
@@ -73,7 +86,7 @@ fn status_slot() -> &'static Mutex<BriefingStatusSnapshot> {
 // ─── 직렬화 타입 ──────────────────────────────────────────────────────────────
 
 /// claude 가 반환하는 일정 항목(프롬프트 스키마). 필드는 모두 관대하게 Option 처리.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 struct ExtractedItem {
     id: Option<String>,
@@ -97,6 +110,15 @@ struct ExtractedItem {
     #[allow(dead_code)]
     active_until: Option<String>,
     source_text: Option<String>,
+    /// 공문 출처일 때 edufine_docs.db 의 docs.id.
+    source_doc_id: Option<i64>,
+    /// 앱이 채우는 값(AI 출력 아님): 원문 섹션 HTML, 참조 id, 출처 표기.
+    #[serde(skip)]
+    original_html: Option<String>,
+    #[serde(skip)]
+    reference: Option<String>,
+    #[serde(skip)]
+    source_label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +182,10 @@ pub struct BriefingStatus {
     pub last_new_count: i64,
     pub last_error: Option<String>,
     pub last_seen_id: i64,
+    pub docs_enabled: bool,
+    /// 에듀파인 공문 감시기(MCP 페이지 토글과 공유)가 켜져 있는지.
+    pub edufine_enabled: bool,
+    pub docs_last_seen_id: i64,
 }
 
 #[derive(Serialize)]
@@ -181,6 +207,27 @@ pub struct BriefingModelOption {
     pub is_default: bool,
 }
 
+/// 활동 피드 1건: AI 실행 1회(메시지) 또는 공문 1건의 처리 결과.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ActivityEntry {
+    /// 실행 시각(로컬 RFC3339).
+    pub at: String,
+    /// "messages" | "docs"
+    pub source: String,
+    pub title: String,
+    pub registered: Vec<ActivityItem>,
+    pub skipped_dedup: i64,
+    pub skipped_invalid: i64,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ActivityItem {
+    pub title: String,
+    /// 일정 시작(YYYY-MM-DD 또는 RFC3339).
+    pub date: Option<String>,
+}
+
 // ─── on/off & 상태 ────────────────────────────────────────────────────────────
 
 pub fn is_enabled() -> bool {
@@ -195,6 +242,12 @@ pub fn restore_state(_app: &AppHandle) {
         .map(|v| v == "true")
         .unwrap_or(false);
     ENABLED.store(enabled, Ordering::Relaxed);
+    let docs_enabled = get_registry_value(REG_DOCS_ENABLED.to_string())
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    DOCS_ENABLED.store(docs_enabled, Ordering::Relaxed);
 
     // 상태 스냅샷에 last_seen_id 를 미리 채워둔다.
     status_slot().lock().unwrap().last_seen_id = read_last_seen_id();
@@ -248,7 +301,32 @@ pub fn get_briefing_agent_status() -> BriefingStatus {
         last_new_count: snapshot.last_new_count,
         last_error: snapshot.last_error,
         last_seen_id: read_last_seen_id(),
+        docs_enabled: DOCS_ENABLED.load(Ordering::Relaxed),
+        edufine_enabled: crate::edufine_watcher::is_enabled(),
+        docs_last_seen_id: read_docs_last_seen_id(),
     }
+}
+
+/// "공문도 분석" 토글. 켜면 에듀파인 공문 감시기도 함께 켜고,
+/// 기준선을 현재 최신 공문으로 잡아 이미 저장된 공문은 소급 처리하지 않는다.
+#[tauri::command]
+pub fn set_briefing_docs_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    if enabled {
+        if !crate::edufine_watcher::is_enabled() {
+            crate::commands::mcp::toggle_edufine_mcp(app.clone(), true)?;
+        }
+        if !DOCS_ENABLED.load(Ordering::Relaxed) {
+            if let Some(db) = edufine_db_path(&app) {
+                let baseline = crate::edufine_db::max_doc_id(&db).unwrap_or(0);
+                write_docs_last_seen_id(baseline);
+            }
+        }
+    }
+    DOCS_ENABLED.store(enabled, Ordering::Relaxed);
+    set_registry_value(
+        REG_DOCS_ENABLED.to_string(),
+        if enabled { "true" } else { "false" }.to_string(),
+    )
 }
 
 #[tauri::command]
@@ -272,11 +350,14 @@ pub async fn get_briefing_agent_models(provider: String) -> Result<Vec<BriefingM
         _ => return Err("지원하지 않는 AI 공급자입니다.".to_string()),
     };
     tauri::async_runtime::spawn_blocking(move || match provider {
-        AiProvider::Claude => Ok(vec![
-            BriefingModelOption { id: "sonnet".into(), label: "Sonnet".into(), description: "Claude Code Sonnet 별칭".into(), is_default: false },
-            BriefingModelOption { id: "opus".into(), label: "Opus".into(), description: "Claude Code Opus 별칭".into(), is_default: false },
-            BriefingModelOption { id: "haiku".into(), label: "Haiku".into(), description: "Claude Code Haiku 별칭".into(), is_default: false },
-        ]),
+        AiProvider::Claude => {
+            let claude = find_claude().ok_or_else(|| "Claude Code CLI를 찾을 수 없습니다.".to_string())?;
+            // initialize 를 지원하지 않는 구버전 CLI 는 고정 별칭으로 대체한다.
+            Ok(list_claude_models(&claude).unwrap_or_else(|e| {
+                eprintln!("[agent] Claude 모델 목록 조회 실패, 기본 별칭 사용: {}", e);
+                claude_fallback_models()
+            }))
+        }
         AiProvider::Codex => {
             let codex = find_codex().ok_or_else(|| "Codex CLI를 찾을 수 없습니다.".to_string())?;
             list_codex_models(&codex)
@@ -284,6 +365,15 @@ pub async fn get_briefing_agent_models(provider: String) -> Result<Vec<BriefingM
     })
     .await
     .map_err(|e| format!("모델 목록 조회 작업 실패: {}", e))?
+}
+
+/// 활동 피드(최신순).
+#[tauri::command]
+pub fn get_briefing_activity(app: AppHandle, limit: Option<usize>) -> Vec<ActivityEntry> {
+    let mut entries = read_activity(&app);
+    entries.reverse();
+    entries.truncate(limit.unwrap_or(50).clamp(1, ACTIVITY_MAX));
+    entries
 }
 
 /// 수동 실행(설정 페이지 "지금 실행"). ENABLED 여부와 무관하게 즉시 1회(단, CLI 필요).
@@ -315,6 +405,18 @@ pub async fn run_briefing_agent_debug(
 
 /// 새 메시지 sync 성공 후 워처에서 호출한다. ENABLED + CLI 존재 시 debounce 실행.
 pub fn on_new_messages(app: &AppHandle) {
+    schedule_debounced_run(app);
+}
+
+/// 에듀파인 감시기가 새 공문을 저장한 뒤 호출한다. "공문도 분석"이 켜져 있을 때만 실행.
+pub fn on_new_docs(app: &AppHandle) {
+    if DOCS_ENABLED.load(Ordering::Relaxed) {
+        schedule_debounced_run(app);
+    }
+}
+
+/// ENABLED + CLI 존재 시 trailing debounce 후 1회 실행(메시지·공문 공용).
+fn schedule_debounced_run(app: &AppHandle) {
     if !is_enabled() || read_ai_config().executable.is_none() {
         return;
     }
@@ -371,6 +473,20 @@ fn run_briefing_locked(app: &AppHandle) -> BriefingRunResult {
             }
             Err(e) => {
                 last_err = Some(e);
+            }
+        }
+        if DOCS_ENABLED.load(Ordering::Relaxed) {
+            match run_docs_pass(app) {
+                Ok((n, s)) => {
+                    total_new += n;
+                    total_skipped += s;
+                }
+                Err(e) => {
+                    last_err = Some(match last_err {
+                        Some(prev) => format!("{} / 공문: {}", prev, e),
+                        None => format!("공문: {}", e),
+                    });
+                }
             }
         }
         update_and_emit_status(app, total_new, last_err.clone());
@@ -609,7 +725,9 @@ fn run_ai_debug(app: &AppHandle, config: &AiConfig, since: i64) -> Result<AiDebu
 /// register_items 와 동일하되 (신규, 중복skip, 검증skip) breakdown 을 반환.
 fn register_items_breakdown(app: &AppHandle, items: Vec<ExtractedItem>, today: &str) -> (i64, i64, i64) {
     let total = items.len() as i64;
-    register_items_core(app, items, today).unwrap_or((0, 0, total))
+    register_items_core(app, items, today)
+        .map(|(n, d, i, _)| (n, d, i))
+        .unwrap_or((0, 0, total))
 }
 
 /// 검색 DB 통계: (존재, 메시지 수, 최신 id).
@@ -693,10 +811,10 @@ pub fn migrate_ai_schedules_content(app: AppHandle) -> Result<u32, String> {
 
     let rows: Vec<(String, Option<String>, Option<String>)> = {
         let mut stmt = conn
-            .prepare("SELECT id, content, reference_id FROM tbl_schedules WHERE color = ?1")
+            .prepare("SELECT id, content, reference_id FROM tbl_schedules WHERE color IN (?1, ?2)")
             .map_err(|e| e.to_string())?;
         let mapped = stmt
-            .query_map([AI_COLOR], |r| {
+            .query_map([AI_COLOR, DOC_COLOR], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, Option<String>>(1)?,
@@ -726,7 +844,20 @@ pub fn migrate_ai_schedules_content(app: AppHandle) -> Result<u32, String> {
             updated += 1;
         }
     }
-    Ok(updated)
+    // 공문 출처 일정이 구버전(보라색)으로 등록돼 있으면 공문 색으로 바꾼다.
+    let recolored = conn
+        .execute(
+            "UPDATE tbl_schedules SET color = ?1, updated_at = ?2
+             WHERE color = ?3 AND reference_id LIKE 'doc-%'",
+            rusqlite::params![DOC_COLOR, now, AI_COLOR],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(updated + recolored as u32)
+}
+
+/// AI 가 만든 일정(메시지·공문 출처)인지 색상으로 판정.
+fn is_ai_color(color: Option<&str>) -> bool {
+    matches!(color, Some(c) if c.eq_ignore_ascii_case(AI_COLOR) || c.eq_ignore_ascii_case(DOC_COLOR))
 }
 
 /// AI 연동 탭 "준비 상태" 패널용: 쿨메신저 원본 연결 상태를 조회한다.
@@ -806,8 +937,256 @@ fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
 
     let today = seoul_today();
     let prompt = build_prompt(app, &today, last_seen);
+    let msg_title = format!("메시지 {}건", count_messages_since(app, last_seen));
 
-    let output = spawn_ai(app, &config, &prompt, &app_data_dir)?;
+    let attempt = (|| -> Result<(i64, i64, Vec<RegItem>), String> {
+        let output = spawn_ai(app, &config, &prompt, &app_data_dir)?;
+        if output.is_error {
+            let detail = if output.result.trim().is_empty() {
+                tail_chars(&output.stderr, 300)
+            } else {
+                tail_chars(&output.result, 300)
+            };
+            return Err(format!("{} 오류: {}", config.provider.display_name(), detail));
+        }
+        let items = parse_items_from_result(&output.result)?;
+        register_items(app, items, &today)
+    })();
+    let (new_count, skipped) = match attempt {
+        Ok((n, s, regs)) => {
+            push_activity(app, vec![activity_entry("messages", msg_title, &regs.iter().collect::<Vec<_>>(), None)]);
+            (n, s)
+        }
+        Err(e) => {
+            push_activity(app, vec![activity_entry("messages", msg_title, &[], Some(e.clone()))]);
+            return Err(e);
+        }
+    };
+
+    // 성공(프로세스 정상 종료 + 파싱 성공)했으므로 last_seen 을 전진시킨다(추출 0건이어도).
+    if opts.advance {
+        write_last_seen_id(current_max);
+    }
+
+    if new_count > 0 {
+        notify_calendar_changed(app);
+    }
+
+    Ok((new_count, skipped))
+}
+
+fn notify_calendar_changed(app: &AppHandle) {
+    // best-effort: 탁상달력에도 반영(실패 무시).
+    if let Ok(Some(path)) = crate::db::detect_desktopcal() {
+        let _ = crate::db::sync_to_desktopcal(app.clone(), path);
+    }
+    // 프론트가 loadSchedules + Firestore sync 를 돌리도록 알림.
+    let _ = app.emit("calendar-update", ());
+}
+
+// ─── 활동 기록 ────────────────────────────────────────────────────────────────
+
+const ACTIVITY_FILE: &str = "briefing_activity.json";
+const ACTIVITY_MAX: usize = 100;
+static ACTIVITY_LOCK: Mutex<()> = Mutex::new(());
+
+fn activity_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join(ACTIVITY_FILE))
+}
+
+/// 오래된 순으로 저장된 활동 기록.
+fn read_activity(app: &AppHandle) -> Vec<ActivityEntry> {
+    activity_path(app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn push_activity(app: &AppHandle, new_entries: Vec<ActivityEntry>) {
+    if new_entries.is_empty() {
+        return;
+    }
+    let Some(path) = activity_path(app) else { return };
+    let _guard = ACTIVITY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut entries = read_activity(app);
+    entries.extend(new_entries);
+    if entries.len() > ACTIVITY_MAX {
+        let cut = entries.len() - ACTIVITY_MAX;
+        entries.drain(..cut);
+    }
+    if let Ok(text) = serde_json::to_string(&entries) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
+fn activity_entry(source: &str, title: String, regs: &[&RegItem], error: Option<String>) -> ActivityEntry {
+    ActivityEntry {
+        at: chrono::Local::now().to_rfc3339(),
+        source: source.to_string(),
+        title,
+        registered: regs
+            .iter()
+            .filter(|r| r.status == RegStatus::New)
+            .map(|r| ActivityItem { title: r.title.clone(), date: r.date.clone() })
+            .collect(),
+        skipped_dedup: regs.iter().filter(|r| r.status == RegStatus::Duplicate).count() as i64,
+        skipped_invalid: regs
+            .iter()
+            .filter(|r| matches!(r.status, RegStatus::Invalid | RegStatus::Past))
+            .count() as i64,
+        error,
+    }
+}
+
+// ─── 공문 실행 ────────────────────────────────────────────────────────────────
+
+/// 일정 추출 대상 공문(붙임 파일 등은 걸러진 뒤).
+struct DocInput {
+    doc_id: i64,
+    doc_no: String,
+    title: String,
+    viewed_date: String,
+    text: String,
+}
+
+fn edufine_db_path(app: &AppHandle) -> Option<PathBuf> {
+    let path = app.path().app_data_dir().ok()?.join("edufine_docs.db");
+    path.exists().then_some(path)
+}
+
+/// 공문 본문의 문서번호("시행 교육과정과-1234 (2026. 10. 1.)" → "교육과정과-1234").
+/// 붙임 파일(계획서·서식 등)에는 수신/제목/시행 줄이 없으므로, 없으면 공문 본문이 아닌 것으로 본다.
+fn extract_doc_no(content: &str) -> Option<String> {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"시행\s+([^\s()]+-\d+)").unwrap());
+    if !(content.contains("수신") && content.contains("제목")) {
+        return None;
+    }
+    re.captures(content).map(|c| c[1].to_string())
+}
+
+/// 결정적 일정 id 용 문서번호 정규화(Firestore 문서 id 에 '/' 불가).
+fn doc_key(doc_no: &str) -> String {
+    let key: String = doc_no
+        .chars()
+        .map(|c| if c.is_whitespace() || c == '/' { '_' } else { c })
+        .collect();
+    format!("doc-{}", key)
+}
+
+/// docs.detected_at(SQLite CURRENT_TIMESTAMP, UTC "YYYY-MM-DD HH:MM:SS") → 서울 기준 날짜.
+fn detected_to_seoul_date(detected_at: &str) -> String {
+    chrono::NaiveDateTime::parse_from_str(detected_at.trim(), "%Y-%m-%d %H:%M:%S")
+        .map(|dt| {
+            dt.and_utc()
+                .with_timezone(&seoul_offset())
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_else(|_| detected_at.chars().take(10).collect())
+}
+
+/// 평문 공문 본문 → 원문 섹션 HTML(줄 단위 div).
+fn doc_text_to_html(text: &str) -> String {
+    head_chars(text, DOC_ORIGINAL_CHARS)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| format!("<div>{}</div>", html_escape(l)))
+        .collect()
+}
+
+/// 저장된 공문 → 분석 대상. 붙임 파일은 빼고, 같은 문서번호가 여러 번 있으면(재열람) 마지막 것만 쓴다.
+fn docs_to_targets(docs: Vec<crate::edufine_db::EdufineDoc>) -> Vec<DocInput> {
+    let mut targets: Vec<DocInput> = Vec::new();
+    for d in docs {
+        let Some(doc_no) = extract_doc_no(&d.content) else { continue };
+        targets.retain(|t| t.doc_no != doc_no);
+        targets.push(DocInput {
+            doc_id: d.id,
+            doc_no,
+            title: crate::edufine_watcher::doc_title(&d.content, &d.file_name),
+            viewed_date: detected_to_seoul_date(&d.detected_at),
+            text: d.content,
+        });
+    }
+    targets
+}
+
+/// 공문 본문을 프롬프트에 직접 넣어 AI 호출 → 문서번호 기반 id·출처를 채운 항목. 반환: (항목, AI 원문 응답).
+fn analyze_docs(
+    app: &AppHandle,
+    config: &AiConfig,
+    targets: &[DocInput],
+    today: &str,
+) -> Result<(Vec<ExtractedItem>, String), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let docs_block = targets
+        .iter()
+        .map(|t| {
+            format!(
+                "=== 공문 doc_id={} ===\n문서번호: {}\n제목: {}\n열람일: {}\n본문:\n{}\n",
+                t.doc_id,
+                t.doc_no,
+                t.title,
+                t.viewed_date,
+                head_chars(&t.text, DOC_PROMPT_CHARS)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = load_docs_prompt_template(app)
+        .replace("{{TODAY}}", today)
+        .replace("{{EXISTING_SCHEDULES}}", &existing_schedules_snippet(app, today))
+        .replace("{{DOCS}}", &docs_block);
+
+    let output = spawn_ai(app, config, &prompt, &app_data_dir)?;
+    if output.is_error {
+        let detail = if output.result.trim().is_empty() {
+            tail_chars(&output.stderr, 300)
+        } else {
+            tail_chars(&output.result, 300)
+        };
+        return Err(format!("{} 오류: {}", config.provider.display_name(), detail));
+    }
+    let raw_items = parse_items_from_result(&output.result)?;
+
+    // id 는 AI 값 대신 문서번호로 결정적으로 부여한다(재열람·재실행 멱등).
+    // 한 공문에서 2건 이상이면 doc-<번호>, doc-<번호>-1, ...
+    let mut per_doc: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+    let mut items = Vec::new();
+    for mut item in raw_items {
+        let Some(t) = item
+            .source_doc_id
+            .and_then(|id| targets.iter().find(|t| t.doc_id == id))
+        else {
+            continue;
+        };
+        let n = per_doc.entry(t.doc_id).or_insert(0);
+        let key = doc_key(&t.doc_no);
+        item.id = Some(if *n == 0 { key.clone() } else { format!("{}-{}", key, n) });
+        *n += 1;
+        item.source_message_id = None;
+        item.received_at = Some(t.viewed_date.clone());
+        item.period = None;
+        item.reference = Some(key);
+        item.source_label = Some(format!("공문 {}", t.doc_no));
+        item.original_html = Some(doc_text_to_html(&t.text));
+        items.push(item);
+    }
+    Ok((items, output.result))
+}
+
+/// 메시지 분석: last_seen 기준 프롬프트로 AI 호출 → 항목. 반환: (항목, AI 원문 응답).
+fn analyze_messages(
+    app: &AppHandle,
+    config: &AiConfig,
+    since: i64,
+    today: &str,
+) -> Result<(Vec<ExtractedItem>, String), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let prompt = build_prompt(app, today, since);
+    let output = spawn_ai(app, config, &prompt, &app_data_dir)?;
     if output.is_error {
         let detail = if output.result.trim().is_empty() {
             tail_chars(&output.stderr, 300)
@@ -817,23 +1196,335 @@ fn run_pass(app: &AppHandle, opts: &PassOpts) -> Result<(i64, i64), String> {
         return Err(format!("{} 오류: {}", config.provider.display_name(), detail));
     }
     let items = parse_items_from_result(&output.result)?;
-    let (new_count, skipped) = register_items(app, items, &today)?;
+    Ok((items, output.result))
+}
 
-    // 성공(프로세스 정상 종료 + 파싱 성공)했으므로 last_seen 을 전진시킨다(추출 0건이어도).
-    if opts.advance {
-        write_last_seen_id(current_max);
+/// 새 공문 1회 처리. 공문은 열람 시점에 저장되므로 증분 기준은 docs.id.
+fn run_docs_pass(app: &AppHandle) -> Result<(i64, i64), String> {
+    let config = read_ai_config();
+    if config.executable.is_none() {
+        return Err(format!("{} CLI를 찾을 수 없습니다.", config.provider.display_name()));
+    }
+    let Some(db) = edufine_db_path(app) else {
+        return Ok((0, 0));
+    };
+    let last_seen = read_docs_last_seen_id();
+    let docs = crate::edufine_db::list_docs_after(&db, last_seen, DOCS_PER_PASS)
+        .map_err(|e| format!("공문 DB 조회 실패: {}", e))?;
+    let Some(max_id) = docs.last().map(|d| d.id) else {
+        return Ok((0, 0));
+    };
+    let targets = docs_to_targets(docs);
+    if targets.is_empty() {
+        write_docs_last_seen_id(max_id);
+        return Ok((0, 0));
     }
 
-    if new_count > 0 {
-        // best-effort: 탁상달력에도 반영(실패 무시).
-        if let Ok(Some(path)) = crate::db::detect_desktopcal() {
-            let _ = crate::db::sync_to_desktopcal(app.clone(), path);
+    let today = seoul_today();
+    let items = match analyze_docs(app, &config, &targets, &today) {
+        Ok((items, _)) => items,
+        Err(e) => {
+            push_activity(
+                app,
+                vec![activity_entry("docs", format!("공문 {}건", targets.len()), &[], Some(e.clone()))],
+            );
+            return Err(e);
         }
-        // 프론트가 loadSchedules + Firestore sync 를 돌리도록 알림.
-        let _ = app.emit("calendar-update", ());
-    }
+    };
 
+    let (new_count, skipped, regs) = register_items(app, items, &today)?;
+    // 공문마다 한 줄씩 기록(등록 0건이면 "기한 있는 조치 없음"으로 보인다).
+    let entries = targets
+        .iter()
+        .map(|t| {
+            let key = doc_key(&t.doc_no);
+            let mine: Vec<&RegItem> = regs.iter().filter(|r| r.reference.as_deref() == Some(key.as_str())).collect();
+            activity_entry("docs", format!("{} · {}", t.doc_no, t.title), &mine, None)
+        })
+        .collect();
+    push_activity(app, entries);
+    write_docs_last_seen_id(max_id);
+    if new_count > 0 {
+        notify_calendar_changed(app);
+    }
     Ok((new_count, skipped))
+}
+
+// ─── 소급 실행(진단 탭) ───────────────────────────────────────────────────────
+// 미리보기: 과거 메시지·저장된 공문을 AI 로 분석하되 DB 에 쓰지 않고 예상 결과만 보여준다.
+// 반영: 미리보기에서 고른 항목만 등록한다(AI 재실행 없음). 자동 실행 진행 위치는 건드리지 않는다.
+
+/// 소급 미리보기 최대 메시지 수(프롬프트·타임아웃 한계).
+const BACKFILL_MAX_MESSAGES: i64 = 50;
+/// 소급 미리보기 최대 공문 수(DOCS_PER_PASS 단위로 나눠 실행).
+const BACKFILL_MAX_DOCS: usize = 20;
+
+struct BackfillStash {
+    id: u64,
+    source: String,
+    title: String,
+    items: Vec<ExtractedItem>,
+}
+
+static BACKFILL: Mutex<Option<BackfillStash>> = Mutex::new(None);
+
+#[derive(Serialize)]
+pub struct BackfillDoc {
+    pub id: i64,
+    pub title: String,
+    /// None 이면 붙임·초안 등 공문 본문이 아님(분석 대상 아님).
+    pub doc_no: Option<String>,
+    pub detected_at: String,
+    /// 이 공문으로 이미 등록된 일정 수(삭제·완료 포함).
+    pub registered: i64,
+}
+
+#[derive(Serialize)]
+pub struct BackfillPreviewItem {
+    pub index: usize,
+    pub title: String,
+    pub date: Option<String>,
+    pub source_label: String,
+    pub detail: Option<String>,
+    /// new | duplicate | past | invalid
+    pub status: String,
+}
+
+#[derive(Serialize)]
+pub struct BackfillPreview {
+    pub preview_id: u64,
+    pub source: String,
+    /// 분석한 메시지/공문 수.
+    pub scanned: i64,
+    /// 붙임·초안이라 건너뛴 공문 수.
+    pub skipped_docs: i64,
+    pub items: Vec<BackfillPreviewItem>,
+    pub duration_ms: u64,
+    pub raw_result: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct BackfillApplyResult {
+    pub new_count: i64,
+    pub skipped: i64,
+}
+
+/// 소급 대상으로 고를 수 있는 저장된 공문 목록(최신순).
+#[tauri::command]
+pub fn list_backfill_docs(app: AppHandle, limit: Option<i64>) -> Vec<BackfillDoc> {
+    let Some(db) = edufine_db_path(&app) else { return Vec::new() };
+    let previews = crate::edufine_db::list_docs(&db, limit.unwrap_or(30).clamp(1, 100), 0).unwrap_or_default();
+    let conn = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|d| Connection::open(d.join("hypercool.db")).ok());
+    previews
+        .into_iter()
+        .filter_map(|p| crate::edufine_db::get_doc(&db, p.id).ok().flatten())
+        .map(|d| {
+            let doc_no = extract_doc_no(&d.content);
+            let registered = match (&conn, &doc_no) {
+                (Some(c), Some(no)) => {
+                    let key = doc_key(no);
+                    c.query_row(
+                        "SELECT COUNT(*) FROM tbl_schedules WHERE reference_id = ?1",
+                        [&key],
+                        |r| r.get::<_, i64>(0),
+                    )
+                    .unwrap_or(0)
+                }
+                _ => 0,
+            };
+            BackfillDoc {
+                id: d.id,
+                title: crate::edufine_watcher::doc_title(&d.content, &d.file_name),
+                doc_no,
+                detected_at: d.detected_at,
+                registered,
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn preview_backfill(
+    app: AppHandle,
+    source: String,
+    count: Option<i64>,
+    doc_ids: Option<Vec<i64>>,
+) -> Result<BackfillPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if RUNNING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err("자동 실행이 진행 중입니다. 잠시 후 다시 시도하세요.".to_string());
+        }
+        let result = preview_backfill_locked(&app, &source, count, doc_ids.unwrap_or_default());
+        RUNNING.store(false, Ordering::SeqCst);
+        // 미리보기 중 들어온 자동 실행 요청은 여기서 이어서 처리한다.
+        if PENDING.swap(false, Ordering::SeqCst) {
+            let app2 = app.clone();
+            std::thread::spawn(move || {
+                let _ = run_briefing_locked(&app2);
+            });
+        }
+        result
+    })
+    .await
+    .map_err(|e| format!("실행 작업 실패: {}", e))?
+}
+
+fn preview_backfill_locked(
+    app: &AppHandle,
+    source: &str,
+    count: Option<i64>,
+    doc_ids: Vec<i64>,
+) -> Result<BackfillPreview, String> {
+    let config = read_ai_config();
+    if config.executable.is_none() {
+        return Err(format!("{} CLI를 찾을 수 없습니다.", config.provider.display_name()));
+    }
+    let today = seoul_today();
+    let started = Instant::now();
+
+    let (items, raw, scanned, skipped_docs, title) = match source {
+        "messages" => {
+            // 검색 DB 를 UDB 와 먼저 맞춘다(최근 메시지가 MCP 에 보이도록).
+            if let Some(path) = get_registry_value("UdbPath".to_string()).ok().flatten() {
+                let _ = crate::search_db::sync_from_udb(app, path);
+            }
+            let n = count.unwrap_or(10).clamp(1, BACKFILL_MAX_MESSAGES);
+            let (_, _, max_id) = search_db_stats(app);
+            let since = (max_id - n).max(0);
+            let scanned = count_messages_since(app, since);
+            if scanned == 0 {
+                return Err("분석할 메시지가 없습니다. 쿨메신저 연결을 확인하세요.".to_string());
+            }
+            let (items, raw) = analyze_messages(app, &config, since, &today)?;
+            (items, raw, scanned, 0, format!("소급 · 메시지 최근 {}개", n))
+        }
+        "docs" => {
+            let db = edufine_db_path(app).ok_or_else(|| "저장된 공문이 없습니다.".to_string())?;
+            let mut ids = doc_ids;
+            ids.sort_unstable();
+            ids.dedup();
+            ids.truncate(BACKFILL_MAX_DOCS);
+            if ids.is_empty() {
+                return Err("분석할 공문을 고르세요.".to_string());
+            }
+            let docs: Vec<_> = ids
+                .iter()
+                .filter_map(|id| crate::edufine_db::get_doc(&db, *id).ok().flatten())
+                .collect();
+            let picked = docs.len() as i64;
+            let targets = docs_to_targets(docs);
+            let skipped = picked - targets.len() as i64;
+            if targets.is_empty() {
+                return Err("고른 문서가 모두 붙임·초안이라 분석할 공문이 없습니다.".to_string());
+            }
+            let mut items = Vec::new();
+            let mut raws = Vec::new();
+            for chunk in targets.chunks(DOCS_PER_PASS as usize) {
+                let (mut part, raw) = analyze_docs(app, &config, chunk, &today)?;
+                items.append(&mut part);
+                raws.push(raw);
+            }
+            let n = targets.len();
+            (items, raws.join("\n\n"), n as i64, skipped, format!("소급 · 공문 {}건", n))
+        }
+        _ => return Err("지원하지 않는 소급 대상입니다.".to_string()),
+    };
+
+    let (_, _, _, regs) = register_items_opts(app, items.clone(), &today, true)?;
+    let preview_items = items
+        .iter()
+        .zip(regs.iter())
+        .enumerate()
+        .map(|(index, (item, reg))| BackfillPreviewItem {
+            index,
+            title: reg.title.clone(),
+            date: reg.date.clone(),
+            source_label: item.source_label.clone().unwrap_or_else(|| {
+                let mut label = item
+                    .source_message_id
+                    .map(|m| format!("메시지 #{}", m))
+                    .unwrap_or_else(|| "메시지".to_string());
+                if let Some(sender) = item.sender.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    label.push_str(" · ");
+                    label.push_str(sender);
+                }
+                label
+            }),
+            detail: item.detail.clone(),
+            status: reg.status.as_str().to_string(),
+        })
+        .collect();
+
+    let preview_id = chrono::Utc::now().timestamp_millis() as u64;
+    *BACKFILL.lock().unwrap_or_else(|e| e.into_inner()) = Some(BackfillStash {
+        id: preview_id,
+        source: source.to_string(),
+        title,
+        items,
+    });
+
+    Ok(BackfillPreview {
+        preview_id,
+        source: source.to_string(),
+        scanned,
+        skipped_docs,
+        items: preview_items,
+        duration_ms: started.elapsed().as_millis() as u64,
+        raw_result: Some(raw),
+    })
+}
+
+/// 미리보기에서 고른 항목만 등록한다. 등록 시점에 중복을 다시 확인한다.
+#[tauri::command]
+pub fn apply_backfill(app: AppHandle, preview_id: u64, indices: Vec<usize>) -> Result<BackfillApplyResult, String> {
+    let stash = {
+        let mut slot = BACKFILL.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.take() {
+            Some(s) if s.id == preview_id => s,
+            other => {
+                *slot = other;
+                return Err("미리보기가 만료되었습니다. 다시 실행하세요.".to_string());
+            }
+        }
+    };
+    let selected: Vec<ExtractedItem> = indices
+        .into_iter()
+        .filter_map(|i| stash.items.get(i).cloned())
+        .collect();
+    if selected.is_empty() {
+        return Ok(BackfillApplyResult { new_count: 0, skipped: 0 });
+    }
+    let today = seoul_today();
+    let (new_count, skipped, regs) = register_items(&app, selected, &today)?;
+    push_activity(
+        &app,
+        vec![activity_entry(&stash.source, stash.title, &regs.iter().collect::<Vec<_>>(), None)],
+    );
+    if new_count > 0 {
+        notify_calendar_changed(&app);
+    }
+    let snapshot = status_slot().lock().unwrap().clone();
+    let _ = app.emit("briefing-status", snapshot);
+    Ok(BackfillApplyResult { new_count, skipped })
+}
+
+fn load_docs_prompt_template(app: &AppHandle) -> String {
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let p = res_dir.join("resources").join("briefing_docs_prompt.md");
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            if !text.trim().is_empty() {
+                return text;
+            }
+        }
+    }
+    include_str!("../resources/briefing_docs_prompt.md").to_string()
 }
 
 struct AiOutput {
@@ -1028,12 +1719,14 @@ fn write_codex_output_schema(cwd: &PathBuf) -> Result<PathBuf, String> {
                         "urgency": nullable_string.clone(),
                         "active_from": nullable_string.clone(),
                         "active_until": nullable_string.clone(),
-                        "source_text": nullable_string
+                        "source_text": nullable_string,
+                        "source_doc_id": { "type": ["integer", "null"] }
                     },
                     "required": [
                         "id", "source_message_id", "received_at", "sender", "type", "title",
                         "detail", "date", "time", "all_day", "period", "has_attachment",
-                        "urgency", "active_from", "active_until", "source_text"
+                        "urgency", "active_from", "active_until", "source_text",
+                        "source_doc_id"
                     ]
                 }
             }
@@ -1145,8 +1838,49 @@ fn register_items(
     app: &AppHandle,
     items: Vec<ExtractedItem>,
     today: &str,
-) -> Result<(i64, i64), String> {
-    register_items_core(app, items, today).map(|(new_c, dedup_c, invalid_c)| (new_c, dedup_c + invalid_c))
+) -> Result<(i64, i64, Vec<RegItem>), String> {
+    register_items_core(app, items, today)
+        .map(|(new_c, dedup_c, invalid_c, regs)| (new_c, dedup_c + invalid_c, regs))
+}
+
+/// 등록 시도 1건의 결과(활동 기록용).
+struct RegItem {
+    /// 출처 참조(메시지 id 문자열 또는 doc-<문서번호>).
+    reference: Option<String>,
+    title: String,
+    date: Option<String>,
+    status: RegStatus,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RegStatus {
+    New,
+    Duplicate,
+    /// 기한이 오늘보다 과거라 등록하지 않음.
+    Past,
+    /// 날짜 없음 등 검증 실패.
+    Invalid,
+}
+
+impl RegStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::New => "new",
+            Self::Duplicate => "duplicate",
+            Self::Past => "past",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+/// 항목의 달력 날짜(date → active_from → received_at)가 오늘보다 과거인지.
+fn is_past_item(item: &ExtractedItem, today: Option<chrono::NaiveDate>) -> bool {
+    let Some(t) = today else { return false };
+    [item.date.as_deref(), item.active_from.as_deref(), item.received_at.as_deref()]
+        .into_iter()
+        .flatten()
+        .find_map(parse_date_loose)
+        .is_some_and(|d| d < t)
 }
 
 /// 등록 공통 경로: (신규, 중복 skip, 검증/실패 skip)을 반환.
@@ -1159,7 +1893,18 @@ fn register_items_core(
     app: &AppHandle,
     items: Vec<ExtractedItem>,
     today: &str,
-) -> Result<(i64, i64, i64), String> {
+) -> Result<(i64, i64, i64, Vec<RegItem>), String> {
+    register_items_opts(app, items, today, false)
+}
+
+/// `dry_run` 이면 DB 에 쓰지 않고 각 항목의 예상 결과만 돌려준다(소급 미리보기).
+/// regs 는 입력 items 와 같은 순서·같은 개수다.
+fn register_items_opts(
+    app: &AppHandle,
+    items: Vec<ExtractedItem>,
+    today: &str,
+    dry_run: bool,
+) -> Result<(i64, i64, i64, Vec<RegItem>), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let conn = Connection::open(dir.join("hypercool.db"))
         .map_err(|e| format!("일정 DB 연결 실패: {}", e))?;
@@ -1169,15 +1914,35 @@ fn register_items_core(
     let (mut new_c, mut dedup_c, mut invalid_c) = (0i64, 0i64, 0i64);
     // 이번 배치에서 등록한 항목 키 — 한 실행 안에서 온 재전송 메시지끼리도 중복 방지.
     let mut batch_keys: Vec<DedupKey> = Vec::new();
+    let mut regs: Vec<RegItem> = Vec::new();
 
     for item in items {
-        let full = item.source_message_id.and_then(|mid| fetch_message_html(app, mid));
+        let reference = item
+            .source_message_id
+            .map(|m| m.to_string())
+            .or_else(|| item.reference.clone());
+        let full = item
+            .source_message_id
+            .and_then(|mid| fetch_message_html(app, mid))
+            .or_else(|| item.original_html.clone());
         let sched = match to_schedule_item(&item, today_date, full.as_deref()) {
             Some(s) => s,
             None => {
                 invalid_c += 1;
+                regs.push(RegItem {
+                    reference,
+                    title: item.title.clone().unwrap_or_default(),
+                    date: item.date.clone(),
+                    status: if is_past_item(&item, today_date) { RegStatus::Past } else { RegStatus::Invalid },
+                });
                 continue;
             }
+        };
+        let mut reg = RegItem {
+            reference,
+            title: sched.title.clone(),
+            date: sched.start_date.clone(),
+            status: RegStatus::Duplicate,
         };
 
         // ① 멱등: 같은 id 가 이미 있으면(사용자가 완료/수정/삭제했더라도) 덮어쓰지 않고 skip.
@@ -1192,6 +1957,7 @@ fn register_items_core(
             .unwrap_or(false);
         if exists {
             dedup_c += 1;
+            regs.push(reg);
             continue;
         }
 
@@ -1202,8 +1968,19 @@ fn register_items_core(
             let dup_in_batch = batch_keys.iter().any(|b| keys_similar(k, b, true));
             if dup_in_batch || find_semantic_duplicate(&conn, k).is_some() {
                 dedup_c += 1;
+                regs.push(reg);
                 continue;
             }
+        }
+
+        if dry_run {
+            new_c += 1;
+            if let Some(k) = key {
+                batch_keys.push(k);
+            }
+            reg.status = RegStatus::New;
+            regs.push(reg);
+            continue;
         }
 
         match crate::db::create_schedule_impl(&conn, sched) {
@@ -1212,12 +1989,18 @@ fn register_items_core(
                 if let Some(k) = key {
                     batch_keys.push(k);
                 }
+                reg.status = RegStatus::New;
+                regs.push(reg);
             }
-            Err(_) => invalid_c += 1,
+            Err(_) => {
+                invalid_c += 1;
+                reg.status = RegStatus::Invalid;
+                regs.push(reg);
+            }
         }
     }
 
-    Ok((new_c, dedup_c, invalid_c))
+    Ok((new_c, dedup_c, invalid_c, regs))
 }
 
 // ─── 내용 기반 중복 판정 ──────────────────────────────────────────────────────
@@ -1299,7 +2082,7 @@ fn find_semantic_duplicate(conn: &Connection, key: &DedupKey) -> Option<String> 
             norm_body: normalized_original_body(content.as_deref().unwrap_or("")),
             source_ref: ref_id,
         };
-        let fuzzy = color.as_deref() == Some(AI_COLOR);
+        let fuzzy = is_ai_color(color.as_deref());
         if keys_similar(key, &existing, fuzzy) {
             return Some(id);
         }
@@ -1469,6 +2252,7 @@ fn to_schedule_item(
     if let Some(s) = line("교시", &item.period) { content.push_str(&s); }
     if let Some(s) = line("시간", &item.time) { content.push_str(&s); }
     if let Some(s) = line("발신", &item.sender) { content.push_str(&s); }
+    if let Some(s) = line("출처", &item.source_label) { content.push_str(&s); }
     content.push_str(&format!("<div>{}</div>", AI_MARKER));
 
     // 원문: full_body 는 이미 정제된 HTML. 없으면 source_text 발췌를 escape 해서 사용.
@@ -1503,8 +2287,14 @@ fn to_schedule_item(
         start_date: Some(start_date.clone()),
         end_date: Some(start_date),
         is_all_day: all_day,
-        reference_id: item.source_message_id.map(|m| m.to_string()),
-        color: Some(AI_COLOR.to_string()),
+        reference_id: item
+            .source_message_id
+            .map(|m| m.to_string())
+            .or_else(|| item.reference.clone()),
+        color: Some(
+            if item.reference.as_deref().is_some_and(|r| r.starts_with("doc-")) { DOC_COLOR } else { AI_COLOR }
+                .to_string(),
+        ),
         is_completed: false,
         created_at: now.clone(),
         updated_at: now,
@@ -1524,6 +2314,18 @@ fn read_last_seen_id() -> i64 {
 
 fn write_last_seen_id(id: i64) {
     let _ = set_registry_value(REG_LAST_SEEN.to_string(), id.to_string());
+}
+
+fn read_docs_last_seen_id() -> i64 {
+    get_registry_value(REG_DOCS_LAST_SEEN.to_string())
+        .ok()
+        .flatten()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+fn write_docs_last_seen_id(id: i64) {
+    let _ = set_registry_value(REG_DOCS_LAST_SEEN.to_string(), id.to_string());
 }
 
 fn read_provider() -> AiProvider {
@@ -1618,14 +2420,14 @@ fn existing_schedules_snippet(app: &AppHandle, today: &str) -> String {
         "SELECT substr(COALESCE(start_date, ''), 1, 10), title, color, reference_id, is_completed, is_deleted
          FROM tbl_schedules
          WHERE substr(COALESCE(start_date, ''), 1, 10) >= ?1
-           AND (color = ?2 OR (is_deleted = 0 AND type IN ('manual_todo', 'desktopcal_memo')))
+           AND (color IN (?2, ?3) OR (is_deleted = 0 AND type IN ('manual_todo', 'desktopcal_memo')))
          ORDER BY 1
          LIMIT 150",
     ) {
         Ok(s) => s,
         Err(_) => return "(조회 실패)".to_string(),
     };
-    let rows = stmt.query_map(rusqlite::params![today, AI_COLOR], |r| {
+    let rows = stmt.query_map(rusqlite::params![today, AI_COLOR, DOC_COLOR], |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -1638,8 +2440,9 @@ fn existing_schedules_snippet(app: &AppHandle, today: &str) -> String {
     let mut lines = Vec::new();
     if let Ok(rows) = rows {
         for (date, title, color, ref_id, done, deleted) in rows.flatten() {
-            let source = if color.as_deref() == Some(AI_COLOR) {
+            let source = if is_ai_color(color.as_deref()) {
                 match ref_id {
+                    Some(r) if r.starts_with("doc-") => format!("AI({})", r),
                     Some(r) => format!("AI(msg-{})", r),
                     None => "AI".to_string(),
                 }
@@ -1766,6 +2569,125 @@ fn find_codex() -> Option<PathBuf> {
         if pb.exists() { return Some(pb); }
     }
     find_on_windows_path("codex").or_else(|| find_common_cli("codex"))
+}
+
+fn claude_fallback_models() -> Vec<BriefingModelOption> {
+    ["sonnet", "opus", "haiku"]
+        .iter()
+        .map(|id| BriefingModelOption {
+            id: id.to_string(),
+            label: id.to_string(),
+            description: "Claude Code 모델 별칭".to_string(),
+            is_default: false,
+        })
+        .collect()
+}
+
+/// Claude Code 를 stream-json 모드로 띄워 SDK 제어 요청 `initialize` 를 보내고,
+/// 응답의 `models`(현재 계정에서 /model 선택기에 보이는 목록)를 읽는다. API 호출 없음.
+fn list_claude_models(claude: &PathBuf) -> Result<Vec<BriefingModelOption>, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::mpsc;
+
+    let mut cmd = std::process::Command::new(claude);
+    cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
+        .current_dir(std::env::temp_dir())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| format!("Claude Code 실행 실패: {}", e))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| "Claude stdin 연결 실패".to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| "Claude stdout 연결 실패".to_string())?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                let _ = tx.send(value);
+            }
+        }
+    });
+
+    let request = serde_json::json!({
+        "type": "control_request",
+        "request_id": "hypercool-models",
+        "request": { "subtype": "initialize" }
+    });
+    let sent = writeln!(stdin, "{}", request).and_then(|_| stdin.flush());
+    if let Err(e) = sent {
+        let _ = child.kill();
+        return Err(format!("Claude 요청 전송 실패: {}", e));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let response = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining) {
+            Ok(value) if value.get("type").and_then(|v| v.as_str()) == Some("control_response") => break value,
+            Ok(_) => continue,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Claude 모델 목록 조회 시간이 초과되었습니다.".to_string());
+            }
+        }
+    };
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    parse_claude_model_response(&response)
+}
+
+fn parse_claude_model_response(value: &serde_json::Value) -> Result<Vec<BriefingModelOption>, String> {
+    let inner = value.get("response").ok_or_else(|| "Claude 응답 형식이 올바르지 않습니다.".to_string())?;
+    if inner.get("subtype").and_then(|v| v.as_str()) == Some("error") {
+        return Err(format!(
+            "Claude 초기화 실패: {}",
+            inner.get("error").and_then(|v| v.as_str()).unwrap_or("알 수 없는 오류")
+        ));
+    }
+    let models = inner
+        .pointer("/response/models")
+        .or_else(|| inner.get("models"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Claude 응답에 모델 목록이 없습니다.".to_string())?;
+
+    // "default" 항목은 별도 선택지로 두지 않고(빈 값 = CLI 기본), 그것이 가리키는 모델에 기본 표시만 단다.
+    let default_resolved = models
+        .iter()
+        .find(|m| m.get("value").and_then(|v| v.as_str()) == Some("default"))
+        .and_then(|m| m.get("resolvedModel").and_then(|v| v.as_str()))
+        .map(str::to_string);
+    let mut default_marked = false;
+    let out: Vec<BriefingModelOption> = models
+        .iter()
+        .filter_map(|m| {
+            let id = m.get("value")?.as_str()?.trim();
+            if id.is_empty() || id == "default" {
+                return None;
+            }
+            let resolved = m.get("resolvedModel").and_then(|v| v.as_str());
+            let is_default = !default_marked && resolved.is_some() && resolved == default_resolved.as_deref();
+            if is_default {
+                default_marked = true;
+            }
+            Some(BriefingModelOption {
+                id: id.to_string(),
+                label: m.get("displayName").and_then(|v| v.as_str()).unwrap_or(id).to_string(),
+                description: m.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                is_default,
+            })
+        })
+        .collect();
+    if out.is_empty() {
+        return Err("Claude 모델 목록이 비어 있습니다.".to_string());
+    }
+    Ok(out)
 }
 
 /// Codex App Server와 짧게 연결해 현재 선택기에 노출되는 모델만 가져온다.
@@ -2460,5 +3382,80 @@ mod tests {
         assert!(rebuilt.contains("기존 원문 보존"));
         assert!(!rebuilt.contains(AI_MARKER_LEGACY));
         assert!(rebuilt.contains(AI_MARKER));
+    }
+
+    #[test]
+    fn doc_no_requires_official_header() {
+        let body = "○○교육청
+수신 수신자 참조
+제목 2026학년도 학업성적관리 규정 제출
+시행 교육과정과-12345 (2026. 10. 1.)";
+        assert_eq!(extract_doc_no(body).as_deref(), Some("교육과정과-12345"));
+        // 붙임(계획서 등): 수신/제목/시행 줄이 없으면 공문 본문이 아니다.
+        assert_eq!(extract_doc_no("2026 운영 계획
+1. 목적
+2. 일정"), None);
+        // 결재 전 초안 번호(@N)는 숫자가 아니므로 제외.
+        assert_eq!(extract_doc_no("수신 내부결재
+제목 x
+시행 교무부-@N"), None);
+    }
+
+    #[test]
+    fn doc_items_get_doc_reference_and_original() {
+        let item = ExtractedItem {
+            id: Some("doc-교육과정과-12345".into()),
+            source_doc_id: Some(3),
+            title: Some("규정 제출".into()),
+            date: Some("2099-01-02".into()),
+            reference: Some("doc-교육과정과-12345".into()),
+            source_label: Some("공문 교육과정과-12345".into()),
+            ..Default::default()
+        };
+        let sched = to_schedule_item(&item, None, Some("<div>본문</div>")).unwrap();
+        assert_eq!(sched.reference_id.as_deref(), Some("doc-교육과정과-12345"));
+        let content = sched.content.unwrap();
+        assert!(content.contains("출처: 공문 교육과정과-12345"));
+        assert!(content.contains("<div>본문</div>"));
+        assert_eq!(doc_key("a/b c-1"), "doc-a_b_c-1");
+        assert_eq!(sched.color.as_deref(), Some(DOC_COLOR));
+        assert!(is_ai_color(Some("#f59e0b")) && is_ai_color(Some(AI_COLOR)) && !is_ai_color(None));
+
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 19);
+        let past = ExtractedItem { date: Some("2026-10-01".into()), ..Default::default() };
+        let future = ExtractedItem { date: Some("2026-10-20".into()), ..Default::default() };
+        assert!(is_past_item(&past, today) && !is_past_item(&future, today));
+        assert!(!is_past_item(&ExtractedItem::default(), today));
+    }
+
+    #[test]
+    fn claude_models_parse_marks_default_and_drops_default_entry() {
+        let v = serde_json::json!({"type":"control_response","response":{"subtype":"success","request_id":"x","response":{"models":[
+            {"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default"},
+            {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5","description":"d"},
+            {"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet 5.5"}
+        ]}}});
+        let m = parse_claude_model_response(&v).unwrap();
+        assert_eq!(m.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["opus", "sonnet"]);
+        assert!(m[0].is_default && !m[1].is_default);
+        let err = serde_json::json!({"type":"control_response","response":{"subtype":"error","error":"boom"}});
+        assert!(parse_claude_model_response(&err).is_err());
+    }
+
+    /// 실제 설치된 CLI 로 모델 목록을 읽는다: cargo test --lib live_model_lists -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_model_lists() {
+        let claude = find_claude().expect("claude 없음");
+        let t = Instant::now();
+        let cm = list_claude_models(&claude).expect("claude 모델 조회 실패");
+        println!("claude {:?} {}개 {:?}", claude, cm.len(), t.elapsed());
+        for m in &cm { println!("  {}{} | {}", m.id, if m.is_default { " (기본)" } else { "" }, m.label); }
+        let codex = find_codex().expect("codex 없음");
+        let t = Instant::now();
+        let xm = list_codex_models(&codex).expect("codex 모델 조회 실패");
+        println!("codex {:?} {}개 {:?}", codex, xm.len(), t.elapsed());
+        for m in &xm { println!("  {}{} | {}", m.id, if m.is_default { " (기본)" } else { "" }, m.label); }
+        assert!(!cm.is_empty() && !xm.is_empty());
     }
 }

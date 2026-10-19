@@ -29,7 +29,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "resources/briefing_prompt.md"
+      "resources/briefing_prompt.md",
+      "resources/briefing_docs_prompt.md"
     ],
     "icon": [
       "icons/32x32.png",

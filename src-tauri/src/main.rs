@@ -403,6 +403,11 @@ fn main() {
             agent::get_briefing_agent_models,
             agent::set_briefing_agent_enabled,
             agent::set_briefing_agent_config,
+            agent::set_briefing_docs_enabled,
+            agent::get_briefing_activity,
+            agent::list_backfill_docs,
+            agent::preview_backfill,
+            agent::apply_backfill,
             agent::migrate_ai_schedules_content,
             agent::get_coolmessenger_status,
 
@@ -453,8 +458,22 @@ fn main() {
 
                 if let Err(e) = edufine_db::init_db(&edufine_db_path) {
                     eprintln!("[Edufine] DB 초기화 실패: {}", e);
+                } else {
+                    // 저장된 공문 제목을 현재 규칙(본문 "제목" 칸 우선)으로 보정. 멱등, 변경분만 UPDATE.
+                    let title_db = edufine_db_path.clone();
+                    std::thread::spawn(move || {
+                        let n = hypercool::edufine_watcher::refresh_titles(&title_db);
+                        if n > 0 {
+                            eprintln!("[Edufine] 공문 제목 보정: {}건", n);
+                        }
+                    });
                 }
 
+                // 새 공문 저장 → 브리핑 에이전트 트리거("공문도 분석"이 켜져 있을 때만 실행).
+                {
+                    let doc_app = app.app_handle().clone();
+                    hypercool::edufine_watcher::set_on_new_doc(move || agent::on_new_docs(&doc_app));
+                }
                 mcp_commands::restore_edufine_state(app.app_handle());
                 hypercool::mcp_server::start(search_db_path, edufine_db_path, 3737);
 

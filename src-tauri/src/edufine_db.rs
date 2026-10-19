@@ -189,3 +189,35 @@ pub fn get_stats(db_path: &PathBuf) -> SqlResult<(i64, Option<String>)> {
         .ok();
     Ok((total, last))
 }
+
+/// id 가 `after_id` 보다 큰 공문을 오래된 순으로 조회(브리핑 에이전트 증분 처리용).
+pub fn list_docs_after(db_path: &PathBuf, after_id: i64, limit: i64) -> SqlResult<Vec<EdufineDoc>> {
+    let conn = Connection::open(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, file_name, title, content, content_hash, detected_at FROM docs WHERE id > ?1 ORDER BY id ASC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![after_id, limit], |row| {
+        Ok(EdufineDoc {
+            id: row.get(0)?,
+            file_name: row.get(1)?,
+            title: row.get(2)?,
+            content: row.get(3)?,
+            content_hash: row.get(4)?,
+            detected_at: row.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// 공문 제목 갱신(FTS 는 docs_au 트리거로 함께 갱신됨).
+pub fn update_title(db_path: &PathBuf, id: i64, title: &str) -> SqlResult<()> {
+    let conn = Connection::open(db_path)?;
+    conn.execute("UPDATE docs SET title = ?1 WHERE id = ?2", params![title, id])?;
+    Ok(())
+}
+
+/// 최대 공문 id(없으면 0).
+pub fn max_doc_id(db_path: &PathBuf) -> SqlResult<i64> {
+    let conn = Connection::open(db_path)?;
+    conn.query_row("SELECT COALESCE(MAX(id), 0) FROM docs", [], |row| row.get(0))
+}
