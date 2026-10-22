@@ -32,6 +32,7 @@ interface BriefingStatus {
   codex_installed: boolean;
   codex_path: string | null;
   authed: boolean;
+  auth_expired: boolean;
   running: boolean;
   last_run_at: string | null;
   last_new_count: number;
@@ -551,7 +552,7 @@ export const McpPage = () => {
       purpose: `${agentName} 로그인 또는 API 키가 필요합니다.`,
       fix: briefing?.provider === 'codex'
         ? <>터미널에서 <code>codex login</code>하거나 <code>OPENAI_API_KEY</code>를 설정하세요.</>
-        : <>터미널에서 <code>claude</code>로 로그인하거나 <code>ANTHROPIC_API_KEY</code>를 설정하세요.</>,
+        : <>터미널에서 <code>claude auth login --claudeai</code>로 로그인하거나 <code>ANTHROPIC_API_KEY</code>를 설정하세요.</>,
     },
   ];
 
@@ -616,6 +617,20 @@ export const McpPage = () => {
                   {briefingRunning || briefing?.running ? '실행 중…' : '지금 실행'}
                 </button>
               </div>
+
+              {briefing?.auth_expired && (
+                <div className="ai-auth-expired" role="alert">
+                  <span className="mcp-warn-icon"><IconWarn /></span>
+                  <div>
+                    <strong>{agentName} 로그인 만료 · 자동 실행 멈춤</strong>
+                    <div>
+                      터미널에서{' '}
+                      <code>{briefing.provider === 'codex' ? 'codex login' : 'claude auth login --claudeai'}</code>
+                      {' '}실행 후 ‘지금 실행’
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {activity.length === 0 ? (
                 <div className="ai-feed-empty">기록 없음</div>

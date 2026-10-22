@@ -76,6 +76,8 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static DOCS_ENABLED: AtomicBool = AtomicBool::new(false);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static PENDING: AtomicBool = AtomicBool::new(false);
+/// CLI 로그인 만료 감지. 켜져 있으면 자동 실행을 멈추고, 수동 "지금 실행"이 성공하면 풀린다.
+static AUTH_EXPIRED: AtomicBool = AtomicBool::new(false);
 static LAST_TRIGGER_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 static LAST_STATUS: OnceLock<Mutex<BriefingStatusSnapshot>> = OnceLock::new();
 
@@ -177,6 +179,8 @@ pub struct BriefingStatus {
     pub codex_installed: bool,
     pub codex_path: Option<String>,
     pub authed: bool,
+    /// 최근 실행이 인증 오류로 실패해 자동 실행이 멈춘 상태.
+    pub auth_expired: bool,
     pub running: bool,
     pub last_run_at: Option<String>,
     pub last_new_count: i64,
@@ -295,7 +299,8 @@ pub fn get_briefing_agent_status() -> BriefingStatus {
         claude_path: claude.map(|p| p.to_string_lossy().to_string()),
         codex_installed: codex.is_some(),
         codex_path: codex.map(|p| p.to_string_lossy().to_string()),
-        authed: is_authed(provider),
+        authed: is_authed(provider) && !AUTH_EXPIRED.load(Ordering::Relaxed),
+        auth_expired: AUTH_EXPIRED.load(Ordering::Relaxed),
         running: RUNNING.load(Ordering::Relaxed),
         last_run_at: snapshot.last_run_at,
         last_new_count: snapshot.last_new_count,
@@ -337,6 +342,10 @@ pub fn set_briefing_agent_config(provider: String, model: Option<String>) -> Res
         _ => return Err("지원하지 않는 AI 공급자입니다.".to_string()),
     };
     let model = normalize_model(model)?;
+    if provider != read_provider() {
+        // 다른 CLI 로 바꾸면 이전 CLI 의 로그인 만료 상태는 의미가 없다.
+        AUTH_EXPIRED.store(false, Ordering::Relaxed);
+    }
     set_registry_value(REG_PROVIDER.to_string(), provider.as_str().to_string())?;
     set_registry_value(REG_MODEL.to_string(), model.unwrap_or_default())
 }
@@ -420,6 +429,10 @@ fn schedule_debounced_run(app: &AppHandle) {
     if !is_enabled() || read_ai_config().executable.is_none() {
         return;
     }
+    // 로그인 만료 중엔 같은 오류만 반복되므로 자동 실행을 건너뛴다(새 메시지는 last_seen 이 그대로라 나중에 처리됨).
+    if AUTH_EXPIRED.load(Ordering::Relaxed) {
+        return;
+    }
 
     let trigger_at = Instant::now();
     *LAST_TRIGGER_AT.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(trigger_at);
@@ -434,7 +447,7 @@ fn schedule_debounced_run(app: &AppHandle) {
             .and_then(|m| m.lock().ok().and_then(|g| *g))
             .map(|t| t == trigger_at)
             .unwrap_or(false);
-        if !is_latest || !is_enabled() {
+        if !is_latest || !is_enabled() || AUTH_EXPIRED.load(Ordering::Relaxed) {
             return;
         }
 
@@ -466,28 +479,37 @@ fn run_briefing_locked(app: &AppHandle) -> BriefingRunResult {
 
     loop {
         PENDING.store(false, Ordering::SeqCst);
+        let mut auth_failed = false;
         match run_pass(app, &PassOpts { since_override: None, advance: true }) {
             Ok((n, s)) => {
                 total_new += n;
                 total_skipped += s;
             }
             Err(e) => {
+                auth_failed = is_auth_error(&e);
                 last_err = Some(e);
             }
         }
-        if DOCS_ENABLED.load(Ordering::Relaxed) {
+        // 메시지에서 인증 오류가 났으면 공문도 같은 이유로 실패하므로 건너뛴다.
+        if DOCS_ENABLED.load(Ordering::Relaxed) && !auth_failed {
             match run_docs_pass(app) {
                 Ok((n, s)) => {
                     total_new += n;
                     total_skipped += s;
                 }
                 Err(e) => {
+                    auth_failed = is_auth_error(&e);
                     last_err = Some(match last_err {
                         Some(prev) => format!("{} / 공문: {}", prev, e),
                         None => format!("공문: {}", e),
                     });
                 }
             }
+        }
+        if auth_failed {
+            AUTH_EXPIRED.store(true, Ordering::Relaxed);
+        } else if last_err.is_none() {
+            AUTH_EXPIRED.store(false, Ordering::Relaxed);
         }
         update_and_emit_status(app, total_new, last_err.clone());
 
@@ -2864,6 +2886,24 @@ fn find_common_cli(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// CLI 오류 메시지가 로그인 만료/미로그인 때문인지 판별한다.
+/// 예: Claude Code "Failed to authenticate: OAuth session expired and could not be refreshed"
+fn is_auth_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    [
+        "failed to authenticate",
+        "authentication_error",
+        "oauth session expired",
+        "invalid api key",
+        "not logged in",
+        "please run /login",
+        "codex login",
+        "401 unauthorized",
+    ]
+    .iter()
+    .any(|k| m.contains(k))
+}
+
 /// 선택한 CLI 인증 여부 best-effort 확인.
 fn is_authed(provider: AiProvider) -> bool {
     let env_key = match provider {
@@ -2977,6 +3017,15 @@ fn head_chars(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_cli_auth_errors() {
+        assert!(is_auth_error("Claude Code 오류: Failed to authenticate: OAuth session expired and could not be refreshed"));
+        assert!(is_auth_error("Invalid API key · Please run /login"));
+        assert!(is_auth_error("error: Not logged in. Run `codex login`"));
+        assert!(!is_auth_error("Claude Code 출력(JSON 봉투) 파싱 실패: EOF"));
+        assert!(!is_auth_error("시간 초과(240초)"));
+    }
 
     #[test]
     fn extract_array_strips_fences_and_prose() {
