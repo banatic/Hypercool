@@ -1,8 +1,8 @@
 # HyperCool
 
-쿨메신저로 받은 메시지와 공문에서 일정을 뽑아 달력에 정리해 주는 Windows 앱.
+쿨메신저로 받은 메시지와 공문을 달력 일정으로 정리해 주는 Windows 앱.
 
-![AI 자동 일정화](docs/images/ai-auto.png)
+![달력 위젯](docs/images/calendar.png)
 
 ## 설치
 
@@ -14,38 +14,49 @@
 C:\Users\사용자명\AppData\Local\CoolMessenger\Memo\
 ```
 
-## 기능
+## 달력에 일정이 들어오는 방법
 
-### AI 일정 정리
+```mermaid
+flowchart LR
+    A[메시지 · 공문] --> B[AI가 읽고 등록]
+    A --> C[직접 분류하며 등록]
+    B --> D[달력]
+    C --> D
+```
 
-새 메시지와 에듀파인 공문을 AI가 읽고, 마감이나 행사가 있으면 달력에 일정으로 등록합니다. 이미 있는 일정은 건너뜁니다.
+### A. AI가 알아서 등록
 
-- 엔진: Claude Code 또는 Codex (PC에 설치·로그인 필요)
-- 분석 대상: 쿨메신저 메시지, 에듀파인 공문
-- 지난 메시지나 공문은 **진단 → 소급 실행**에서 미리 보고 골라서 반영
+새 메시지와 에듀파인 공문을 AI가 읽고, 마감이나 행사가 있으면 달력에 넣습니다. PC에 Claude Code나 Codex가 설치되어 있어야 합니다.
 
-![공문 소급 실행](docs/images/ai-backfill.png)
+![AI 자동 등록](docs/images/ai-auto.png)
 
-### 달력·학교 위젯
+### B. 직접 분류하며 등록
 
-바탕화면에 띄워 두는 위젯입니다. 달력에는 일정과 할 일이, 학교 위젯에는 시간표·급식·출결·상벌점이 나옵니다.
+받은 메시지를 하나씩 넘기며 완료와 할 일로 나누고, 할 일에 마감일을 붙이면 달력에 들어갑니다.
 
-| 달력 | 시간표 |
-| --- | --- |
-| ![달력 위젯](docs/images/calendar.png) | ![학교 위젯 시간표](docs/images/school-timetable.png) |
+![메시지 분류](https://github.com/user-attachments/assets/c268132f-58a5-44b3-a5ed-5eeb61bb670a)
 
-### 메시지 정리
+## AI에게 물어보기
 
-받은 메시지를 완료와 할 일로 나누고, 마감일을 붙여 관리합니다. 본문 전체 검색을 지원합니다.
+Claude Desktop 같은 AI 앱을 HyperCool에 연결하면, 쌓인 메시지와 공문을 뒤져 대신 찾아 줍니다. 설정은 **AI 연동 → 외부 AI 연결 → 자동 설정하기** 한 번이면 됩니다.
 
-![메시지 정리](https://github.com/user-attachments/assets/c268132f-58a5-44b3-a5ed-5eeb61bb670a)
+- "가정통신문 중에 급식비 관련된 거 찾아줘"
+- "이번 주에 제출해야 하는 공문 정리해 줘"
+- "교무부에서 온 메시지 최근 10개 요약해 줘"
 
-### 그 밖에
+![외부 AI 연결](docs/images/mcp.png)
+
+## 학교 위젯
+
+시간표·급식·출결·상벌점을 탭으로 봅니다.
+
+<img src="docs/images/school-timetable.png" alt="학교 위젯 시간표" width="420">
+
+## 그 밖에
 
 - 메시지 관리함 첨부파일 일괄 저장
 - 쿨메신저 작성창 GIF 검색
 - Google 로그인 시 일정 동기화와 웹에서 보기
-- MCP 서버(`localhost:3737`)로 Claude Desktop 등에서 메시지·공문 검색
 
 ## 개발
 
@@ -66,5 +77,3 @@ pages/              위젯·보조 창 HTML
 scripts/            릴리즈·파서 검증 스크립트
 docs/               개발 문서
 ```
-
-릴리즈 절차는 [docs/release_method.md](docs/release_method.md)를 참고하세요.
