@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build && npm run copy-html",
-        "copy-html": "node -e \"const fs = require('fs'); fs.copyFileSync('message-viewer.html', 'dist/message-viewer.html');\"",
+        "copy-html": "node -e \"const fs = require('fs'); fs.copyFileSync('pages/message-viewer.html', 'dist/pages/message-viewer.html');\"",
         "preview": "vite preview",
         "tauri": "tauri",
         "test": "vitest"

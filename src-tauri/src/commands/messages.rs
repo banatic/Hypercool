@@ -392,11 +392,11 @@ pub async fn open_message_viewer(app: tauri::AppHandle, message_id: i64) -> Resu
     
     let url = if cfg!(dev) {
         WebviewUrl::External(
-            std::str::FromStr::from_str(&format!("http://localhost:1420/message-viewer.html?id={}", message_id))
+            std::str::FromStr::from_str(&format!("http://localhost:1420/pages/message-viewer.html?id={}", message_id))
                 .map_err(|e| format!("URL 파싱 실패: {}", e))?
         )
     } else {
-        WebviewUrl::App(format!("message-viewer.html?id={}", message_id).into())
+        WebviewUrl::App(format!("pages/message-viewer.html?id={}", message_id).into())
     };
     
     let window = tauri::WebviewWindowBuilder::new(

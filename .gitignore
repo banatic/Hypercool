@@ -58,3 +58,9 @@ src-appin
 # Firebase local debugging mini project
 firebase-debug/
 firebase-debug
+# AI 도구 설정
+.claude/
+CLAUDE.md
+
+# 서명 키 (릴리즈는 .env 의 TAURI_SIGNING_PRIVATE_KEY 사용)
+src-tauri/*.key

@@ -510,7 +510,7 @@ fn main() {
                 // search-modal: 전역 단축키로 토글되는 화면 중앙 검색 창.
                 // 즉시 표시되도록 숨김 상태로 미리 빌드해 둔다.
                 if let Ok(search_win) = tauri::WebviewWindowBuilder::new(
-                    app, "search-modal", make_url("search-modal.html"))
+                    app, "search-modal", make_url("pages/search-modal.html"))
                     .title("메시지 검색")
                     .inner_size(960.0, 620.0)
                     .min_inner_size(720.0, 480.0)
@@ -537,7 +537,7 @@ fn main() {
 
                     // gif-btn: 오버레이 버튼 (shadow 없음)
                     let btn_win = tauri::WebviewWindowBuilder::new(
-                        app, btn_label, make_url("gif-btn.html"))
+                        app, btn_label, make_url("pages/gif-btn.html"))
                         .title("GIF 버튼")
                         .inner_size(70.0, 27.0)
                         .resizable(false)
@@ -551,7 +551,7 @@ fn main() {
 
                     // gif-widget: GIF 검색 패널 (shadow 없음 — CSS box-shadow로만 처리)
                     let widget_win = tauri::WebviewWindowBuilder::new(
-                        app, &widget_label, make_url("gif-widget.html"))
+                        app, &widget_label, make_url("pages/gif-widget.html"))
                         .title("GIF 위젯")
                         .inner_size(420.0, 580.0)
                         .resizable(false)
@@ -572,7 +572,7 @@ fn main() {
                 // class-btn-N: 수업 상태 표시 버튼
                 for &class_label in gif_watcher::CLASS_POOL {
                     let _ = tauri::WebviewWindowBuilder::new(
-                        app, class_label, make_url("class-btn.html"))
+                        app, class_label, make_url("pages/class-btn.html"))
                         .title("수업 상태")
                         .inner_size(100.0, 28.0)
                         .resizable(false)
@@ -595,7 +595,7 @@ fn main() {
                     let _ = tauri::WebviewWindowBuilder::new(
                         app,
                         label,
-                        make_url("download-panel.html"),
+                        make_url("pages/download-panel.html"),
                     )
                     .title("다운로드 헬퍼")
                     .inner_size(

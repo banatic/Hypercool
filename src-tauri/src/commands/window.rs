@@ -168,11 +168,11 @@ pub async fn open_calendar_widget(app: AppHandle) -> Result<(), String> {
     
     let url = if cfg!(dev) {
         WebviewUrl::External(
-            std::str::FromStr::from_str("http://localhost:1420/calendar-widget.html")
+            std::str::FromStr::from_str("http://localhost:1420/pages/calendar-widget.html")
                 .map_err(|e| format!("URL 파싱 실패: {}", e))?
         )
     } else {
-        WebviewUrl::App("calendar-widget.html".into())
+        WebviewUrl::App("pages/calendar-widget.html".into())
     };
     
     // 저장된 위치와 크기 불러오기
@@ -354,11 +354,11 @@ pub async fn open_school_widget(app: AppHandle) -> Result<(), String> {
     
     let url = if cfg!(dev) {
         WebviewUrl::External(
-            std::str::FromStr::from_str("http://localhost:1420/school-widget.html")
+            std::str::FromStr::from_str("http://localhost:1420/pages/school-widget.html")
                 .map_err(|e| format!("URL 파싱 실패: {}", e))?
         )
     } else {
-        WebviewUrl::App("school-widget.html".into())
+        WebviewUrl::App("pages/school-widget.html".into())
     };
     
     // 저장된 위치와 크기 불러오기
