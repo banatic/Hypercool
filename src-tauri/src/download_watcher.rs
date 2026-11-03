@@ -921,14 +921,8 @@ pub fn click_save_button(hwnd: windows::Win32::Foundation::HWND) -> bool {
 // ─── 다운로드 경로 (CoolMessenger 레지스트리) ────────────────────────────
 
 pub fn get_download_path() -> String {
-    use winreg::enums::HKEY_CURRENT_USER;
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(subkey) = hkcu.open_subkey(r"Software\Jiransoft\CoolMsg50\Option\GetFile") {
-        if let Ok(v) = subkey.get_value::<String, _>("DownPath") {
-            return v;
-        }
+    if let Ok(Some(v)) = crate::commands::system::get_download_path() {
+        return v;
     }
     // Fallback: %USERPROFILE%\Downloads
     if let Ok(home) = std::env::var("USERPROFILE") {

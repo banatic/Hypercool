@@ -1,13 +1,11 @@
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-use winreg::enums::HKEY_CURRENT_USER;
-use winreg::RegKey;
+use crate::commands::system::{get_registry_value, set_registry_value};
 
 use crate::edufine_db::{self, EdufineDocPreview};
 use crate::edufine_watcher;
 
-const REG_BASE: &str = r"Software\HyperCool";
 
 #[derive(Serialize)]
 pub struct McpStatus {
@@ -54,12 +52,7 @@ pub fn toggle_edufine_mcp(app: AppHandle, enabled: bool) -> Result<(), String> {
     }
 
     // 레지스트리에 상태 저장
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(subkey) = hkcu.open_subkey_with_flags(REG_BASE, winreg::enums::KEY_SET_VALUE) {
-        let _ = subkey.set_value("EdufineEnabled", &if enabled { "true" } else { "false" });
-    } else if let Ok((subkey, _)) = hkcu.create_subkey(REG_BASE) {
-        let _ = subkey.set_value("EdufineEnabled", &if enabled { "true" } else { "false" });
-    }
+    let _ = set_registry_value("EdufineEnabled".to_string(), (if enabled { "true" } else { "false" }).to_string());
 
     Ok(())
 }
@@ -107,12 +100,7 @@ pub fn open_edufine_watch_dir() -> Result<(), String> {
 
 /// main.rs 시작 시 레지스트리에서 Edufine 활성화 상태를 읽어 복원
 pub fn restore_edufine_state(app: &AppHandle) {
-    let enabled = RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey(REG_BASE)
-        .ok()
-        .and_then(|k| k.get_value::<String, _>("EdufineEnabled").ok())
-        .map(|v| v == "true")
-        .unwrap_or(false);
+    let enabled = matches!(get_registry_value("EdufineEnabled".to_string()), Ok(Some(v)) if v == "true");
 
     if enabled {
         let db_path = get_edufine_db_path(app);

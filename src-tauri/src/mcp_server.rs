@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 use crate::edufine_db;
 use crate::edufine_watcher;
@@ -1085,12 +1084,7 @@ fn tool_read_inline_image(db_path: &PathBuf, message_id: i64, index: usize) -> R
 
 /// 쿨메신저 수신 파일 저장 경로를 레지스트리에서 읽어옴
 fn get_attachments_dir() -> Option<PathBuf> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let subkey = hkcu
-        .open_subkey(r"Software\Jiransoft\CoolMsg50\Option\GetFile")
-        .ok()?;
-    let path: String = subkey.get_value("DownPath").ok()?;
-    Some(PathBuf::from(path))
+    crate::commands::system::get_download_path().ok().flatten().map(PathBuf::from)
 }
 
 fn tool_list_attachments(query: Option<&str>, ext: Option<&str>, limit: i64) -> Result<Value, String> {

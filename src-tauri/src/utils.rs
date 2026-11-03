@@ -18,10 +18,7 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 use window_vibrancy::apply_blur;
 use chrono::{Local, NaiveTime};
-use winreg::enums::*;
-use winreg::RegKey;
 
-const REG_BASE: &str = r"Software\\HyperCool";
 
 /// Brotli로 압축된 데이터를 압축 해제
 pub fn decompress_brotli(compressed_data: &[u8]) -> Result<String, std::io::Error> {
@@ -177,14 +174,8 @@ pub fn period_table_index(period: u32) -> Option<usize> {
 }
 
 pub fn is_class_time() -> bool {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let reg_base = REG_BASE;
-
-    let class_times_json = match hkcu.open_subkey(reg_base) {
-        Ok(subkey) => match subkey.get_value::<String, _>("ClassTimes") {
-            Ok(v) if !v.is_empty() => Some(v),
-            _ => None,
-        },
+    let class_times_json = match crate::commands::system::get_registry_value("ClassTimes".to_string()) {
+        Ok(Some(v)) if !v.is_empty() => Some(v),
         _ => None,
     };
 
