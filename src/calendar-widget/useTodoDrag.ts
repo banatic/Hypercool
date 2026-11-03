@@ -9,12 +9,18 @@ interface DropTarget {
   position?: DropPosition;
 }
 
-/** 좌표 아래의 달력 칸·할 일. 할 일 위면 중앙선 기준 위/아래까지. */
-function findDropTarget(x: number, y: number, draggedId: string | null): DropTarget | null {
+/**
+ * 좌표 아래의 달력 칸·할 일. 할 일 위면 중앙선 기준 위/아래까지.
+ * 삽입 표시선은 끼어들면서 대상 항목을 밀어내 커서 아래에 표시선만 남기므로,
+ * 표시선 위에서는 직전 대상(`last`)을 그대로 유지한다.
+ */
+function findDropTarget(x: number, y: number, draggedId: string | null, last: DropTarget | null): DropTarget | null {
   const element = document.elementFromPoint(x, y);
   const dayElement = element?.closest('.calendar-day');
   const dateKey = dayElement?.getAttribute('data-date');
   if (!element || !dateKey) return null;
+
+  if (element.closest('.calendar-todo-drop-indicator') && last?.todoId && last.dateKey === dateKey) return last;
 
   const todoElement = element.closest('.calendar-todo-item');
   const todoId = todoElement?.getAttribute('data-todo-id');
@@ -44,6 +50,7 @@ export function useTodoDrag({ allTodos, onDrop, onClick }: {
   const startPosRef = useRef({ x: 0, y: 0 }); // 드래그 시작 위치 (클릭 판별용)
   const isDraggingRef = useRef(false);
   const ghostRef = useRef<HTMLDivElement>(null);
+  const lastTargetRef = useRef<DropTarget | null>(null); // 표시선 위에서 유지할 직전 대상
 
   const handleGlobalMouseMove = (e: MouseEvent) => {
     if (!draggedTodoIdRef.current) return;
@@ -66,13 +73,15 @@ export function useTodoDrag({ allTodos, onDrop, onClick }: {
     const element = document.elementFromPoint(e.clientX, e.clientY);
     if (!element) return;
     if (!element.closest('.calendar-day')) {
+      lastTargetRef.current = null;
       setDragOverDateKey(null);
       setDragOverTodoId(null);
       setDragOverPosition(null);
       return;
     }
-    const target = findDropTarget(e.clientX, e.clientY, draggedTodoIdRef.current);
+    const target = findDropTarget(e.clientX, e.clientY, draggedTodoIdRef.current, lastTargetRef.current);
     if (!target) return;
+    lastTargetRef.current = target;
     setDragOverDateKey(target.dateKey);
     setDragOverTodoId(target.todoId ?? null);
     setDragOverPosition(target.position ?? null);
@@ -84,7 +93,7 @@ export function useTodoDrag({ allTodos, onDrop, onClick }: {
 
     const draggedId = draggedTodoIdRef.current;
     if (isDraggingRef.current && draggedId) {
-      const target = findDropTarget(e.clientX, e.clientY, draggedId);
+      const target = findDropTarget(e.clientX, e.clientY, draggedId, lastTargetRef.current);
       if (target) onDrop(draggedId, target.dateKey, target.todoId, target.position);
     } else if (draggedId) {
       // 드래그가 아니면 클릭. onClick 대신 여기서 처리해 드래그/클릭 간섭을 막는다.
@@ -94,6 +103,7 @@ export function useTodoDrag({ allTodos, onDrop, onClick }: {
 
     setIsDragging(false);
     isDraggingRef.current = false;
+    lastTargetRef.current = null;
     setDraggedTodoId(null);
     draggedTodoIdRef.current = null;
     setDragOverDateKey(null);
