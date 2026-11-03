@@ -405,11 +405,11 @@ fn main() {
             agent::set_briefing_agent_config,
             agent::set_briefing_docs_enabled,
             agent::get_briefing_activity,
-            agent::list_backfill_docs,
-            agent::preview_backfill,
-            agent::apply_backfill,
-            agent::migrate_ai_schedules_content,
-            agent::get_coolmessenger_status,
+            agent::backfill::list_backfill_docs,
+            agent::backfill::preview_backfill,
+            agent::backfill::apply_backfill,
+            agent::content::migrate_ai_schedules_content,
+            agent::content::get_coolmessenger_status,
 
             timetable_parser::get_timetable_data,
             appin_parser::get_appin_timetable_data,
@@ -486,7 +486,7 @@ fn main() {
                 {
                     let mig_app = app.app_handle().clone();
                     std::thread::spawn(move || {
-                        match agent::migrate_ai_schedules_content(mig_app) {
+                        match agent::content::migrate_ai_schedules_content(mig_app) {
                             Ok(n) if n > 0 => eprintln!("[agent] AI 일정 content 마이그레이션: {}건 갱신", n),
                             Ok(_) => {}
                             Err(e) => eprintln!("[agent] AI 일정 content 마이그레이션 실패: {}", e),
