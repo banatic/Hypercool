@@ -153,6 +153,29 @@ fn parse_hhmm(hhmm: &str) -> Option<NaiveTime> {
 }
 
 /// 현재 시간이 수업 시간인지 확인하는 함수
+/// 교시 시정표 (시작분, 종료분). 인덱스 4 는 점심(교시 아님).
+/// src/school-widget/types.ts 의 PERIOD_TIMES 와 같은 값이어야 한다.
+pub const PERIOD_TIMES: [(u32, u32); 8] = [
+    (8 * 60 + 30, 9 * 60 + 20),   // 1교시
+    (9 * 60 + 30, 10 * 60 + 20),  // 2교시
+    (10 * 60 + 30, 11 * 60 + 20), // 3교시
+    (11 * 60 + 30, 12 * 60 + 20), // 4교시
+    (12 * 60 + 20, 13 * 60 + 20), // 점심
+    (13 * 60 + 20, 14 * 60 + 10), // 5교시
+    (14 * 60 + 20, 15 * 60 + 10), // 6교시
+    (15 * 60 + 20, 16 * 60 + 10), // 7교시
+];
+pub const LUNCH_INDEX: usize = 4;
+
+/// 교시 번호(1~7) → PERIOD_TIMES 인덱스. 5교시부터는 점심 칸을 건너뛴다.
+pub fn period_table_index(period: u32) -> Option<usize> {
+    match period {
+        1..=4 => Some((period - 1) as usize),
+        5..=7 => Some(period as usize),
+        _ => None,
+    }
+}
+
 pub fn is_class_time() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let reg_base = REG_BASE;

@@ -25,33 +25,16 @@ pub(super) fn parse_date_loose(s: &str) -> Option<chrono::NaiveDate> {
     None
 }
 
-/// "N교시" → 시작 시각 "HH:MM"(학교 위젯 types.ts PERIOD_TIMES / main.rs get_current_period 과 동일).
-/// 점심(인덱스 4)은 교시가 아니므로 5~7교시는 한 칸 밀어 인덱싱한다. 1~7교시 외에는 None.
+/// "N교시" → 시작 시각 "HH:MM"(utils::PERIOD_TIMES 기준). 1~7교시 외에는 None.
 pub(super) fn period_to_start_time(period: &str) -> Option<String> {
-    // (시작시, 분) — types.ts PERIOD_TIMES 시작값과 동일. 점심(index 4) 포함 8칸.
-    const PERIOD_START: [(u32, u32); 8] = [
-        (8, 30),  // 1교시
-        (9, 30),  // 2교시
-        (10, 30), // 3교시
-        (11, 30), // 4교시
-        (12, 20), // 점심(교시 아님)
-        (13, 20), // 5교시
-        (14, 20), // 6교시
-        (15, 20), // 7교시
-    ];
     let n: u32 = period
         .chars()
         .filter(|c| c.is_ascii_digit())
         .collect::<String>()
         .parse()
         .ok()?;
-    if !(1..=7).contains(&n) {
-        return None;
-    }
-    // 점심(4) 슬롯을 건너뛰어 5교시부터 한 칸 민다.
-    let idx = if n <= 4 { (n - 1) as usize } else { n as usize };
-    let (h, m) = PERIOD_START[idx];
-    Some(format!("{:02}:{:02}", h, m))
+    let (start, _) = crate::utils::PERIOD_TIMES[crate::utils::period_table_index(n)?];
+    Some(format!("{:02}:{:02}", start / 60, start % 60))
 }
 
 /// "HH:MM" 또는 "HH:MM~HH:MM"/"HH:MM-HH:MM"에서 시작 시각 "HH:MM"을 정규화.

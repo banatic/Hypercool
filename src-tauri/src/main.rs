@@ -46,27 +46,17 @@ fn cmd_copy_html(html: String) -> Result<(), String> {
     gif_clipboard::copy_html_to_clipboard(&html).map_err(|e| e.to_string())
 }
 
-/// 학교 위젯(types.ts PERIOD_TIMES)과 동일한 하드코딩 시간으로 현재 교시의 시간표 인덱스를 반환.
-/// 점심(12:20-13:20)은 None. 5교시 이후는 점심 슬롯을 건너뛰어 timetable 인덱스에 맞게 조정.
+/// 현재 교시의 시간표 인덱스(utils::PERIOD_TIMES 기준).
+/// 점심은 None. 5교시 이후는 점심 슬롯을 건너뛰어 timetable 인덱스에 맞게 조정.
 fn get_current_period() -> Option<usize> {
     use chrono::Timelike;
-    // (시작분, 종료분) — types.ts PERIOD_TIMES와 동일
-    const PERIOD_TIMES: &[(u32, u32)] = &[
-        (8*60+30, 9*60+20),   // 0 → timetable[0] (1교시)
-        (9*60+30, 10*60+20),  // 1 → timetable[1] (2교시)
-        (10*60+30, 11*60+20), // 2 → timetable[2] (3교시)
-        (11*60+30, 12*60+20), // 3 → timetable[3] (4교시)
-        (12*60+20, 13*60+20), // 4 = 점심 → None
-        (13*60+20, 14*60+10), // 5 → timetable[4] (5교시)
-        (14*60+20, 15*60+10), // 6 → timetable[5] (6교시)
-        (15*60+20, 16*60+10), // 7 → timetable[6] (7교시)
-    ];
+    use hypercool::utils::{LUNCH_INDEX, PERIOD_TIMES};
     let now = chrono::Local::now();
     let mins = now.hour() * 60 + now.minute();
     for (i, &(start, end)) in PERIOD_TIMES.iter().enumerate() {
         if mins >= start && mins <= end {
-            if i == 4 { return None; } // 점심시간
-            return Some(if i < 4 { i } else { i - 1 });
+            if i == LUNCH_INDEX { return None; }
+            return Some(if i < LUNCH_INDEX { i } else { i - 1 });
         }
     }
     None
