@@ -16,3 +16,4 @@ pub mod utils;
 pub mod window_blur;
 pub mod dummy_window;
 pub mod appin_parser;
+pub mod setup;
